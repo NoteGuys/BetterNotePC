@@ -11,10 +11,24 @@
 [![React](https://img.shields.io/badge/React-18.3.1-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.4.3-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Tailored for Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20Surface-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/surface)
+[![Download for Windows](https://img.shields.io/badge/⬇️_Download-v1.0.0_(Windows_x64)-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.0.0/BetterNotePC-v1.0.0-Windows-x64.zip)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.0-blue?style=for-the-badge)](https://github.com/NoteGuys/BetterNotePC/releases/latest)
 
 </div>
 
 ---
+
+## 🚀 ดาวน์โหลดโปรแกรมเปิดใช้งานได้ทันที (Download & Run)
+
+สำหรับผู้ใช้งาน Windows 10 / Windows 11 สามารถดาวน์โหลดตัวโปรแกรมแบบ Standalone ไปเปิดใช้งานได้ทันทีโดยไม่ต้องติดตั้ง Node.js หรือโปรแกรมเสริม:
+
+📦 **👉 [คลิกที่นี่เพื่อดาวน์โหลด BetterNotePC v1.0.0 (Windows 64-bit)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.0.0/BetterNotePC-v1.0.0-Windows-x64.zip)** *(ขนาด ~151 MB)*
+
+> **💡 วิธีเปิดใช้งาน:**
+> 1. ดาวน์โหลดไฟล์ `.zip` จากลิงก์ด้านบน
+> 2. คลิกขวาที่ไฟล์แล้วเลือก **Extract All... (แตกไฟล์ทั้งหมด)**
+> 3. ดับเบิ้ลคลิกที่ไฟล์ **`BetterNotePC.exe`** เพื่อเข้าโปรแกรมและเริ่มจดโน้ตได้ทันที!
+
 
 ## 🌟 จุดเด่นและวิสัยทัศน์ของ BetterNote (Overview)
 

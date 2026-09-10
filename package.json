@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "app": "electron ."
+    "app": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -22,6 +24,33 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "appId": "com.betternote.studio",
+    "productName": "BetterNotePC",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "app-icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BetterNotePC"
+    }
   }
 }
