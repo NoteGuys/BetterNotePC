@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Production builds & packages
+dist/
+release/
+out/
+
+# Local backup archives (prevent committing large multi-gigabyte files)
+BetterNote_Backups/
+
+# Scratch & test scripts
+scratch/
+*.log
+
+# Antigravity IDE & internal scripts
+Antigravity IDE/
+Launch Antigravity (Port 9000).bat
+inject_master_auto_accept.cjs
+*ปิดแม่กุญแจ*.bat
+
+# Environment & OS
+.DS_Store
+Thumbs.db
+*.local
+.vscode/
+
