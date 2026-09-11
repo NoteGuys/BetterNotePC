@@ -4,10 +4,10 @@
 
 <img src="app-icon.png" width="128" height="128" alt="BetterNote Pro Studio Icon" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);" />
 
-**แอปพลิเคชันจดบันทึก วาดเขียน และอ่าน/เขียนทับ PDF ประสิทธิภาพสูง สำหรับ Windows PC และ Surface Stylus**
-*Ultra-Responsive, Zero-Lag, Offline-First Digital Inking & PDF Annotation Studio*
+**High-Performance Digital Handwriting, Stylus Notebook, and PDF Annotation Studio for Windows PC & Surface**
+*Ultra-Responsive, Zero-Lag, Offline-First Digital Inking with GoodNotes 6-Style Multi-Document Tabs*
 
-[![Electron](https://img.shields.io/badge/Electron-33.2.1-47848F?style=for-the-badge&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Electron](https://img.shields.io/badge/Electron-44.2.0-47848F?style=for-the-badge&logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/React-18.3.1-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.4.3-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Tailored for Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20Surface-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/surface)
@@ -18,115 +18,121 @@
 
 ---
 
-## 🚀 ดาวน์โหลดโปรแกรมเปิดใช้งานได้ทันที (Download & Run)
+## 🚀 Instant Download & Run (No Setup Required)
 
-สำหรับผู้ใช้งาน Windows 10 / Windows 11 สามารถดาวน์โหลดตัวโปรแกรมแบบ Standalone ไปเปิดใช้งานได้ทันทีโดยไม่ต้องติดตั้ง Node.js หรือโปรแกรมเสริม:
+For Windows 10 and Windows 11 users, a pre-compiled standalone package is available without requiring Node.js or additional dependencies:
 
-📦 **👉 [คลิกที่นี่เพื่อดาวน์โหลด BetterNotePC v1.0.0 (Windows 64-bit)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.0.0/BetterNotePC-v1.0.0-Windows-x64.zip)** *(ขนาด ~151 MB)*
+📦 **👉 [Download BetterNotePC v1.0.0 (Windows 64-bit .zip)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.0.0/BetterNotePC-v1.0.0-Windows-x64.zip)** *(~151 MB)*
 
-> **💡 วิธีเปิดใช้งาน:**
-> 1. ดาวน์โหลดไฟล์ `.zip` จากลิงก์ด้านบน
-> 2. คลิกขวาที่ไฟล์แล้วเลือก **Extract All... (แตกไฟล์ทั้งหมด)**
-> 3. ดับเบิ้ลคลิกที่ไฟล์ **`BetterNotePC.exe`** เพื่อเข้าโปรแกรมและเริ่มจดโน้ตได้ทันที!
-
-
-## 🌟 จุดเด่นและวิสัยทัศน์ของ BetterNote (Overview)
-
-**BetterNote Pro Studio** ออกแบบและพัฒนาขึ้นมาเพื่อแก้ปัญหาแอปพลิเคชันจดบันทึกบน Windows ทั่วไปที่มีความหน่วง (Latency) สูง, ลายเส้นไม่ตอบสนองต่อแรงกด, ระบบปฏิเสธฝ่ามือ (Palm Rejection) ทำงานผิดพลาด, หรือการซิงค์ไฟล์ที่ทำให้เครื่องค้าง ("Not Responding")
-
-BetterNote มอบประสบการณ์การเขียนที่ลื่นไหลระดับ **120Hz**, ลายเส้นคมต้นคมปลายตามแรงกดปากกา, ปฏิเสธฝ่ามือได้แม่นยำ 100%, พร้อมระบบ **2-Agent Cloud & Local Backup Engine** ที่บันทึกข้อมูลและแปลงเป็นเอกสาร PDF ฉบับเต็มลงใน Google Drive และดิสก์ในเครื่องโดยอัตโนมัติ
+> **💡 Quick Start Guide:**
+> 1. Download the `.zip` archive from the link above.
+> 2. Right-click the file and select **Extract All...**.
+> 3. Double-click **`BetterNotePC.exe`** to launch the studio and start inking immediately!
 
 ---
 
-## 🚀 ฟังก์ชันเด่นทั้งหมด (Comprehensive Features)
+## 🌟 Overview & Vision
 
-### 1. ✍️ ระบบการเขียนและลายเส้นระดับมืออาชีพ (Advanced Inking Engine)
-- **Ultra-Low Latency Inking**: สถาปัตยกรรม Canvas 3 เลเยอร์ (Background Template, Static Committed Ink, Active In-Flight Stroke) ขับเคลื่อนด้วย `touch-action: none` ตอบสนองต่อปลายปากกาได้ไวระดับมิลลิวินาที
-- **3 หัวปากกาเสมือนจริง (Pen Nibs)**:
-  - ✒️ **ปากกาหมึกซึม (Fountain Pen)**: ให้ลายเส้นที่มีมิติ พลิ้วไหว และตอบสนองต่อแรงกดแบบคลาสสิก
-  - 🖊️ **ปากกาลูกลื่น (Ballpoint Pen)**: ลายเส้นสม่ำเสมอ คมชัด เหมาะสำหรับการเขียนหนังสือและจดเลกเชอร์ยาวๆ
-  - 🖌️ **พู่กันเขียนอักษร (Brush / Calligraphy)**: ตอบสนองต่อแรงกดได้กว้างเป็นพิเศษ สร้างลายเส้นหนาบางชัดเจน
-- **คมต้นคมปลาย (Tapered Strokes)**: ปลายเส้นลู่เรียวอย่างเป็นธรรมชาติเมื่อจรดหรือยกปากกา
-- **จำขนาดหัวแยกอิสระ (Independent Tool Widths)**: ปากกา, ไฮไลท์เตอร์, ยางลบ และรูปทรงเรขาคณิต จะจดจำขนาดหัวที่ผู้ใช้ตั้งค่าไว้แยกจากกันอย่างสมบูรณ์ ไม่สลับขนาดปนกันเมื่อเปลี่ยนเครื่องมือ
-- **ไฮไลท์เตอร์สีละมุน (Smart Highlighter)**: เรนเดอร์ด้วยโหมด `multiply` ทำให้สีไฮไลท์ซึมอยู่ใต้ตัวหนังสือโดยไม่บดบังลายเส้นหรือข้อความพิมพ์
+Traditional note-taking applications on Windows often suffer from high pen latency, inconsistent stylus pressure curves, accidental palm touches, slow document switching, and heavy sync routines that cause Windows to freeze with "(Not Responding)" dialogs.
+
+**BetterNote Pro Studio** is built from the ground up to solve these challenges:
+- **120Hz Hardware-Accelerated Inking**: 3-layer decoupled canvas architecture with Pointer Events and coalesced event sampling.
+- **GoodNotes 6-Style Multi-Document Top Tab Bar**: Keep up to 5 notebooks open simultaneously with exact page retention, instant tab switching, and dedicated home navigation.
+- **Zero-Lag Dual-Agent Backup Engine**: Background differential synchronization to Google Drive and local drives that yields to the UI thread every 20ms.
+- **Viewport Virtualization**: GPU-efficient rendering that unmounts offscreen canvases to prevent VRAM starvation on documents with 100+ pages.
 
 ---
 
-### 2. 🤹 ระบบท่าทางและมัลติทัชอัจฉริยะ (Smart Gestures & Multi-Touch)
-- **ขยี้เส้นเพื่อลบ (Scribble-to-Erase)**:
-  - ใช้ปากกาขยี้เส้นทับคำหรือลายเส้นที่เขียนผิด (ไป-กลับ-ไป 2-4 รอบ) ระบบจะลบคำนั้นทิ้งทันที
-  - รองรับการขยี้ลบคำยาวและหัวข้อกว้างถึง **1,600px**
-  - มีระบบ Bounding Box Density ตรวจสอบอย่างแม่นยำ ไม่ลบตัวอักษรภาษาไทย (ม, ร, น) หรือลายมือ Cursive ปกติ
-  - ลบเฉพาะเส้นที่โดนขยี้ทับ โดยรักษาเส้นบรรทัดบนและบรรทัดล่างข้างเคียงไว้ครบถ้วน
-- **แตะ 2 นิ้ว 2 ครั้งเพื่อย้อนกลับ (Two-Finger Double Tap Undo)**:
-  - แตะ 2 นิ้ว 2 ครั้งติดกันภายใน 480ms เพื่อสั่ง Undo พร้อม Toast ยืนยัน
-  - ป้องกันการเผลอ Undo จากการวางนิ้วพักบนจอหรือการแตะนิ้วเดียว
-- **กางนิ้วซูมและเลื่อนอย่างนุ่มนวล (Pinch-to-Zoom & Pan)**:
-  - สลับระหว่างการเขียนด้วยปากกาและการซูมด้วย 2 นิ้วได้อย่างไร้รอยต่อ
-  - มีระบบ **Observer Lock** ป้องกันหน้ากระโดดขณะกำลังกางนิ้วซูม
+## 🚀 Comprehensive Features
+
+### 1. 📑 GoodNotes 6-Style Multi-Document Top Tab Bar
+- **Tabbed Multitasking (Max 5 Stacked Tabs)**: Open multiple notebooks and switch between them in milliseconds.
+- **Exact Page Retention**: Remembers the exact page where you left off on each notebook. Switching back returns directly to that page.
+- **LRU Automatic Eviction**: Strictly maintains the 5-tab maximum by intelligently closing the least recently used tab when opening a sixth document.
+- **Live Page Badges**: Displays current active page number on each tab pill.
+- **Quick Tab Closing & Re-Ordering**: Individual close buttons with smooth transition animations.
 
 ---
 
-### 3. 📐 ระบบวาดรูปทรงเรขาคณิตอัจฉริยะ (QuickShape Recognition)
-- ลากเส้นแล้วค้างปากกาไว้เพียงเสี้ยววินาที ระบบจะปรับเส้นฟรีแฮนด์ให้กลายเป็นรูปทรงเรขาคณิตที่สมบูรณ์แบบโดยอัตโนมัติ:
-  - 📏 **เส้นตรง (Straight Line)** พร้อมมุม Snap อัตโนมัติ (0°, 45°, 90°, 180°)
-  - 🔺 **สามเหลี่ยม (Triangle)**: ปรับมุมตรง พร้อม Center-Scale Transform
-  - ⬛ **สี่เหลี่ยม (Rectangle & Square)**
-  - ⭕ **วงกลมและวงรี (Circle & Ellipse)**
-  - ⬡ **รูปหลายเหลี่ยม (Polygons)**
+### 2. ✍️ Professional Inking Engine (Low-Latency Stylus)
+- **3-Layer Decoupled Canvas Architecture**:
+  - *Layer 1 (Background)*: Vector paper templates and high-DPI PDF page renders.
+  - *Layer 2 (Static Ink)*: Committed strokes, text boxes, and snip stickers.
+  - *Layer 3 (Active In-Flight)*: Transparent real-time layer updating at 60–120 FPS.
+- **3 Realistic Pen Nibs**:
+  - ✒️ **Fountain Pen**: Dynamic line variation with pressure sensitivity and classic nib characteristics.
+  - 🖊️ **Ballpoint Pen**: Consistent line thickness ideal for extensive lecture notes and writing.
+  - 🖌️ **Brush / Calligraphy**: Broad pressure response curve creating expressive strokes.
+- **Tapered Stroke Physics**: Natural entry and exit tapering mimicking real ink pen physics.
+- **Independent Tool Width Memory**: Pen, highlighter, eraser, and shapes remember their individual stroke widths independently.
+- **Smart Semi-Transparent Highlighter**: Rendered via `multiply` blending, allowing text underneath to remain crisp and legible.
 
 ---
 
-### 4. 📄 การนำเข้าและเขียนทับเอกสาร PDF (PDF Import & Annotation)
-- นำเข้าเอกสาร PDF หลายสิบหน้าได้อย่างรวดเร็ว ด้วย `pdfjs-dist`
-- เรนเดอร์หน้ากระดาษ PDF เป็นพื้นหลังความละเอียดสูง สามารถขีดเขียน ไฮไลท์ หรือแทรกข้อความทับได้อิสระ
-- **ส่งออก PDF คุณภาพสูง (Export to PDF)**: แปลงทั้งหน้ากระดาษ รูปภาพ และลายเส้นกลับเป็นไฟล์ PDF ไบนารีแท้ เปิดอ่านได้ใน Microsoft Edge, Adobe Acrobat, หรือพิมพ์ลงกระดาษได้คมชัด 100%
+### 3. 🤹 Smart Gestures & Surface Palm Rejection
+- **Scribble-to-Erase**:
+  - Cross out any incorrect word or stroke with 2–4 quick back-and-forth pen strokes to erase it instantly.
+  - Supports wide headlines up to **1,600px** with bounding box density checks to prevent false triggers during cursive writing.
+  - Erases targeted strokes while keeping adjacent lines and surrounding text intact.
+- **Two-Finger Double-Tap Undo**:
+  - Double tap with two fingers within 480ms to trigger instant Undo with a visual toast notification.
+  - Protected against accidental triggers from resting palms or single-finger taps.
+- **Fluid Pinch-to-Zoom & Pan**:
+  - Seamless two-finger navigation with viewport anchor lock preventing canvas jumping.
 
 ---
 
-### 5. ✂️ เครื่องมือตัดแปะและจัดวางรูปภาพ (Snip & Image Tools)
-- **เครื่องมือตัดภาพ (Snip / Lasso Tool)**: วงเลือกพื้นที่บนหน้ากระดาษเพื่อ Crop นำมาเป็นสติกเกอร์หรือแปะซ้ำได้ทันที
-- **แทรกและปรับขนาดรูปภาพ**: ปรับย่อ-ขยาย หมุน และวางรูปภาพบนหน้ากระดาษได้อย่างอิสระ
+### 4. 📐 QuickShape Recognition & Snapping
+- Draw a shape and hold the stylus stationary for 400ms to snap into precise geometric vectors:
+  - 📏 **Straight Lines** with automatic angle snapping (0°, 45°, 90°, 180°).
+  - 🔺 **Triangles** with corner snapping and center-scale transformation.
+  - ⬛ **Rectangles & Squares**.
+  - ⭕ **Circles & Ellipses**.
+  - ⬡ **Regular Polygons**.
 
 ---
 
-### 6. 🛡️ ระบบ 2-Agent Cloud Sync & Backup Engine (ระบบสำรองข้อมูล)
-- **บันทึกสำรองอัตโนมัติสู่ Google Drive และดิสก์ในเครื่อง**:
-  - โฟลเดอร์สำรองหลัก: `H:\My Drive\BetterNote.AppPC`
-  - โฟลเดอร์สำรองในเครื่อง: `BetterNote_Backups/`
-- **บันทึก 3 รูปแบบพร้อมกัน**:
-  1. `PDF_Documents/*.pdf`: เอกสาร PDF รวมหน้าและลายเส้นฉบับเต็ม เปิดอ่านได้ทันที
-  2. `Editable_Notes/*.bnote`: ไฟล์โครงสร้างโน้ตแบบ Editable พร้อมกู้คืนกลับมาแก้ไขได้ตลอดเวลา
-  3. `Full_System/BetterNote_Latest_Backup.json`: ไฟล์ฐานข้อมูลระบบทั้งหมดสำหรับกู้คืนกรณีติดตั้งเครื่องใหม่
-- **Zero-Lag Differential Sync**:
-  - บันทึกเฉพาะสมุดเล่มที่มีการแก้ไขใหม่ (`updatedAt > lastPdfBackupTime`) ไม่แปลงซ้ำซ้อน
-  - มีการ Yield สลับงานรอบละ 20ms เพื่อรักษาเฟรมเรต 60-120Hz ไม่ทำให้เครื่องค้าง Not Responding
-- **เปิดตำแหน่งไฟล์ตรง (Native File Reveal)**:
-  - ในหน้าต่าง **"สถานะ Backup"** สามารถคลิกปุ่ม **"เปิดตำแหน่งไฟล์ ↗"** ในแต่ละแถว เพื่อให้ Windows Explorer เด้งขึ้นมาพร้อมไฮไลต์เลือกไฟล์นั้นทันที
+### 5. 📄 PDF Import & Real-Time Annotation
+- Import multi-page PDF textbooks, assignments, and slides powered by local `pdfjs-dist`.
+- High-DPI background rendering supporting direct handwriting, highlighting, and sticky notes on every page.
+- **High-Fidelity PDF Export**: Converts all pages, strokes, images, and templates back into native PDF files compatible with Adobe Acrobat and Microsoft Edge.
 
 ---
 
-### 7. 🧹 ระบบล้างแคชและคืนหน่วยความจำ (App Cache & RAM Optimization)
-- จัดการแคชความจุสูง 5GB แบบ Deduplicated LRU Cache (`appCacheService`)
-- มีปุ่ม **"ล้างแคชทั้งหมด"** ในหน้าต่างการตั้งค่า (Settings Modal) และหน้าต่าง Backup Status ช่วยล้างภาพพรีวิวเรนเดอร์ชั่วคราวและคืน RAM ให้ระบบทันที โดยไม่กระทบต่อข้อมูลสมุดบันทึก
+### 6. ✂️ Snip & Lasso Selection Tools
+- **Snip Area Tool**: Draw a selection box to crop any handwritten note or image and copy it to the clipboard.
+- **Lasso Selection**: Freehand outline strokes, text, and images to move, duplicate, resize, recolor, or delete them in one click.
 
 ---
 
-## 🛠️ สถาปัตยกรรมเทคโนโลยี (Tech Stack)
+### 7. 🛡️ Dual-Agent Cloud Sync & Backup Engine
+- **Automated Backup to Google Drive and Local Storage**:
+  - Primary Cloud Directory: `H:\My Drive\BetterNote.AppPC` (or mapped Google Drive path).
+  - Local Backup Directory: `BetterNote_Backups/`.
+- **Tri-Format Redundant Storage**:
+  1. `PDF_Documents/*.pdf`: Complete rendered PDF documents.
+  2. `Editable_Notes/*.bnote`: Editable note files containing vector strokes and metadata.
+  3. `Full_System/BetterNote_Latest_Backup.json`: System-wide database backup for instant device migration.
+- **Zero-Lag Differential Sync**: Only writes modified notebooks (`updatedAt > lastBackupTime`) with non-blocking 20ms execution slices.
+- **Native File Reveal**: Click "Reveal File ↗" in the Backup Status dialog to open and highlight the file directly in Windows Explorer.
 
-| ส่วนประกอบ | เทคโนโลยีที่เลือกใช้ | บทบาทการทำงาน |
+---
+
+## 🛠️ Technology Stack
+
+| Component | Technology | Role |
 | :--- | :--- | :--- |
-| **Desktop Framework** | [Electron 33](https://www.electronjs.org/) | รันแอปพลิเคชัน Desktop บน Windows จัดการระบบไฟล์ IPC และ Native Dialogs |
-| **UI Framework** | [React 18](https://reactjs.org/) | จัดการ UI Components, Reactive State และ Lifecycle |
-| **Build & Bundler** | [Vite 6](https://vitejs.dev/) | HMR รวดเร็ว และ Bundling ไบนารีระดับเสี้ยววินาที |
-| **Styling** | Pure Vanilla CSS (`.bn-*`) | ดีไซน์โมเดิร์น กระจกเงา Glassmorphism ปราศจากปัญหาคลาสเพี้ยน |
-| **Database** | HTML5 IndexedDB (`idb`) | จัดเก็บข้อมูลโน้ต สโตรก และเทมเพลตแบบ Offline-First ปลอดภัย 100% |
-| **PDF Processing** | `pdfjs-dist` & `jspdf` | การนำเข้า Render หน้า PDF และการแปลงส่งออกเป็น PDF ไบนารีแท้ |
-| **Icons** | [Lucide React](https://lucide.dev/) | ชุดไอคอนมินิมอลโมเดิร์นระดับพรีเมียม |
+| **Desktop Framework** | [Electron 44](https://www.electronjs.org/) | Windows desktop runtime, native IPC, and file system management |
+| **UI Framework** | [React 18](https://reactjs.org/) | Modular UI components, reactive state, and tab lifecycle |
+| **Build Tool** | [Vite 6](https://vitejs.dev/) | Sub-second HMR and optimized production bundling |
+| **Styling** | Pure Vanilla CSS (`.bn-*`) | Glassmorphic design system without utility compiler overhead |
+| **Database** | HTML5 IndexedDB (`idb`) | 100% offline-first local persistence for strokes, pages, and notebooks |
+| **PDF Engine** | `pdfjs-dist` & `jspdf` | PDF parsing, high-DPI rendering, and binary PDF export |
+| **Icons** | [Lucide React](https://lucide.dev/) | Clean, modern vector icon set |
 
 ---
 
-## 📂 โครงสร้างไดเรกทอรีโปรเจกต์ (Project Structure)
+## 📂 Project Structure
 
 ```text
 BetterNote/
@@ -135,20 +141,20 @@ BetterNote/
 │   └── preload.cjs         # Context Bridge Preload API (Secure Renderer Exposure)
 ├── src/
 │   ├── components/
-│   │   ├── Common/         # Navbar, Modals, Export Dialogs
-│   │   ├── Editor/         # CanvasBoard, NoteEditor, Toolbar, Sidebar, Cropper
+│   │   ├── Common/         # DocumentTabBar, Navbar, Modals, Export Dialogs
+│   │   ├── Editor/         # CanvasBoard, NoteEditor, EditorToolbar, ThumbnailSidebar
 │   │   └── Library/        # LibraryView, FolderCard, NotebookCard, BackupStatusModal
 │   ├── services/
-│   │   ├── appCacheService.js    # 5GB Deduplicated LRU Cache Engine
+│   │   ├── appCacheService.js    # Deduplicated LRU Cache Engine
 │   │   ├── autoBackupService.js  # Non-blocking Background Sync & Restore Engine
 │   │   ├── db.js                 # IndexedDB Local Storage Manager
 │   │   └── fileSystemService.js  # Import/Export .bnote and .json Backup Files
 │   ├── utils/
-│   │   ├── inkingEngine.js       # Low-Latency Stylus Rendering, Scribble-to-Erase
-│   │   ├── pdfExportEngine.js    # Multi-page PDF Generator with Canvas Layers
+│   │   ├── inkingEngine.js       # Stylus Rendering, Tapering, Scribble-to-Erase
+│   │   ├── pdfExportEngine.js    # Multi-page PDF Generator
 │   │   └── shapeRecognition.js   # Geometric QuickShape Snapping Engine
-│   ├── index.css                 # Pure Vanilla CSS Design System & Theme Engine
-│   ├── App.jsx                   # Root Application Container
+│   ├── index.css                 # Vanilla CSS Design System & Theme Engine
+│   ├── App.jsx                   # Root Application & Multi-Document Tab Manager
 │   └── main.jsx                  # React DOM Entrypoint
 ├── package.json
 ├── vite.config.js
@@ -157,48 +163,54 @@ BetterNote/
 
 ---
 
-## 💻 การติดตั้งและเปิดใช้งานโปรแกรม (Getting Started)
+## 💻 Installation & Development
 
-### ความต้องการของระบบ (System Requirements)
-- **ระบบปฏิบัติการ**: Windows 10 หรือ Windows 11 (64-bit)
-- **อุปกรณ์แนะนำ**: หน้าจอสัมผัส และปากกาสไตลัส (Microsoft Surface Pro, Surface Laptop Studio, หรือแล็ปท็อป 2-in-1 ที่มี Windows Ink)
-- **Node.js**: เวอร์ชัน 18 ขึ้นไป
+### System Requirements
+- **Operating System**: Windows 10 or Windows 11 (64-bit)
+- **Recommended Hardware**: Touchscreen device with stylus support (Surface Pro, Surface Laptop Studio, or Windows Ink 2-in-1 laptop)
+- **Node.js**: v18.0.0 or later
 
-### ขั้นตอนการรันเพื่อทดสอบ (Development Mode)
+### Running Locally in Development Mode
 ```bash
-# 1. ติดตั้ง Dependencies ทั้งหมด
+# 1. Install dependencies
 npm install
 
-# 2. เริ่มต้นรัน Electron Desktop App
-npm run electron
+# 2. Run the Vite development server
+npm run dev
+
+# 3. Launch the Electron Desktop application
+npm run app
 ```
 
-### การคอมไพล์สำหรับ Production (Production Build)
+### Production Build
 ```bash
-# คอมไพล์ React Bundle ผ่าน Vite
+# 1. Compile the React bundle
 npm run build
 
-# รันแอปพลิเคชันจากโฟลเดอร์ dist ที่คอมไพล์แล้ว
-npx electron .
+# 2. Package into a Windows standalone executable
+npm run pack
 ```
 
 ---
 
-## ⌨️ คีย์ลัดและ Gesture ที่รองรับ (Shortcuts & Gestures)
+## ⌨️ Shortcuts & Gesture Reference
 
-| ท่าทาง / คีย์ลัด | คำสั่ง | การทำงาน |
+| Gesture / Shortcut | Action | Description |
 | :--- | :--- | :--- |
-| **แตะ 2 นิ้ว 2 ครั้งติดกัน** | Double Tap Undo | สั่งย้อนกลับการกระทำล่าสุด |
-| **กาง 2 นิ้วเข้า-ออก** | Pinch-to-Zoom | ซูมขยายหรือย่อหน้ากระดาษ (25% - 400%) |
-| **ลาก 2 นิ้วพร้อมกัน** | Two-Finger Pan | เลื่อนมุมมองหน้ากระดาษโดยไม่ทำให้เกิดเส้นหมึก |
-| **ใช้ปากกาขยี้เส้น ไป-กลับ** | Scribble-to-Erase | ลบคำหรือข้อความที่เขียนผิดทิ้งทันที |
-| **ลากเส้นแล้วค้างปากกา 0.4s** | QuickShape Hold | แปลงเส้นวาดมือเป็นรูปทรงเรขาคณิตตรง |
-| `Ctrl + Z` | Undo | ย้อนกลับการเขียน |
-| `Ctrl + Y` | Redo | ทำซ้ำการเขียน |
-| `Ctrl + S` | Backup Now | สั่งบันทึกสำรองข้อมูลทันที |
+| **Two-Finger Double Tap** | Double Tap Undo | Undoes the last stroke or action |
+| **Two-Finger Pinch** | Pinch-to-Zoom | Smoothly scales page view (35% to 350%) |
+| **Two-Finger Drag** | Two-Finger Pan | Navigates the canvas without inking |
+| **Single-Finger Horizontal Swipe** | Flip Page | Flips between pages in horizontal mode |
+| **Pen Scribble (Back-and-Forth)** | Scribble-to-Erase | Erases targeted handwriting immediately |
+| **Stroke Hold (400ms)** | QuickShape Snap | Snaps freehand stroke into geometric shape |
+| `Ctrl + Z` | Undo | Reverts last canvas change |
+| `Ctrl + Y` | Redo | Reapplies reverted canvas change |
+| `Ctrl + V` | Paste Image | Pastes cropped snip onto current page |
+| `Ctrl + Wheel` | Trackpad Zoom | Zooms in/out anchored to cursor |
 
 ---
 
-## 📄 ลิขสิทธิ์และการพัฒนา (License)
-โปรเจกต์นี้ได้รับการพัฒนาขึ้นเพื่อการใช้งานจดบันทึกประสิทธิภาพสูงบน Surface PC 
-พัฒนาโดยทีมงาน BetterNote Studio © 2026 สงวนลิขสิทธิ์
+## 📄 License
+
+BetterNote Pro Studio is developed for high-performance stylus note-taking on Windows & Surface devices.  
+Copyright © 2026 BetterNote Studio. All rights reserved.

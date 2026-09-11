@@ -196,7 +196,7 @@ export const CanvasBoard = ({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     renderAllStrokes(ctx, strokes);
-  }, [strokes, canvasWidth, canvasHeight]);
+  }, [page?.id, strokes, canvasWidth, canvasHeight]);
 
   // Initialize Active Canvas dimensions
   useEffect(() => {

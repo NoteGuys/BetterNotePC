@@ -30,6 +30,7 @@ export const NoteEditor = ({
     pagesRef.current = pages;
   }, [pages]);
   const [currentPageIndex, setCurrentPageIndex] = useState(initialPageIndex);
+  const initialPageRef = useRef(initialPageIndex);
   const [isLoading, setIsLoading] = useState(true);
 
   // Sync active page index to parent tab state so returning to this tab opens exact page
@@ -38,6 +39,17 @@ export const NoteEditor = ({
       onPageChanged(currentPageIndex);
     }
   }, [currentPageIndex, isLoading, onPageChanged]);
+
+  // Sync when parent changes target page (e.g. from tab selection)
+  const lastPropPageIndexRef = useRef(initialPageIndex);
+  useEffect(() => {
+    if (!isLoading && initialPageIndex !== undefined && initialPageIndex !== null && initialPageIndex !== lastPropPageIndexRef.current) {
+      lastPropPageIndexRef.current = initialPageIndex;
+      if (initialPageIndex !== currentPageIndex) {
+        handleSelectPage(initialPageIndex);
+      }
+    }
+  }, [initialPageIndex, isLoading, currentPageIndex]);
 
   // Load persistent user preferences
   const [initialPrefs] = useState(() => loadEditorPreferences());
@@ -143,7 +155,9 @@ export const NoteEditor = ({
     zoomRef.current = zoom;
   }, [zoom]);
 
-  // Touchpad pinch (Ctrl + Wheel) listener on stage
+  const lastWheelPageFlipRef = useRef(0);
+
+  // Touchpad pinch (Ctrl + Wheel) listener and Horizontal Page Flip on stage
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -159,6 +173,24 @@ export const NoteEditor = ({
 
         const delta = -e.deltaY * 0.003;
         setZoom(prev => Math.min(3.5, Math.max(0.35, Number((prev + delta).toFixed(2)))));
+        return;
+      }
+
+      // In Horizontal Mode: Mouse wheel or touchpad scroll flips pages smoothly
+      if (scrollDirection === 'horizontal') {
+        const now = Date.now();
+        if (now - lastWheelPageFlipRef.current < 280) return;
+
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (Math.abs(delta) > 15) {
+          if (delta > 0 && currentPageIndexRef.current < pagesRef.current.length - 1) {
+            lastWheelPageFlipRef.current = now;
+            handleSelectPage(currentPageIndexRef.current + 1);
+          } else if (delta < 0 && currentPageIndexRef.current > 0) {
+            lastWheelPageFlipRef.current = now;
+            handleSelectPage(currentPageIndexRef.current - 1);
+          }
+        }
       }
     };
 
@@ -166,7 +198,7 @@ export const NoteEditor = ({
     return () => {
       stage.removeEventListener('wheel', handleWheel);
     };
-  }, []);
+  }, [scrollDirection, isLoading]);
 
   // Multi-touch pinch tracking & Two-finger double-tap undo (GPU hardware-accelerated, zero-shake)
   const firstTouchRef = useRef(null);
@@ -203,9 +235,9 @@ export const NoteEditor = ({
         x: e.touches[0].clientX,
         y: e.touches[0].clientY
       };
-      // Single-finger panning on empty stage background
+      // Single-finger panning on stage (Surface PC & Touch-friendly)
       const stage = stageRef.current;
-      if (stage && (e.target === stage || e.target.classList.contains('bn-editor-canvas-stage'))) {
+      if (stage) {
         stagePanRef.current = {
           isPanning: true,
           startX: e.touches[0].clientX,
@@ -379,6 +411,19 @@ export const NoteEditor = ({
       }
     }
 
+    // In Horizontal Mode: Single-finger horizontal swipe flips pages smoothly
+    if (e.changedTouches && e.changedTouches.length === 1 && scrollDirection === 'horizontal' && firstTouchRef.current) {
+      const dx = e.changedTouches[0].clientX - firstTouchRef.current.x;
+      const dt = Date.now() - firstTouchRef.current.time;
+      if (dt < 450 && Math.abs(dx) > 40) {
+        if (dx < 0 && currentPageIndexRef.current < pagesRef.current.length - 1) {
+          handleSelectPage(currentPageIndexRef.current + 1);
+        } else if (dx > 0 && currentPageIndexRef.current > 0) {
+          handleSelectPage(currentPageIndexRef.current - 1);
+        }
+      }
+    }
+
     firstTouchRef.current = null;
 
     if (pinchCooldownTimerRef.current) clearTimeout(pinchCooldownTimerRef.current);
@@ -406,7 +451,7 @@ export const NoteEditor = ({
         loadedPages = [initialPage];
       }
       setPages(loadedPages);
-      const startIdx = Math.min(Math.max(0, initialPageIndex), Math.max(0, loadedPages.length - 1));
+      const startIdx = Math.min(Math.max(0, initialPageRef.current), Math.max(0, loadedPages.length - 1));
       setCurrentPageIndex(startIdx);
 
       if (loadedPages[startIdx]) {
@@ -422,7 +467,7 @@ export const NoteEditor = ({
     } finally {
       setIsLoading(false);
     }
-  }, [notebook.id, notebook.templateId, initialPageIndex]);
+  }, [notebook.id, notebook.templateId]);
 
   useEffect(() => {
     loadPages();
@@ -630,6 +675,40 @@ export const NoteEditor = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [canUndo, canRedo, historyPointer, historyStack, currentPageIndex, pages, clipboardImage]);
 
+  // Programmatic scroll state lock to prevent IntersectionObserver fighting
+  const isProgrammaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef(null);
+  const observerRef = useRef(null);
+
+  // Scoped scroll to page inside stage - strictly prevents window/ancestor layout scrolling
+  const scrollToPageInStage = useCallback((pageIndex, behavior = 'smooth') => {
+    if (scrollDirection !== 'vertical') return;
+    const stageEl = stageRef.current;
+    if (!stageEl) return;
+    const targetEl = document.getElementById(`vertical-page-${pageIndex}`);
+    if (!targetEl) return;
+
+    isProgrammaticScrollRef.current = true;
+    if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
+    programmaticScrollTimerRef.current = setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+    }, behavior === 'smooth' ? 900 : 120);
+
+    const stageRect = stageEl.getBoundingClientRect();
+    const targetRect = targetEl.getBoundingClientRect();
+    const delta = targetRect.top - stageRect.top;
+    const targetScrollTop = stageEl.scrollTop + delta - 20;
+
+    try {
+      stageEl.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior
+      });
+    } catch {
+      stageEl.scrollTop = Math.max(0, targetScrollTop);
+    }
+  }, [scrollDirection]);
+
   // Switch Page & Smooth Scroll to target page in vertical continuous mode
   const handleSelectPage = (index) => {
     if (index >= 0 && index < pages.length) {
@@ -642,78 +721,90 @@ export const NoteEditor = ({
       }]);
       setHistoryPointer(0);
 
-      // In continuous vertical scroll mode, instantly warp to the chosen page!
+      // In continuous vertical scroll mode, smoothly warp to the chosen page!
       if (scrollDirection === 'vertical') {
-        const targetEl = document.getElementById(`vertical-page-${index}`);
-        if (targetEl) {
-          targetEl.scrollIntoView({ behavior: 'auto', block: 'start' });
-          const stageEl = targetEl.closest('.bn-editor-canvas-stage');
-          if (stageEl) {
-            stageEl.scrollTop = targetEl.offsetTop;
-          }
+        scrollToPageInStage(index, 'smooth');
+      } else {
+        if (stageRef.current) {
+          stageRef.current.scrollTop = 0;
+          stageRef.current.scrollLeft = 0;
         }
       }
     }
   };
 
-  // Initial auto-scroll to requested page (e.g. when opening from Favorites view)
+  // Initial auto-scroll to requested page (e.g. when opening from Favorites view or tabs)
   const hasInitialNavigatedRef = useRef(false);
   useEffect(() => {
-    if (!isLoading && pages.length > 0 && initialPageIndex > 0 && !hasInitialNavigatedRef.current) {
+    if (!isLoading && pages.length > 0 && initialPageRef.current > 0 && !hasInitialNavigatedRef.current) {
       hasInitialNavigatedRef.current = true;
-      const targetIdx = Math.min(initialPageIndex, pages.length - 1);
+      const targetIdx = Math.min(initialPageRef.current, pages.length - 1);
       setCurrentPageIndex(targetIdx);
       setTimeout(() => {
-        if (scrollDirection === 'vertical') {
-          const el = document.getElementById(`vertical-page-${targetIdx}`);
-          if (el) {
-            el.scrollIntoView({ behavior: 'auto', block: 'start' });
-            const stage = stageRef.current;
-            if (stage) {
-              stage.scrollTop = el.offsetTop;
-            }
-          }
-        }
-      }, 60);
+        scrollToPageInStage(targetIdx, 'auto');
+      }, 100);
     }
-  }, [isLoading, pages.length, initialPageIndex, scrollDirection]);
+  }, [isLoading, pages.length, scrollToPageInStage]);
+
+  // Track latest currentPageIndex in ref for stable IntersectionObserver
+  const currentPageIndexRef = useRef(currentPageIndex);
+  useEffect(() => {
+    currentPageIndexRef.current = currentPageIndex;
+  }, [currentPageIndex]);
 
   // Sync active page indicator with scroll position in continuous vertical mode
   useEffect(() => {
-    if (scrollDirection !== 'vertical' || pages.length === 0) return;
+    if (isLoading || scrollDirection !== 'vertical' || pages.length === 0) return;
 
-    const observer = new IntersectionObserver((entries) => {
-      // STRICT: Never switch pages while user is actively pinching to zoom or during initial page navigation!
-      if (isPinchingActiveRef.current || stagePinchRef.current?.isPinching) return;
-      if (!hasInitialNavigatedRef.current && initialPageIndex > 0) return;
+    let isUnmounted = false;
+    const timer = setTimeout(() => {
+      if (isUnmounted) return;
+      const stageEl = stageRef.current;
 
-      let maxRatio = 0;
-      let mostVisibleIdx = -1;
+      const observer = new IntersectionObserver((entries) => {
+        // STRICT: Never switch pages while user is actively pinching to zoom, during initial page navigation, or during programmatic scroll!
+        if (isPinchingActiveRef.current || stagePinchRef.current?.isPinching) return;
+        if (!hasInitialNavigatedRef.current && initialPageRef.current > 0) return;
+        if (isProgrammaticScrollRef.current) return;
 
-      entries.forEach(entry => {
-        if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
-          maxRatio = entry.intersectionRatio;
-          const pageIdxAttr = entry.target.getAttribute('data-page-index');
-          if (pageIdxAttr !== null) {
-            mostVisibleIdx = parseInt(pageIdxAttr, 10);
+        let maxRatio = 0;
+        let mostVisibleIdx = -1;
+
+        entries.forEach(entry => {
+          if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
+            maxRatio = entry.intersectionRatio;
+            const pageIdxAttr = entry.target.getAttribute('data-page-index');
+            if (pageIdxAttr !== null) {
+              mostVisibleIdx = parseInt(pageIdxAttr, 10);
+            }
           }
+        });
+
+        if (mostVisibleIdx !== -1 && mostVisibleIdx !== currentPageIndexRef.current) {
+          setCurrentPageIndex(mostVisibleIdx);
         }
+      }, {
+        root: stageEl,
+        threshold: [0.2, 0.5, 0.8]
       });
 
-      if (mostVisibleIdx !== -1 && mostVisibleIdx !== currentPageIndex) {
-        setCurrentPageIndex(mostVisibleIdx);
+      pages.forEach((_, idx) => {
+        const el = document.getElementById(`vertical-page-${idx}`);
+        if (el) observer.observe(el);
+      });
+
+      observerRef.current = observer;
+    }, 60);
+
+    return () => {
+      isUnmounted = true;
+      clearTimeout(timer);
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
       }
-    }, {
-      threshold: [0.15, 0.4, 0.6, 0.8]
-    });
-
-    pages.forEach((_, idx) => {
-      const el = document.getElementById(`vertical-page-${idx}`);
-      if (el) observer.observe(el);
-    });
-
-    return () => observer.disconnect();
-  }, [scrollDirection, pages.length, currentPageIndex, initialPageIndex]);
+    };
+  }, [isLoading, scrollDirection, pages.length]);
 
   // Add Page with custom size (A2, A3, A4), orientation, and template
   const handleAddPage = async (pageConfig = {}) => {
@@ -770,11 +861,8 @@ export const NoteEditor = ({
 
     if (scrollDirection === 'vertical') {
       setTimeout(() => {
-        const el = document.getElementById(`vertical-page-${targetIndex}`);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 100);
+        scrollToPageInStage(targetIndex, 'smooth');
+      }, 60);
     }
   };
 
@@ -820,9 +908,8 @@ export const NoteEditor = ({
 
     if (scrollDirection === 'vertical') {
       setTimeout(() => {
-        const el = document.getElementById(`vertical-page-${pageIndex + 1}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
+        scrollToPageInStage(pageIndex + 1, 'smooth');
+      }, 60);
     }
   };
 
@@ -872,9 +959,8 @@ export const NoteEditor = ({
 
     if (scrollDirection === 'vertical') {
       setTimeout(() => {
-        const el = document.getElementById(`vertical-page-${pageIndex + 1}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
+        scrollToPageInStage(pageIndex + 1, 'smooth');
+      }, 60);
     }
   };
 
@@ -913,6 +999,12 @@ export const NoteEditor = ({
     };
     await saveNotebook(updatedNotebook);
     if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
+
+    if (scrollDirection === 'vertical') {
+      setTimeout(() => {
+        scrollToPageInStage(newIndex, 'smooth');
+      }, 60);
+    }
   };
 
   // Change Template for Current Page
@@ -1067,6 +1159,7 @@ export const NoteEditor = ({
                     <div className="bn-vertical-page-badge">หน้า {idx + 1}</div>
                     {isMounted ? (
                       <CanvasBoard 
+                        key={p.id}
                         page={p}
                         templateId={notebook.templateId}
                         activeTool={activeTool}
@@ -1130,6 +1223,7 @@ export const NoteEditor = ({
             currentPage && (
               <div ref={stageContentRef} className="bn-horizontal-page-container flex items-center justify-center min-w-full min-h-full">
                 <CanvasBoard 
+                  key={currentPage.id || `horizontal-page-${currentPageIndex}`}
                   page={currentPage}
                   templateId={notebook.templateId}
                   activeTool={activeTool}

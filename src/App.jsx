@@ -259,12 +259,16 @@ export function App() {
 
   // Sync active page changes in real-time from NoteEditor
   const handlePageChanged = useCallback((newPageIndex) => {
-    setActiveNotebookPageIndex(newPageIndex);
+    setActiveNotebookPageIndex(prev => (prev === newPageIndex ? prev : newPageIndex));
     if (activeNotebookId) {
-      setOpenTabs(prev => prev.map(t => t.id === activeNotebookId ? { ...t, pageIndex: newPageIndex } : t));
+      setOpenTabs(prev => {
+        const cur = prev.find(t => t.id === activeNotebookId);
+        if (cur && cur.pageIndex === newPageIndex) return prev;
+        return prev.map(t => t.id === activeNotebookId ? { ...t, pageIndex: newPageIndex } : t);
+      });
       setNotebookPageMap(prev => {
-        const next = { ...prev, [activeNotebookId]: newPageIndex };
-        return next;
+        if (prev[activeNotebookId] === newPageIndex) return prev;
+        return { ...prev, [activeNotebookId]: newPageIndex };
       });
     }
   }, [activeNotebookId]);
@@ -433,7 +437,7 @@ export function App() {
     : null;
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="bn-app-root">
       {/* GoodNotes 6 Top Multi-Document Tab Bar (Max 5 Stacked) */}
       <DocumentTabBar 
         tabs={openTabs}
@@ -444,7 +448,7 @@ export function App() {
       />
 
       {/* Main Workspace: NoteEditor or LibraryView */}
-      <div className="flex-1 min-h-0 overflow-hidden relative">
+      <div className="bn-main-workspace">
         {activeNotebook ? (
           <NoteEditor 
             key={activeNotebook.id}

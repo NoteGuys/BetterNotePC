@@ -18,14 +18,22 @@ export const ThumbnailSidebar = ({
   const handleInsert = onInsertPageAfter || onInsertAfter;
   const activeItemRef = React.useRef(null);
 
-  // Auto-scroll sidebar list to keep active page thumbnail visible
+  // Auto-scroll sidebar list to keep active page thumbnail visible (strictly container-scoped, zero window bleed)
   useEffect(() => {
     if (activeItemRef.current) {
-      activeItemRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-        inline: 'nearest'
-      });
+      const container = activeItemRef.current.closest('.bn-thumbnail-list');
+      if (container) {
+        const itemTop = activeItemRef.current.offsetTop;
+        const itemHeight = activeItemRef.current.offsetHeight;
+        const cTop = container.scrollTop;
+        const cHeight = container.clientHeight;
+
+        if (itemTop < cTop) {
+          container.scrollTo({ top: Math.max(0, itemTop - 12), behavior: 'smooth' });
+        } else if (itemTop + itemHeight > cTop + cHeight) {
+          container.scrollTo({ top: itemTop + itemHeight - cHeight + 12, behavior: 'smooth' });
+        }
+      }
     }
   }, [currentPageIndex]);
 
