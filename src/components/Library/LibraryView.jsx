@@ -29,7 +29,7 @@ import {
   FolderSync,
   ShieldCheck
 } from 'lucide-react';
-import { GoodnotesSidebar } from './GoodnotesSidebar';
+import { StudioSidebar } from './StudioSidebar';
 import { FolderCard } from './FolderCard';
 import { NotebookCard } from './NotebookCard';
 import { NewItemModal } from './NewItemModal';
@@ -625,9 +625,9 @@ export const LibraryView = ({
   };
 
   return (
-    <div className="bn-goodnotes-layout">
+    <div className="bn-studio-layout">
       {/* 1. Left Sidebar (Studio Style) */}
-      <GoodnotesSidebar 
+      <StudioSidebar 
         activeView={activeView}
         onSelectView={(view) => {
           setActiveView(view);
@@ -642,7 +642,7 @@ export const LibraryView = ({
       />
 
       {/* 2. Main Content Workspace */}
-      <div className="bn-goodnotes-main">
+      <div className="bn-studio-main">
         {/* Top Header Section */}
         <header className="bn-gn-topbar">
           {/* Left: Breadcrumbs & Back Arrow & Title */}

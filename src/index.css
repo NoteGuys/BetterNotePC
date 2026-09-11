@@ -3157,7 +3157,7 @@ input, textarea, select {
    STUDIO LIBRARY & DASHBOARD THEME
    ========================================================================== */
 
-.bn-goodnotes-layout {
+.bn-studio-layout {
   display: flex;
   width: 100%;
   height: 100%;
@@ -3170,7 +3170,7 @@ input, textarea, select {
 }
 
 /* --- Studio Left Sidebar --- */
-.bn-goodnotes-sidebar {
+.bn-studio-sidebar {
   width: 228px;
   min-width: 228px;
   height: 100%;
@@ -3299,7 +3299,7 @@ input, textarea, select {
 }
 
 /* --- Studio Main Workspace --- */
-.bn-goodnotes-main {
+.bn-studio-main {
   flex: 1;
   height: 100%;
   display: flex;
@@ -4916,12 +4916,12 @@ input, textarea, select {
   --border-medium: rgba(0, 0, 0, 0.15);
 }
 
-[data-theme="light"] .bn-goodnotes-layout {
+[data-theme="light"] .bn-studio-layout {
   background-color: #f1f3f5;
   color: #0f172a;
 }
 
-[data-theme="light"] .bn-goodnotes-sidebar {
+[data-theme="light"] .bn-studio-sidebar {
   background-color: #ffffff;
   border-right: 1px solid rgba(0, 0, 0, 0.08);
 }
@@ -4949,7 +4949,7 @@ input, textarea, select {
   color: #334155;
 }
 
-[data-theme="light"] .bn-goodnotes-main {
+[data-theme="light"] .bn-studio-main {
   background-color: #f8fafc;
 }
 

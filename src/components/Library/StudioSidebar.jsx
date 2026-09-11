@@ -10,7 +10,7 @@ import {
   Moon
 } from 'lucide-react';
 
-export const GoodnotesSidebar = ({ 
+export const StudioSidebar = ({ 
   activeView = 'documents', 
   onSelectView, 
   trashCount = 0,
@@ -48,7 +48,7 @@ export const GoodnotesSidebar = ({
   ];
 
   return (
-    <aside className="bn-goodnotes-sidebar">
+    <aside className="bn-studio-sidebar">
       {/* App Logo & Title: BetterNote PRO */}
       <div className="bn-sidebar-header">
         <div className="flex items-center gap-2.5">

@@ -63,6 +63,3 @@ export const getFolderIconComponent = (iconId) => {
   const item = STUDIO_FOLDER_ICONS.find(i => i.id === iconId);
   return item ? item.icon : null;
 };
-
-export const GOODNOTES_FOLDER_COLORS = STUDIO_FOLDER_COLORS;
-export const GOODNOTES_FOLDER_ICONS = STUDIO_FOLDER_ICONS;
