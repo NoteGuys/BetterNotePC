@@ -1,4 +1,4 @@
-// Persistent User Preferences Service for BetterNote (Goodnotes 6 style)
+// Persistent User Preferences Service for BetterNote Studio
 // Stores and restores pen, color, width, pressure, palm rejection, and view modes
 
 const PREFERENCES_STORAGE_KEY = 'betternote_user_preferences';

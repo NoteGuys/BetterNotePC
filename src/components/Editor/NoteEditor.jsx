@@ -1054,7 +1054,7 @@ export const NoteEditor = ({
 
   return (
     <div className="bn-editor-container">
-      {/* Top GoodNotes Toolbar with Pen Nibs, Snip, Paste, and Duplicate */}
+      {/* Top Studio Toolbar with Pen Nibs, Snip, Paste, and Duplicate */}
       <EditorToolbar 
         notebookTitle={notebook.name}
         onRenameTitle={handleRenameTitle}

@@ -78,7 +78,7 @@ export const NotebookCard = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showMenu]);
 
-  // Thai Date formatting matching Goodnotes: "1 ก.ค. 2569 เมื่อ1:07 PM"
+  // Thai Date formatting standard format: "1 ก.ค. 2569 เมื่อ1:07 PM"
   const formatThaiDate = (timestamp) => {
     if (!timestamp) return '1 ก.ค. 2569 เมื่อ1:07 PM';
     const date = new Date(timestamp);
@@ -130,7 +130,7 @@ export const NotebookCard = ({
         onClick={handleCardClick}
         title={isSelectMode ? `คลิกเพื่อ${isSelected ? 'ยกเลิกเลือก' : 'เลือก'} "${notebook.name}"` : `คลิกเปิดสมุด "${notebook.name}" (${notebook.pageCount || 1} หน้า)`}
       >
-        {/* Simulated White Paper Pages Edge (Goodnotes 3D Look) */}
+        {/* Simulated White Paper Pages Edge (Studio 3D Look) */}
         <div className="bn-gn-book-paper-edge" />
 
         {/* Notebook Main Cover */}
@@ -203,7 +203,7 @@ export const NotebookCard = ({
             )}
           </div>
 
-          {/* Bottom Center Circular User Avatar Badge (Goodnotes Style) */}
+          {/* Bottom Center Circular User Avatar Badge (Studio Style) */}
           <div className="bn-gn-book-avatar-badge" title="ผู้สร้างเอกสาร">
             <div className="bn-gn-avatar-circle">
               <User size={13} className="text-white" />
@@ -242,7 +242,7 @@ export const NotebookCard = ({
         </div>
       </div>
 
-      {/* Goodnotes Notebook Context Menu (Screenshot 3) */}
+      {/* Studio Notebook Context Menu (Screenshot 3) */}
       {showMenu && (
         <div 
           ref={menuRef}

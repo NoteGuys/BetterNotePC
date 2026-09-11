@@ -886,7 +886,7 @@ input, textarea, select {
 }
 
 /* ==========================================================================
-   GOODNOTES 6 MULTI-DOCUMENT TOP TAB BAR
+   MULTI-DOCUMENT TOP TAB BAR
    ========================================================================== */
 
 .bn-document-tab-bar {
@@ -983,7 +983,7 @@ input, textarea, select {
   color: #f1f5f9;
 }
 
-/* Active Tab Item (Matches GoodNotes Screenshot) */
+/* Active Tab Item */
 .bn-tab-item-active {
   background: #23426e !important;
   background: linear-gradient(180deg, #2b4f84 0%, #1f3b63 100%) !important;
@@ -1100,7 +1100,7 @@ input, textarea, select {
 }
 
 /* ==========================================================================
-   NOTE EDITOR & TOOLBAR (GOODNOTES STYLE)
+   NOTE EDITOR & TOOLBAR
    ========================================================================== */
 
 .bn-editor-container {
@@ -2808,7 +2808,7 @@ input, textarea, select {
   color: #ffffff;
 }
 
-/* GoodNotes 6 Grade Lasso Selection Bounding Box & Floating Action Bar */
+/* Precision Lasso Selection Bounding Box & Floating Action Bar */
 .bn-lasso-selection-box {
   position: absolute;
   border: 1.5px dashed #2563eb;
@@ -3029,7 +3029,7 @@ input, textarea, select {
 }
 
 /* ==========================================================================
-   MINIMALIST NAVBAR & LIBRARY FILTER TABS (GOODNOTES 6 STYLE)
+   MINIMALIST NAVBAR & LIBRARY FILTER TABS
    ========================================================================== */
 
 /* Clean Cloud Status Pill */
@@ -3154,7 +3154,7 @@ input, textarea, select {
 }
 
 /* ==========================================================================
-   GOODNOTES EXACT UI THEME (Screenshots 1 - 5)
+   STUDIO LIBRARY & DASHBOARD THEME
    ========================================================================== */
 
 .bn-goodnotes-layout {
@@ -3169,7 +3169,7 @@ input, textarea, select {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* --- Goodnotes Left Sidebar --- */
+/* --- Studio Left Sidebar --- */
 .bn-goodnotes-sidebar {
   width: 228px;
   min-width: 228px;
@@ -3298,7 +3298,7 @@ input, textarea, select {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-/* --- Goodnotes Main Workspace --- */
+/* --- Studio Main Workspace --- */
 .bn-goodnotes-main {
   flex: 1;
   height: 100%;
@@ -3545,7 +3545,7 @@ input, textarea, select {
 }
 
 /* ==========================================
-   AUTHENTIC GOODNOTES FOLDER GRAPHIC (COMPACT)
+   STUDIO FOLDER GRAPHIC (COMPACT)
    ========================================== */
 
 .bn-gn-folder-card {
@@ -3720,7 +3720,7 @@ input, textarea, select {
 }
 
 /* ==========================================
-   AUTHENTIC GOODNOTES NOTEBOOK CARD
+   STUDIO NOTEBOOK CARD
    (Screenshots 2 & 3)
    ========================================== */
 
@@ -3843,7 +3843,7 @@ input, textarea, select {
   height: 100%;
 }
 
-/* Bottom Center Circular User Avatar Badge (Goodnotes Style) */
+/* Bottom Center Circular User Avatar Badge */
 .bn-gn-book-avatar-badge {
   position: absolute;
   bottom: 8px;
@@ -3913,7 +3913,7 @@ input, textarea, select {
 }
 
 /* ==========================================
-   GOODNOTES CONTEXT MENU (Screenshots 3, 4, 5)
+   STUDIO CONTEXT MENU
    ========================================== */
 
 .bn-gn-context-menu {
@@ -4104,7 +4104,7 @@ input, textarea, select {
   margin-bottom: 12px;
 }
 
-/* Goodnotes 6 Modal Cards & Trigger Buttons */
+/* Studio Modal Cards & Trigger Buttons */
 .bn-modal-card {
   position: relative;
   background: #18181b;
@@ -5307,7 +5307,7 @@ svg.bn-star-gold {
 }
 
 /* ==========================================
-   GOODNOTES MOVE MODAL
+   STUDIO MOVE MODAL
    ========================================== */
 
 .bn-move-overlay {
@@ -5909,7 +5909,7 @@ svg.bn-star-gold {
 }
 
 /* ==========================================================================
-   MULTI-SELECT & BATCH OPERATIONS (GOODNOTES STYLE)
+   MULTI-SELECT & BATCH OPERATIONS
    ========================================================================== */
 
 /* Active toggle on topbar icon */

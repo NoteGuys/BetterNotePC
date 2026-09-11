@@ -626,7 +626,7 @@ export const LibraryView = ({
 
   return (
     <div className="bn-goodnotes-layout">
-      {/* 1. Left Sidebar (Goodnotes Style) */}
+      {/* 1. Left Sidebar (Studio Style) */}
       <GoodnotesSidebar 
         activeView={activeView}
         onSelectView={(view) => {
@@ -758,7 +758,7 @@ export const LibraryView = ({
               onChange={handleBnoteFileSelect} 
             />
 
-            {/* Goodnotes Blue Pill "+ ใหม่" Button */}
+            {/* Studio Blue Pill "+ ใหม่" Button */}
             <div className="bn-gn-menu-anchor" ref={newMenuRef}>
               <button
                 type="button"
@@ -1154,7 +1154,7 @@ export const LibraryView = ({
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-orange-500/20 flex items-center justify-center mx-auto mb-4 border border-amber-500/30">
                 <Store size={32} className="text-amber-400" />
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">มาร์เก็ตเพลส Goodnotes</h3>
+              <h3 className="text-lg font-bold text-white mb-2">มาร์เก็ตเพลส BetterNote</h3>
               <p className="text-sm text-zinc-400 mb-4 leading-relaxed">
                 ค้นพบเทมเพลตกระดาษ แพลนเนอร์ สติกเกอร์ และหน้าปกสมุดกว่า 500+ รายการที่ออกแบบมาเพื่อคุณ
               </p>
@@ -1657,7 +1657,7 @@ export const LibraryView = ({
         onConfirm={handleConfirmBatchMove}
       />
 
-      {/* Global Goodnotes Search Across Everything */}
+      {/* Global Search Across Everything */}
       <SearchModal 
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}

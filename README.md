@@ -5,7 +5,7 @@
 <img src="app-icon.png" width="128" height="128" alt="BetterNote Pro Studio Icon" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);" />
 
 **High-Performance Digital Handwriting, Stylus Notebook, and PDF Annotation Studio for Windows PC & Surface**
-*Ultra-Responsive, Zero-Lag, Offline-First Digital Inking with GoodNotes 6-Style Multi-Document Tabs*
+*Ultra-Responsive, Zero-Lag, Offline-First Digital Inking with Multi-Document Studio Tabs*
 
 [![Electron](https://img.shields.io/badge/Electron-44.2.0-47848F?style=for-the-badge&logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/React-18.3.1-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org/)
@@ -37,7 +37,7 @@ Traditional note-taking applications on Windows often suffer from high pen laten
 
 **BetterNote Pro Studio** is built from the ground up to solve these challenges:
 - **120Hz Hardware-Accelerated Inking**: 3-layer decoupled canvas architecture with Pointer Events and coalesced event sampling.
-- **GoodNotes 6-Style Multi-Document Top Tab Bar**: Keep up to 5 notebooks open simultaneously with exact page retention, instant tab switching, and dedicated home navigation.
+- **Multi-Document Top Tab Bar**: Keep up to 5 notebooks open simultaneously with exact page retention, instant tab switching, and dedicated home navigation.
 - **Zero-Lag Dual-Agent Backup Engine**: Background differential synchronization to Google Drive and local drives that yields to the UI thread every 20ms.
 - **Viewport Virtualization**: GPU-efficient rendering that unmounts offscreen canvases to prevent VRAM starvation on documents with 100+ pages.
 
@@ -45,7 +45,7 @@ Traditional note-taking applications on Windows often suffer from high pen laten
 
 ## 🚀 Comprehensive Features
 
-### 1. 📑 GoodNotes 6-Style Multi-Document Top Tab Bar
+### 1. 📑 Multi-Document Top Tab Bar (Multi-Tasking Studio)
 - **Tabbed Multitasking (Max 5 Stacked Tabs)**: Open multiple notebooks and switch between them in milliseconds.
 - **Exact Page Retention**: Remembers the exact page where you left off on each notebook. Switching back returns directly to that page.
 - **LRU Automatic Eviction**: Strictly maintains the 5-tab maximum by intelligently closing the least recently used tab when opening a sixth document.

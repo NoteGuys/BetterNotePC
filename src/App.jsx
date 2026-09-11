@@ -438,7 +438,7 @@ export function App() {
 
   return (
     <div className="bn-app-root">
-      {/* GoodNotes 6 Top Multi-Document Tab Bar (Max 5 Stacked) */}
+      {/* Pro Studio Multi-Document Tab Bar (Max 5 Stacked) */}
       <DocumentTabBar 
         tabs={openTabs}
         activeTabId={activeNotebookId}
@@ -459,7 +459,7 @@ export function App() {
             onNotebookUpdated={handleNotebookUpdated}
           />
         ) : (
-          /* Full-Screen Goodnotes Library View */
+          /* Full-Screen Library View */
           <LibraryView 
             folders={folders}
             notebooks={notebooks}

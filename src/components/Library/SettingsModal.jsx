@@ -603,7 +603,7 @@ export const SettingsModal = ({
                       </div>
                     </div>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      สะอาดตา สไตล์สมุด Goodnotes ใช้งานสะดวกในที่สว่าง
+                      สะอาดตา สไตล์สมุดสีสว่าง ใช้งานสะดวกในที่สว่าง
                     </span>
                   </div>
                 </div>

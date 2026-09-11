@@ -101,7 +101,7 @@ export const CanvasBoard = ({
   const heldShapeRef = useRef(null);
   const lastHoldPosRef = useRef({ x: 0, y: 0 });
 
-  // Lasso Selection Tool State (GoodNotes 6 Standard)
+  // Lasso Selection Tool State (Precision Standard)
   const isLassoingRef = useRef(false);
   const lassoPointsRef = useRef([]);
   const [lassoSelection, setLassoSelection] = useState(null); // { strokeIndices, textIds, imageIds, bbox: { x, y, width, height } }
@@ -427,7 +427,7 @@ export const CanvasBoard = ({
       }
       const coords = getCanvasCoordinates(e);
 
-      // GoodNotes behavior: If an existing lasso selection exists,
+      // Selection behavior: If an existing lasso selection exists,
       // check if the click is INSIDE the bbox → start DRAG, not new lasso
       if (lassoSelection) {
         const { x, y, width, height } = lassoSelection.bbox;
@@ -1930,7 +1930,7 @@ export const CanvasBoard = ({
           );
         })}
 
-        {/* Layer 6: Lasso Selection Bounding Box & Floating Action Bar (GoodNotes 6 Grade) */}
+        {/* Layer 6: Lasso Selection Bounding Box & Floating Action Bar (Precision Grade) */}
         {lassoSelection && (
           <div 
             ref={lassoBoxRef}
@@ -1969,7 +1969,7 @@ export const CanvasBoard = ({
                   <span>เปลี่ยนสี</span>
                 </button>
 
-                {/* Goodnotes 6 style Color Palette Popover */}
+                {/* Studio style Color Palette Popover */}
                 {showLassoColorPicker && (
                   <div 
                     className="bn-lasso-color-popover"

@@ -1,4 +1,4 @@
-// Paper Sizes & Templates for BetterNote & Goodnotes Workflow
+// Paper Sizes & Templates for BetterNote Studio Workflow
 
 export const PAPER_SIZES = [
   {

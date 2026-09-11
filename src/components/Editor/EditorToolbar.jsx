@@ -119,7 +119,7 @@ export const EditorToolbar = ({
   const [showEraserMenu, setShowEraserMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
 
-  // 5 Quick Color Slots (Persisted in localStorage for Goodnotes 6 style palette)
+  // 5 Quick Color Slots (Persisted in localStorage for Studio style palette)
   const [colorSlots, setColorSlots] = useState(() => {
     try {
       const saved = localStorage.getItem('betternote_quick_color_slots');
@@ -202,7 +202,7 @@ export const EditorToolbar = ({
           <LayoutGrid size={18} />
         </button>
 
-        {/* Add Page Button (Goodnotes 6 standard placement) */}
+        {/* Add Page Button (Standard placement) */}
         <button 
           className="bn-btn-icon text-blue-400 hover:text-white"
           onClick={onOpenAddPage}
@@ -255,7 +255,7 @@ export const EditorToolbar = ({
         </div>
       </div>
 
-      {/* Center Section: Floating Goodnotes 6 Glass Pill */}
+      {/* Center Section: Floating Glass Pill */}
       <div className="bn-editor-toolbar-center">
         <div className="bn-tool-pill">
           {/* Pen with Sub-Pip & Settings Dropdown */}
@@ -281,7 +281,7 @@ export const EditorToolbar = ({
               />
             </button>
 
-            {/* Minimalist Goodnotes 6 Pen Settings Popover */}
+            {/* Minimalist Studio Pen Settings Popover */}
             {showPenSettings && (
               <div 
                 className="bn-pen-settings-dropdown" 
@@ -562,7 +562,7 @@ export const EditorToolbar = ({
           {/* Divider */}
           <div className="w-[1px] h-4 bg-white/15 mx-1" />
 
-          {/* Quick 3-Color Swatches + Custom (+) Picker (Goodnotes 6 style) */}
+          {/* Quick 3-Color Swatches + Custom (+) Picker (Studio style) */}
           <div className="bn-quick-colors flex items-center gap-1.5 px-1">
             {colorSlots.map((col, idx) => {
               const isSelected = activeColor.toLowerCase() === col.toLowerCase();

@@ -9,8 +9,8 @@ import {
   Folder as DefaultFolderIcon
 } from 'lucide-react';
 import { 
-  GOODNOTES_FOLDER_COLORS, 
-  GOODNOTES_FOLDER_ICONS, 
+  STUDIO_FOLDER_COLORS, 
+  STUDIO_FOLDER_ICONS, 
   getFolderIconComponent 
 } from '../../data/folderCustomization';
 
@@ -50,7 +50,7 @@ export const FolderCard = ({
   const currentIconId = folder.icon || 'apple';
   const IconComp = getFolderIconComponent(currentIconId);
 
-  // Thai Date formatting matching Goodnotes: "30 มิ.ย. 2569 เมื่อ9:23 AM"
+  // Thai Date formatting standard format: "30 มิ.ย. 2569 เมื่อ9:23 AM"
   const formatThaiDate = (timestamp) => {
     if (!timestamp) return '30 มิ.ย. 2569 เมื่อ9:23 AM';
     const date = new Date(timestamp);
@@ -119,7 +119,7 @@ export const FolderCard = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Goodnotes Curved Folder Shape Graphic */}
+      {/* Studio Curved Folder Shape Graphic */}
       <div 
         className="bn-gn-folder-graphic-wrapper"
         onClick={handleFolderClick}
@@ -208,7 +208,7 @@ export const FolderCard = ({
         </div>
       </div>
 
-      {/* Goodnotes Folder Context Menu Popup (Screenshots 4 & 5) */}
+      {/* Studio Folder Context Menu Popup (Screenshots 4 & 5) */}
       {showMenu && (
         <div 
           ref={menuRef}
@@ -234,7 +234,7 @@ export const FolderCard = ({
           {/* Tab Content 1: Color Picker (9 Colors) */}
           {activeTab === 'color' && (
             <div className="bn-gn-color-grid">
-              {GOODNOTES_FOLDER_COLORS.map(col => {
+              {STUDIO_FOLDER_COLORS.map(col => {
                 const isSelected = currentColor.toLowerCase() === col.hex.toLowerCase();
                 return (
                   <button
@@ -254,7 +254,7 @@ export const FolderCard = ({
           {/* Tab Content 2: Icon Grid (21 Icons) */}
           {activeTab === 'icon' && (
             <div className="bn-gn-icon-grid">
-              {GOODNOTES_FOLDER_ICONS.map(ic => {
+              {STUDIO_FOLDER_ICONS.map(ic => {
                 const IconComponent = ic.icon;
                 const isSelected = currentIconId === ic.id;
                 return (
