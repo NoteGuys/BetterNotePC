@@ -42,10 +42,17 @@
     ],
     "win": {
       "target": [
-        "portable",
+        "appx",
         "nsis"
       ],
       "icon": "app-icon.ico"
+    },
+    "appx": {
+      "identityName": "JustStone.3453441DD0CC3",
+      "publisher": "CN=01BEC724-2F5E-47FF-BC4E-71824A714A56",
+      "publisherDisplayName": "JustStone",
+      "applicationId": "BetterNotePC",
+      "displayName": "BetterNotePC"
     },
     "nsis": {
       "oneClick": false,
