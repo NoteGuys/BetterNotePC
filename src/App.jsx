@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Common/Navbar';
+import { DocumentTabBar } from './components/Common/DocumentTabBar';
 import { GoogleDriveModal } from './components/Common/GoogleDriveModal';
 import { LibraryView } from './components/Library/LibraryView';
 import { NoteEditor } from './components/Editor/NoteEditor';
@@ -30,6 +31,42 @@ export function App() {
   const [activeNotebookId, setActiveNotebookId] = useState(null);
   const [activeNotebookPageIndex, setActiveNotebookPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Multi-Document Tabs (Max 5 Stacked) & Last Opened Page per notebook
+  const [openTabs, setOpenTabs] = useState(() => {
+    try {
+      const saved = localStorage.getItem('betternote_open_tabs');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.slice(0, 5);
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const [notebookPageMap, setNotebookPageMap] = useState(() => {
+    try {
+      const saved = localStorage.getItem('betternote_notebook_page_cache');
+      if (saved) {
+        return JSON.parse(saved) || {};
+      }
+    } catch (_) {}
+    return {};
+  });
+
+  // Persist openTabs to localStorage whenever changed
+  useEffect(() => {
+    try {
+      localStorage.setItem('betternote_open_tabs', JSON.stringify(openTabs));
+    } catch (_) {}
+  }, [openTabs]);
+
+  // Persist notebookPageMap whenever changed
+  useEffect(() => {
+    try {
+      localStorage.setItem('betternote_notebook_page_cache', JSON.stringify(notebookPageMap));
+    } catch (_) {}
+  }, [notebookPageMap]);
 
   // App Theme state (dark / light)
   const [theme, setTheme] = useState(() => getAppTheme());
@@ -81,6 +118,8 @@ export function App() {
       setNotebooks(allN);
       setIsDriveConnected(!!connected);
       setDriveEmail(email || '');
+      // Prune any stale tabs for notebooks that no longer exist
+      setOpenTabs(prev => prev.filter(tab => allN.some(nb => nb.id === tab.id)).slice(0, 5));
     } catch (err) {
       console.error('Failed to load initial data:', err);
     } finally {
@@ -121,6 +160,119 @@ export function App() {
     setFolders(prev => prev.filter(f => f.id !== folderId));
   };
 
+  // =========================================================================
+  // MULTI-DOCUMENT TAB OPERATIONS (Max 5 Stacked, Exact Page Retention)
+  // =========================================================================
+
+  // Open Notebook with Tab Support
+  const handleOpenNotebook = (notebookId, targetPageIndex = null) => {
+    const targetNb = notebooks.find(nb => nb.id === notebookId);
+    if (!targetNb) return;
+
+    // Determine target page index with prioritized fallbacks
+    let pageIdx = 0;
+    const existingTab = openTabs.find(t => t.id === notebookId);
+
+    if (targetPageIndex !== null && targetPageIndex !== undefined && targetPageIndex >= 0) {
+      pageIdx = targetPageIndex;
+    } else if (existingTab && existingTab.pageIndex !== undefined) {
+      pageIdx = existingTab.pageIndex;
+    } else if (notebookPageMap[notebookId] !== undefined) {
+      pageIdx = notebookPageMap[notebookId];
+    } else if (targetNb.lastOpenedPageIndex !== undefined) {
+      pageIdx = targetNb.lastOpenedPageIndex;
+    }
+
+    setOpenTabs(prev => {
+      const now = Date.now();
+      const tabIdx = prev.findIndex(t => t.id === notebookId);
+      if (tabIdx !== -1) {
+        // Tab exists: update lastAccessed and pageIndex
+        const updated = [...prev];
+        updated[tabIdx] = {
+          ...updated[tabIdx],
+          title: targetNb.name,
+          pageIndex: pageIdx,
+          lastAccessed: now
+        };
+        return updated;
+      }
+
+      // Tab does not exist: create new tab
+      const newTab = {
+        id: targetNb.id,
+        title: targetNb.name,
+        pageIndex: pageIdx,
+        lastAccessed: now
+      };
+
+      if (prev.length < 5) {
+        return [...prev, newTab];
+      }
+
+      // Evict oldest / least-recently accessed tab (strictly cap at 5)
+      const sortedByAccess = [...prev].sort((a, b) => (a.lastAccessed || 0) - (b.lastAccessed || 0));
+      const evictId = sortedByAccess[0].id;
+      const remaining = prev.filter(t => t.id !== evictId);
+      return [...remaining, newTab];
+    });
+
+    setActiveNotebookId(notebookId);
+    setActiveNotebookPageIndex(pageIdx);
+  };
+
+  // Switch between open tabs
+  const handleSelectTab = (tabId) => {
+    if (tabId === activeNotebookId) return;
+
+    const targetTab = openTabs.find(t => t.id === tabId);
+    if (!targetTab) return;
+
+    setOpenTabs(prev => prev.map(t => t.id === tabId ? { ...t, lastAccessed: Date.now() } : t));
+    setActiveNotebookId(tabId);
+    setActiveNotebookPageIndex(targetTab.pageIndex || 0);
+  };
+
+  // Close a specific tab
+  const handleCloseTab = (tabId) => {
+    const tabIndex = openTabs.findIndex(t => t.id === tabId);
+    if (tabIndex === -1) return;
+
+    const remainingTabs = openTabs.filter(t => t.id !== tabId);
+    setOpenTabs(remainingTabs);
+
+    // If the closed tab was the active notebook:
+    if (activeNotebookId === tabId) {
+      if (remainingTabs.length > 0) {
+        // Switch to the adjacent tab (same index or previous)
+        const nextIndex = Math.min(tabIndex, remainingTabs.length - 1);
+        const nextTab = remainingTabs[nextIndex];
+        setActiveNotebookId(nextTab.id);
+        setActiveNotebookPageIndex(nextTab.pageIndex || 0);
+      } else {
+        // No tabs left: return to Library
+        setActiveNotebookId(null);
+        setActiveNotebookPageIndex(0);
+      }
+    }
+  };
+
+  // Sync active page changes in real-time from NoteEditor
+  const handlePageChanged = useCallback((newPageIndex) => {
+    setActiveNotebookPageIndex(newPageIndex);
+    if (activeNotebookId) {
+      setOpenTabs(prev => prev.map(t => t.id === activeNotebookId ? { ...t, pageIndex: newPageIndex } : t));
+      setNotebookPageMap(prev => {
+        const next = { ...prev, [activeNotebookId]: newPageIndex };
+        return next;
+      });
+    }
+  }, [activeNotebookId]);
+
+  const handleBackToLibrary = () => {
+    setActiveNotebookId(null);
+  };
+
   // Notebook Operations
   const handleCreateNotebook = async (notebook) => {
     await saveNotebook(notebook);
@@ -143,14 +295,31 @@ export function App() {
     await savePage(page0);
 
     setNotebooks(prev => [notebook, ...prev]);
-    // Automatically open the new notebook
-    setActiveNotebookId(notebook.id);
+    // Automatically open the new notebook in tabs!
+    handleOpenNotebook(notebook.id, 0);
   };
 
   const handleDeleteNotebook = async (notebookId) => {
     const target = notebooks.find(nb => nb.id === notebookId);
     await deleteNotebook(notebookId);
     setNotebooks(prev => prev.filter(nb => nb.id !== notebookId));
+
+    // Remove from openTabs if currently open
+    setOpenTabs(prev => {
+      const remaining = prev.filter(t => t.id !== notebookId);
+      if (activeNotebookId === notebookId) {
+        if (remaining.length > 0) {
+          const nextTab = remaining[0];
+          setActiveNotebookId(nextTab.id);
+          setActiveNotebookPageIndex(nextTab.pageIndex || 0);
+        } else {
+          setActiveNotebookId(null);
+          setActiveNotebookPageIndex(0);
+        }
+      }
+      return remaining;
+    });
+
     if (target?.name) {
       await autoBackupService.pruneDeletedNotebook(target.name);
     }
@@ -180,6 +349,8 @@ export function App() {
   const handleNotebookUpdated = async (updated) => {
     await saveNotebook(updated);
     setNotebooks(prev => prev.map(nb => nb.id === updated.id ? updated : nb));
+    // Update title in openTabs immediately
+    setOpenTabs(prev => prev.map(t => t.id === updated.id ? { ...t, title: updated.name } : t));
   };
 
   // Import PDF Success handler (supports single notebook or array from batch import)
@@ -187,17 +358,17 @@ export function App() {
     if (Array.isArray(newPdfNotebookOrArray)) {
       if (newPdfNotebookOrArray.length === 0) return;
       setNotebooks(prev => [...newPdfNotebookOrArray, ...prev]);
-      setActiveNotebookId(newPdfNotebookOrArray[0].id);
+      handleOpenNotebook(newPdfNotebookOrArray[0].id, 0);
     } else if (newPdfNotebookOrArray) {
       setNotebooks(prev => [newPdfNotebookOrArray, ...prev]);
-      setActiveNotebookId(newPdfNotebookOrArray.id);
+      handleOpenNotebook(newPdfNotebookOrArray.id, 0);
     }
   };
 
   // Import .bnote Success handler
   const handleImportBnoteSuccess = (newNotebook) => {
     setNotebooks(prev => [newNotebook, ...prev.filter(nb => nb.id !== newNotebook.id)]);
-    setActiveNotebookId(newNotebook.id);
+    handleOpenNotebook(newNotebook.id, 0);
     autoBackupService.runAutoBackup();
   };
 
@@ -217,7 +388,7 @@ export function App() {
       if (file.name.endsWith('.bnote')) {
         const importedNb = await importBnoteFile(file, currentFolderId);
         await loadData();
-        setActiveNotebookId(importedNb.id);
+        handleOpenNotebook(importedNb.id, 0);
         alert(`นำเข้าไฟล์ .bnote สำเร็จ! เปิดสมุด "${importedNb.name}" เรียบร้อยแล้ว สามารถแก้ไขข้อความและลายเส้นต่อได้ทันที`);
         autoBackupService.runAutoBackup();
         return;
@@ -263,51 +434,58 @@ export function App() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
-      {/* If inside a notebook editor, render full-screen NoteEditor */}
-      {activeNotebook ? (
-        <NoteEditor 
-          notebook={activeNotebook}
-          initialPageIndex={activeNotebookPageIndex}
-          onBackToLibrary={() => {
-            setActiveNotebookId(null);
-            setActiveNotebookPageIndex(0);
-          }}
-          onNotebookUpdated={handleNotebookUpdated}
-        />
-      ) : (
-        /* Full-Screen Goodnotes Library View */
-        <LibraryView 
-          folders={folders}
-          notebooks={notebooks}
-          currentFolderId={currentFolderId}
-          folderChain={getFolderChain()}
-          onNavigateFolder={(id) => setCurrentFolderId(id)}
-          onOpenNotebook={(id, pageIndex = 0) => {
-            setActiveNotebookId(id);
-            setActiveNotebookPageIndex(pageIndex || 0);
-          }}
-          onCreateFolder={handleCreateFolder}
-          onUpdateFolder={handleUpdateFolder}
-          onCreateNotebook={handleCreateNotebook}
-          onUpdateNotebook={handleNotebookUpdated}
-          onDuplicateNotebook={handleDuplicateNotebook}
-          onMoveNotebookToFolder={handleMoveNotebookToFolder}
-          onExportNotebookPdf={handleExportNotebookPdf}
-          onDeleteFolder={handleDeleteFolder}
-          onDeleteNotebook={handleDeleteNotebook}
-          onImportPdfSuccess={handleImportPdfSuccess}
-          onImportBnoteSuccess={handleImportBnoteSuccess}
-          onOpenDriveModal={() => setIsDriveModalOpen(true)}
-          isDriveConnected={isDriveConnected}
-          isSyncing={isAutoSyncing}
-          currentTheme={theme}
-          onToggleTheme={handleToggleTheme}
-          onSelectTheme={handleSelectTheme}
-          onTriggerAutoSync={(opts) => autoBackupService.runAutoBackup(opts)}
-          onExportBackup={handleExportBackup}
-          onImportBackup={handleImportBackup}
-        />
-      )}
+      {/* GoodNotes 6 Top Multi-Document Tab Bar (Max 5 Stacked) */}
+      <DocumentTabBar 
+        tabs={openTabs}
+        activeTabId={activeNotebookId}
+        onSelectTab={handleSelectTab}
+        onCloseTab={handleCloseTab}
+        onGoHome={handleBackToLibrary}
+      />
+
+      {/* Main Workspace: NoteEditor or LibraryView */}
+      <div className="flex-1 min-h-0 overflow-hidden relative">
+        {activeNotebook ? (
+          <NoteEditor 
+            key={activeNotebook.id}
+            notebook={activeNotebook}
+            initialPageIndex={activeNotebookPageIndex}
+            onPageChanged={handlePageChanged}
+            onBackToLibrary={handleBackToLibrary}
+            onNotebookUpdated={handleNotebookUpdated}
+          />
+        ) : (
+          /* Full-Screen Goodnotes Library View */
+          <LibraryView 
+            folders={folders}
+            notebooks={notebooks}
+            currentFolderId={currentFolderId}
+            folderChain={getFolderChain()}
+            onNavigateFolder={(id) => setCurrentFolderId(id)}
+            onOpenNotebook={handleOpenNotebook}
+            onCreateFolder={handleCreateFolder}
+            onUpdateFolder={handleUpdateFolder}
+            onCreateNotebook={handleCreateNotebook}
+            onUpdateNotebook={handleNotebookUpdated}
+            onDuplicateNotebook={handleDuplicateNotebook}
+            onMoveNotebookToFolder={handleMoveNotebookToFolder}
+            onExportNotebookPdf={handleExportNotebookPdf}
+            onDeleteFolder={handleDeleteFolder}
+            onDeleteNotebook={handleDeleteNotebook}
+            onImportPdfSuccess={handleImportPdfSuccess}
+            onImportBnoteSuccess={handleImportBnoteSuccess}
+            onOpenDriveModal={() => setIsDriveModalOpen(true)}
+            isDriveConnected={isDriveConnected}
+            isSyncing={isAutoSyncing}
+            currentTheme={theme}
+            onToggleTheme={handleToggleTheme}
+            onSelectTheme={handleSelectTheme}
+            onTriggerAutoSync={(opts) => autoBackupService.runAutoBackup(opts)}
+            onExportBackup={handleExportBackup}
+            onImportBackup={handleImportBackup}
+          />
+        )}
+      </div>
 
       {/* Google Drive / Cloud Sync Modal */}
       <GoogleDriveModal 

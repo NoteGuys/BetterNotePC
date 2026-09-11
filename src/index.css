@@ -837,11 +837,225 @@ input, textarea, select {
 }
 
 /* ==========================================================================
+   GOODNOTES 6 MULTI-DOCUMENT TOP TAB BAR
+   ========================================================================== */
+
+.bn-document-tab-bar {
+  height: 38px;
+  min-height: 38px;
+  background: #14213d;
+  background: linear-gradient(180deg, #182b4a 0%, #132238 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: stretch;
+  padding: 0 145px 0 8px;
+  gap: 4px;
+  z-index: 50;
+  user-select: none;
+  -webkit-app-region: drag;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.bn-document-tab-bar button,
+.bn-document-tab-bar .bn-tab-item {
+  -webkit-app-region: no-drag;
+}
+
+/* Home / Library Button */
+.bn-tab-home-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 30px;
+  align-self: center;
+  border-radius: 6px;
+  color: #94a3b8;
+  background: transparent;
+  transition: all var(--transition-fast);
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.bn-tab-home-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.bn-tab-home-btn-active {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #60a5fa !important;
+}
+
+/* Tabs List (Max 5 Stacked) */
+.bn-tab-list {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 1;
+  min-width: 0;
+  scrollbar-width: none;
+}
+
+.bn-tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tab Item */
+.bn-tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: none;
+  color: #94a3b8;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  max-width: 220px;
+  min-width: 100px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.bn-tab-item:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #f1f5f9;
+}
+
+/* Active Tab Item (Matches GoodNotes Screenshot) */
+.bn-tab-item-active {
+  background: #23426e !important;
+  background: linear-gradient(180deg, #2b4f84 0%, #1f3b63 100%) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.bn-tab-item-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #3b82f6;
+}
+
+/* Tab Title */
+.bn-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Page Indicator Badge */
+.bn-tab-page-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 1px 5px;
+  border-radius: 9999px;
+  color: #cbd5e1;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.bn-tab-item-active .bn-tab-page-badge {
+  background: rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+}
+
+/* Tab Close Button */
+.bn-tab-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #94a3b8;
+  background: transparent;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.bn-tab-close-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
+/* Tab Drag Spacer */
+.bn-tab-spacer {
+  flex: 1;
+  min-width: 24px;
+  -webkit-app-region: drag;
+}
+
+/* Light Theme overrides */
+[data-theme="light"] .bn-document-tab-bar {
+  background: #e2e8f0;
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  border-bottom-color: #cbd5e1;
+}
+
+[data-theme="light"] .bn-tab-home-btn {
+  color: #64748b;
+}
+
+[data-theme="light"] .bn-tab-home-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+}
+
+[data-theme="light"] .bn-tab-home-btn-active {
+  background: #dbeafe !important;
+  color: #1d4ed8 !important;
+}
+
+[data-theme="light"] .bn-tab-item {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #64748b;
+}
+
+[data-theme="light"] .bn-tab-item:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #0f172a;
+}
+
+[data-theme="light"] .bn-tab-item-active {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #93c5fd !important;
+}
+
+[data-theme="light"] .bn-tab-page-badge {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* ==========================================================================
    NOTE EDITOR & TOOLBAR (GOODNOTES STYLE)
    ========================================================================== */
 
 .bn-editor-container {
-  height: 100vh;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: #0b0f19;
@@ -2880,8 +3094,10 @@ input, textarea, select {
 
 .bn-goodnotes-layout {
   display: flex;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
   background-color: #161618;
   color: #f4f4f5;
   overflow: hidden;

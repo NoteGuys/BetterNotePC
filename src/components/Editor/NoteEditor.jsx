@@ -17,7 +17,13 @@ import { AddPageModal } from './AddPageModal';
 import { getPaperSize } from '../../data/templates';
 import { RotateCcw } from 'lucide-react';
 
-export const NoteEditor = ({ notebook, onBackToLibrary, onNotebookUpdated, initialPageIndex = 0 }) => {
+export const NoteEditor = ({ 
+  notebook, 
+  onBackToLibrary, 
+  onNotebookUpdated, 
+  initialPageIndex = 0,
+  onPageChanged 
+}) => {
   const [pages, setPages] = useState([]);
   const pagesRef = useRef([]);
   useEffect(() => {
@@ -25,6 +31,13 @@ export const NoteEditor = ({ notebook, onBackToLibrary, onNotebookUpdated, initi
   }, [pages]);
   const [currentPageIndex, setCurrentPageIndex] = useState(initialPageIndex);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Sync active page index to parent tab state so returning to this tab opens exact page
+  useEffect(() => {
+    if (!isLoading && currentPageIndex >= 0 && onPageChanged) {
+      onPageChanged(currentPageIndex);
+    }
+  }, [currentPageIndex, isLoading, onPageChanged]);
 
   // Load persistent user preferences
   const [initialPrefs] = useState(() => loadEditorPreferences());
