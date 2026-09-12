@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restoreBackupFromFolder: (folderPath) => ipcRenderer.invoke('restore-backup-from-folder', folderPath),
   getBackupStatusDetails: (customPath) => ipcRenderer.invoke('get-backup-status-details', customPath),
   openBackupFolder: (folderPath) => ipcRenderer.invoke('open-backup-folder', folderPath),
-  revealBackupFile: (filePath) => ipcRenderer.invoke('reveal-backup-file', filePath)
+  revealBackupFile: (filePath) => ipcRenderer.invoke('reveal-backup-file', filePath),
+  readClipboardImage: () => ipcRenderer.invoke('read-clipboard-image')
 });
 

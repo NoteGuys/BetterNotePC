@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -527,6 +527,27 @@ function createWindow() {
     } catch (err) {
       console.error('Folder selection error:', err);
       return null;
+    }
+  });
+
+  // Handle reading image from Windows / system clipboard (for Long-Press Paste & external copy)
+  ipcMain.handle('read-clipboard-image', async () => {
+    try {
+      const img = clipboard.readImage();
+      if (img && !img.isEmpty()) {
+        const size = img.getSize();
+        const dataUrl = img.toDataURL();
+        return {
+          success: true,
+          dataUrl,
+          width: size.width,
+          height: size.height
+        };
+      }
+      return { success: false, reason: 'empty' };
+    } catch (err) {
+      console.error('read-clipboard-image error:', err);
+      return { success: false, error: err.message };
     }
   });
 

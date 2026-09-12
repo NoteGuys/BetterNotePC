@@ -96,6 +96,17 @@ export const CanvasBoard = ({
   const [cropModalImg, setCropModalImg] = useState(null);
   const [imageTransformOffset, setImageTransformOffset] = useState(null); // { id, x, y, width, height }
 
+  // Long-Press Floating Paste Menu State & Timer
+  const [floatingPasteMenu, setFloatingPasteMenu] = useState(null); // { x, y, canvasX, canvasY }
+  const longPressTimerRef = useRef(null);
+  const longPressStartPosRef = useRef({ clientX: 0, clientY: 0, canvasX: 0, canvasY: 0 });
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    };
+  }, []);
+
   // Draw & Hold QuickShape State & Timer
   const holdTimerRef = useRef(null);
   const heldShapeRef = useRef(null);
@@ -262,8 +273,14 @@ export const CanvasBoard = ({
       momentumAnimRef.current = null;
     }
 
-    // Single Finger Touch Scrolling (Only when pen is NOT drawing and NOT snipping)
-    if (e.touches.length === 1 && (penOnly || activeTool === 'hand')) {
+    // Dismiss floating paste menu if open
+    if (floatingPasteMenu) {
+      setFloatingPasteMenu(null);
+    }
+
+    // Single Finger Touch Scrolling (STRICTLY limited to 'hand' tool)
+    // Prevents resting palm while using pen/highlighter/eraser from accidentally panning the canvas
+    if (e.touches.length === 1 && activeTool === 'hand' && !isDrawingRef.current && !isSnippingRef.current) {
       const scrollParent = containerRef.current?.closest('.bn-editor-canvas-stage') || window;
       isPanningRef.current = true;
       const t = e.touches[0];
@@ -292,8 +309,8 @@ export const CanvasBoard = ({
       return;
     }
 
-    // If pen is drawing or snipping, DO NOT SCROLL AT ALL!
-    if (isDrawingRef.current || isSnippingRef.current || activeTool === 'snip') {
+    // If tool is not 'hand' or pen is drawing or snipping, DO NOT SCROLL AT ALL!
+    if (activeTool !== 'hand' || isDrawingRef.current || isSnippingRef.current || activeTool === 'snip') {
       isPanningRef.current = false;
       return;
     }
@@ -369,8 +386,24 @@ export const CanvasBoard = ({
 
   // Pointer Down (Pen / Mouse / Touch)
   const handlePointerDown = (e) => {
-    // If input is Touch and Palm Rejection is active: do not draw (touch is for scrolling)
+    // Dismiss floating paste menu if clicking outside it
+    if (floatingPasteMenu) {
+      setFloatingPasteMenu(null);
+    }
+
+    // 1. Strict Palm Rejection:
+    // When palm rejection is active (penOnly), reject finger touch & palm contacts completely
+    // Calling preventDefault() prevents Chromium from synthesizing mouse events (mousedown/mousemove)
     if (penOnly && e.pointerType === 'touch') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    // Reject large palm contacts (Windows sends contact geometry e.width, e.height)
+    if (penOnly && e.pointerType !== 'pen' && (e.width > 25 || e.height > 25)) {
+      e.preventDefault();
+      e.stopPropagation();
       return;
     }
 
@@ -390,8 +423,43 @@ export const CanvasBoard = ({
       setSelectedImageId(null);
     }
 
+    const coords = getCanvasCoordinates(e);
+
+    // 2. Long-Press Setup for Floating Paste Menu (Touch or Pen stationary hold ~450ms)
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressStartPosRef.current = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      canvasX: coords.x,
+      canvasY: coords.y
+    };
+
+    if (activeTool !== 'hand' && activeTool !== 'snip' && activeTool !== 'lasso') {
+      longPressTimerRef.current = setTimeout(() => {
+        if (!isSnippingRef.current && !isLassoingRef.current && !imageDragRef.current.isDragging) {
+          // Cancel active stroke if long press was triggered
+          if (isDrawingRef.current) {
+            isDrawingRef.current = false;
+            currentPointsRef.current = [];
+            const activeCanvas = activeCanvasRef.current;
+            if (activeCanvas) {
+              const dpr = getDpr();
+              const ctx = activeCanvas.getContext('2d');
+              ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+              ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            }
+          }
+          setFloatingPasteMenu({
+            x: coords.x,
+            y: coords.y,
+            canvasX: coords.x,
+            canvasY: coords.y
+          });
+        }
+      }, 450);
+    }
+
     if (lassoSelection) {
-      const coords = getCanvasCoordinates(e);
       const { x, y, width, height } = lassoSelection.bbox;
       if (coords.x < x || coords.x > x + width || coords.y < y || coords.y > y + height) {
         setLassoSelection(null);
@@ -410,7 +478,6 @@ export const CanvasBoard = ({
       }
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
       isSnippingRef.current = true;
-      const coords = getCanvasCoordinates(e);
       snipStartRef.current = coords;
       setSnipBox({ x: coords.x, y: coords.y, width: 0, height: 0 });
       return;
@@ -425,7 +492,6 @@ export const CanvasBoard = ({
         cancelAnimationFrame(momentumAnimRef.current);
         momentumAnimRef.current = null;
       }
-      const coords = getCanvasCoordinates(e);
 
       // Selection behavior: If an existing lasso selection exists,
       // check if the click is INSIDE the bbox → start DRAG, not new lasso
@@ -433,7 +499,6 @@ export const CanvasBoard = ({
         const { x, y, width, height } = lassoSelection.bbox;
         if (coords.x >= x && coords.x <= x + width && coords.y >= y && coords.y <= y + height) {
           // Click is inside existing selection → delegate to drag handler
-          // The lasso box div will handle this via its own onPointerDown
           return;
         } else {
           // Click is outside → deselect and start new lasso
@@ -451,7 +516,6 @@ export const CanvasBoard = ({
 
     // Text tool
     if (activeTool === 'text') {
-      const coords = getCanvasCoordinates(e);
       const newText = {
         id: `txt-${Date.now()}`,
         x: coords.x,
@@ -467,14 +531,15 @@ export const CanvasBoard = ({
       return;
     }
 
-    // Drawing / Erasing
+    // Drawing / Erasing: STRICT preventDefault to lock page scroll completely while pen writes
+    e.preventDefault();
+    e.stopPropagation();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
     isDrawingRef.current = true;
     strokeStartTimeRef.current = Date.now();
     heldShapeRef.current = null;
     if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
 
-    const coords = getCanvasCoordinates(e);
     startPointRef.current = coords;
     currentPointsRef.current = [coords];
 
@@ -506,7 +571,35 @@ export const CanvasBoard = ({
 
   // Pointer Move
   const handlePointerMove = (e) => {
-    // Snipping Tool Marquee Box (Strict: prevent scroll)
+    // 1. Long-Press Movement Check: Cancel long-press timer if pointer moved > 10px
+    if (longPressTimerRef.current) {
+      const dist = Math.hypot(
+        e.clientX - longPressStartPosRef.current.clientX,
+        e.clientY - longPressStartPosRef.current.clientY
+      );
+      if (dist > 10) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    }
+
+    // 2. Strict Palm Rejection on Move
+    if (penOnly && e.pointerType === 'touch') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (penOnly && e.pointerType !== 'pen' && (e.width > 25 || e.height > 25)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    // 3. Strict Scroll Lock during Active Inking: Prevent any page panning while pen is down
+    if (isDrawingRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (isSnippingRef.current && snipStartRef.current) {
       e.preventDefault();
       e.stopPropagation();
@@ -703,6 +796,23 @@ export const CanvasBoard = ({
 
   // Pointer Up
   const handlePointerUp = (e) => {
+    // 1. Clear Long-Press Timer
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+
+    // 2. Strict Palm Rejection on Up
+    if (penOnly && e.pointerType === 'touch') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (penOnly && e.pointerType !== 'pen' && (e.width > 25 || e.height > 25)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // Snipping Tool Finalize Crop
     if (isSnippingRef.current && snipBox) {
       isSnippingRef.current = false;
@@ -1031,6 +1141,109 @@ export const CanvasBoard = ({
     setSnipModalData(null);
     setLastSnippedImage(null);
     if (onToolChange) onToolChange('pen');
+  };
+
+  // Right-Click Context Menu: Show Floating Paste Menu at mouse / stylus coordinate
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    const coords = getCanvasCoordinates(e);
+    setFloatingPasteMenu({
+      x: coords.x,
+      y: coords.y,
+      canvasX: coords.x,
+      canvasY: coords.y
+    });
+  };
+
+  // Execute Paste Image from System / Windows Clipboard
+  const handleExecutePaste = async (posX, posY) => {
+    setFloatingPasteMenu(null);
+    let imgDataUrl = null;
+    let imgWidth = 0;
+    let imgHeight = 0;
+
+    // 1. Electron Native Clipboard IPC (Windows Snipping Tool, Win+Shift+S, external image copy)
+    if (window.electronAPI?.readClipboardImage) {
+      try {
+        const res = await window.electronAPI.readClipboardImage();
+        if (res && res.success && res.dataUrl) {
+          imgDataUrl = res.dataUrl;
+          imgWidth = res.width || 0;
+          imgHeight = res.height || 0;
+        }
+      } catch (err) {
+        console.warn('Native clipboard read error:', err);
+      }
+    }
+
+    // 2. Web Clipboard API Fallback
+    if (!imgDataUrl && navigator.clipboard && navigator.clipboard.read) {
+      try {
+        const clipboardItems = await navigator.clipboard.read();
+        for (const item of clipboardItems) {
+          const imageType = item.types.find(type => type.startsWith('image/'));
+          if (imageType) {
+            const blob = await item.getType(imageType);
+            imgDataUrl = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            });
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn('Web clipboard read error:', err);
+      }
+    }
+
+    if (!imgDataUrl) {
+      showToast('ไม่พบรูปภาพในคลิปบอร์ด (กรุณาคัดลอกภาพก่อน) 📋');
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      let w = img.naturalWidth || imgWidth || 400;
+      let h = img.naturalHeight || imgHeight || 300;
+
+      // Scale down if oversized (e.g. 4K screenshots) while preserving aspect ratio
+      const maxDimension = 650;
+      if (w > maxDimension || h > maxDimension) {
+        const ratio = Math.min(maxDimension / w, maxDimension / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+
+      const targetX = posX !== undefined ? posX - w / 2 : (canvasWidth - w) / 2;
+      const targetY = posY !== undefined ? posY - h / 2 : (canvasHeight - h) / 2;
+      const clampedX = Math.max(20, Math.min(canvasWidth - w - 20, Math.round(targetX)));
+      const clampedY = Math.max(20, Math.min(canvasHeight - h - 20, Math.round(targetY)));
+
+      const newImg = {
+        id: `img-${Date.now()}`,
+        src: imgDataUrl,
+        x: clampedX,
+        y: clampedY,
+        width: w,
+        height: h
+      };
+
+      const newImages = [...imageElements, newImg];
+      if (onBatchUpdatePage) {
+        onBatchUpdatePage({ imageElements: newImages });
+      } else if (onImageElementsChange) {
+        onImageElementsChange(newImages);
+      }
+      setSelectedImageId(newImg.id);
+      showToast('วางรูปภาพสำเร็จ! 📋✨');
+    };
+    img.src = imgDataUrl;
   };
 
   // Eraser Action
@@ -1765,6 +1978,7 @@ export const CanvasBoard = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onContextMenu={handleContextMenu}
         />
 
         {/* Snipping Tool Full-Screen Dark Overlay & Marching Ants Marquee */}
@@ -2086,6 +2300,36 @@ export const CanvasBoard = ({
               onPointerUp={handleLassoResizePointerUp}
               title="ย่อ/ขยาย (ล่างซ้าย)"
             />
+          </div>
+        )}
+
+        {/* Floating Paste Menu (Triggered by Long Press or Context Menu) */}
+        {floatingPasteMenu && (
+          <div 
+            className="bn-floating-paste-menu"
+            style={{
+              left: `${(floatingPasteMenu.x / canvasWidth) * 100}%`,
+              top: `${(floatingPasteMenu.y / canvasHeight) * 100}%`
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button 
+              className="bn-floating-paste-btn"
+              onClick={() => handleExecutePaste(floatingPasteMenu.canvasX, floatingPasteMenu.canvasY)}
+              title="วางรูปภาพจากคลิปบอร์ด (Paste Image)"
+            >
+              <ClipboardPaste size={15} />
+              <span>วาง</span>
+            </button>
+            <button 
+              className="bn-floating-paste-close"
+              onClick={() => setFloatingPasteMenu(null)}
+              title="ปิดเมนู"
+            >
+              <X size={13} />
+            </button>
           </div>
         )}
       </div>

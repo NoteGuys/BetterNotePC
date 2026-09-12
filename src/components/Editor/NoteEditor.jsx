@@ -235,7 +235,14 @@ export const NoteEditor = ({
         x: e.touches[0].clientX,
         y: e.touches[0].clientY
       };
-      // Single-finger panning on stage (Surface PC & Touch-friendly)
+      // Single-finger panning on stage:
+      // STRICT PALM REJECTION: If penOnly is active and tool is not 'hand',
+      // DO NOT initiate single-finger stage panning (this is the user's resting palm while writing)
+      if (penOnly && activeTool !== 'hand') {
+        stagePanRef.current.isPanning = false;
+        return;
+      }
+
       const stage = stageRef.current;
       if (stage) {
         stagePanRef.current = {
@@ -305,6 +312,10 @@ export const NoteEditor = ({
   const handleStageTouchMove = (e) => {
     // 1. Single Finger Panning on stage background
     if (e.touches.length === 1 && stagePanRef.current.isPanning) {
+      if (penOnly && activeTool !== 'hand') {
+        stagePanRef.current.isPanning = false;
+        return;
+      }
       const stage = stageRef.current;
       if (stage) {
         const dx = e.touches[0].clientX - stagePanRef.current.startX;
