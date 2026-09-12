@@ -234,8 +234,10 @@ export const NoteEditor = ({
   const pinchCooldownTimerRef = useRef(null);
 
   const handleStageTouchStart = (e) => {
-    // STRICT PALM REJECTION: If pen is active or used within 1200ms, IGNORE touch!
-    if (window.__bn_pen_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) {
+    // STRICT PALM REJECTION & OBJECT DRAG LOCK:
+    if (window.__bn_pen_active || 
+        (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200) ||
+        window.__bn_drag_active) {
       stagePanRef.current.isPanning = false;
       return;
     }
@@ -313,8 +315,10 @@ export const NoteEditor = ({
   };
 
   const handleStageTouchMove = (e) => {
-    // Palm Rejection: If pen is active or used within 1200ms, DO NOT SCROLL!
-    if (window.__bn_pen_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) {
+    // Palm Rejection & Object Drag Lock:
+    if (window.__bn_pen_active || 
+        (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200) ||
+        window.__bn_drag_active) {
       stagePanRef.current.isPanning = false;
       return;
     }

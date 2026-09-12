@@ -651,9 +651,9 @@ export const EditorToolbar = ({
 
         {/* Palm Rejection Shield (Surface Pen Only Toggle) */}
         <button 
-          className={`bn-btn-icon ${penOnly ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' : 'text-zinc-400'}`}
+          className={`bn-btn-icon ${penOnly ? 'bn-shield-active' : 'text-zinc-400 hover:text-white'}`}
           onClick={() => setPenOnly(!penOnly)}
-          title={penOnly ? 'เปิดอยู่: โหมด Surface Pen Only (ป้องกันอุ้งมือสัมผัสจอ ไม่เลื่อนขณะเขียน)' : 'ปิดอยู่: อนุญาตให้นิ้วมือเขียนได้'}
+          title={penOnly ? 'เปิดอยู่: โหมด Surface Pen Only (ป้องกันอุ้งมือสัมผัสจอ ไม่เลื่อนขณะเขียน - โล่สว่างทำงาน)' : 'ปิดอยู่: อนุญาตให้นิ้วมือเขียนได้'}
         >
           <ShieldCheck size={18} />
         </button>

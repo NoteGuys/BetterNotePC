@@ -239,14 +239,19 @@ export const CanvasBoard = ({
   const handleTouchStart = (e) => {
     lastTouchTimeRef.current = Date.now();
 
-    // STRICT PALM REJECTION:
-    // If stylus pen is currently writing OR was active within the last 600ms:
-    // Any touch contact is the user's resting palm! COMPLETELY IGNORE!
+    // PALM REJECTION & OBJECT DRAG LOCK:
+    // If pen is drawing, OR if user is dragging an image, lasso, or selection: DO NOT SCROLL AT ALL!
     const isPenWritingRecently = isDrawingRef.current || 
                                  window.__bn_pen_active || 
-                                 (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 600));
+                                 (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200));
 
-    if (isPenWritingRecently) {
+    const isDraggingObject = imageDragRef.current.isDragging || 
+                             imageDragRef.current.isResizing || 
+                             lassoDragRef.current.isDragging || 
+                             lassoDragRef.current.isResizing || 
+                             window.__bn_drag_active;
+
+    if (isPenWritingRecently || isDraggingObject) {
       isPanningRef.current = false;
       return;
     }
@@ -320,12 +325,19 @@ export const CanvasBoard = ({
       return;
     }
 
-    // PALM REJECTION: If pen is drawing or was active recently (within 1200ms), DO NOT SCROLL AT ALL!
+    // PALM REJECTION & OBJECT DRAG LOCK:
+    // If pen is drawing, OR if user is dragging an image, lasso, or selection: DO NOT SCROLL AT ALL!
     const isPenWritingRecently = isDrawingRef.current || 
                                  window.__bn_pen_active || 
                                  (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200));
 
-    if (isPenWritingRecently || isSnippingRef.current || activeTool === 'snip') {
+    const isDraggingObject = imageDragRef.current.isDragging || 
+                             imageDragRef.current.isResizing || 
+                             lassoDragRef.current.isDragging || 
+                             lassoDragRef.current.isResizing || 
+                             window.__bn_drag_active;
+
+    if (isPenWritingRecently || isDraggingObject || isSnippingRef.current || activeTool === 'snip') {
       isPanningRef.current = false;
       return;
     }
@@ -381,8 +393,17 @@ export const CanvasBoard = ({
       return;
     }
 
+    const isDraggingObject = imageDragRef.current.isDragging || 
+                             imageDragRef.current.isResizing || 
+                             lassoDragRef.current.isDragging || 
+                             lassoDragRef.current.isResizing || 
+                             window.__bn_drag_active;
+
     // If pen is active or used recently, kill any momentum scrolling immediately
-    if (window.__bn_pen_active || (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200))) {
+    if (isDrawingRef.current || 
+        window.__bn_pen_active || 
+        (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200)) ||
+        isDraggingObject) {
       isPanningRef.current = false;
       return;
     }
@@ -1395,6 +1416,16 @@ export const CanvasBoard = ({
       return;
     }
     e.stopPropagation();
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+
+    imageDragRef.current.isDragging = true;
+    window.__bn_drag_active = true;
+    isPanningRef.current = false;
+    if (momentumAnimRef.current) {
+      cancelAnimationFrame(momentumAnimRef.current);
+      momentumAnimRef.current = null;
+    }
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -1408,6 +1439,8 @@ export const CanvasBoard = ({
     let currentDy = 0;
 
     const onPointerMove = (moveEv) => {
+      moveEv.stopPropagation();
+      moveEv.preventDefault();
       const dx = (moveEv.clientX - startX) / zoom;
       const dy = (moveEv.clientY - startY) / zoom;
 
@@ -1427,10 +1460,20 @@ export const CanvasBoard = ({
       }
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (upEv) => {
+      if (upEv) {
+        upEv.stopPropagation();
+        upEv.preventDefault();
+      }
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
+
+      imageDragRef.current.isDragging = false;
+      setTimeout(() => {
+        window.__bn_drag_active = false;
+      }, 100);
 
       if (el) {
         el.classList.remove('bn-image-dragging');
@@ -1453,15 +1496,24 @@ export const CanvasBoard = ({
       }
     };
 
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('pointercancel', onPointerUp);
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerUp, { passive: false });
+    window.addEventListener('pointercancel', onPointerUp, { passive: false });
   };
 
   // Image Element Corner Resize Handlers with Window-level Drop Guarantee
   const handleImageResizeStart = (e, img, handle) => {
     e.stopPropagation();
     e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+
+    imageDragRef.current.isResizing = true;
+    window.__bn_drag_active = true;
+    isPanningRef.current = false;
+    if (momentumAnimRef.current) {
+      cancelAnimationFrame(momentumAnimRef.current);
+      momentumAnimRef.current = null;
+    }
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -1474,6 +1526,8 @@ export const CanvasBoard = ({
     let currentY = init.y;
 
     const onResizeMove = (moveEv) => {
+      moveEv.stopPropagation();
+      moveEv.preventDefault();
       const dx = (moveEv.clientX - startX) / zoom;
       const dy = (moveEv.clientY - startY) / zoom;
 
@@ -1513,10 +1567,20 @@ export const CanvasBoard = ({
       }
     };
 
-    const onResizeUp = () => {
+    const onResizeUp = (upEv) => {
+      if (upEv) {
+        upEv.stopPropagation();
+        upEv.preventDefault();
+      }
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
       window.removeEventListener('pointermove', onResizeMove);
       window.removeEventListener('pointerup', onResizeUp);
       window.removeEventListener('pointercancel', onResizeUp);
+
+      imageDragRef.current.isResizing = false;
+      setTimeout(() => {
+        window.__bn_drag_active = false;
+      }, 100);
 
       const updatedImages = imageElements.map(it => 
         it.id === img.id ? { ...it, x: currentX, y: currentY, width: currentW, height: currentH } : it
@@ -1529,9 +1593,9 @@ export const CanvasBoard = ({
       }
     };
 
-    window.addEventListener('pointermove', onResizeMove);
-    window.addEventListener('pointerup', onResizeUp);
-    window.addEventListener('pointercancel', onResizeUp);
+    window.addEventListener('pointermove', onResizeMove, { passive: false });
+    window.addEventListener('pointerup', onResizeUp, { passive: false });
+    window.addEventListener('pointercancel', onResizeUp, { passive: false });
   };
 
   // Lasso Selection Drag (Move) Handlers - Zero-Flicker 60fps
@@ -1584,6 +1648,13 @@ export const CanvasBoard = ({
       initialTexts: [...textElements],
       initialImages: [...imageElements]
     };
+
+    window.__bn_drag_active = true;
+    isPanningRef.current = false;
+    if (momentumAnimRef.current) {
+      cancelAnimationFrame(momentumAnimRef.current);
+      momentumAnimRef.current = null;
+    }
   };
 
   const handleLassoBoxPointerMove = (e) => {
@@ -1636,6 +1707,9 @@ export const CanvasBoard = ({
   const handleLassoBoxPointerUp = (e) => {
     if (lassoDragRef.current.isDragging) {
       lassoDragRef.current.isDragging = false;
+      setTimeout(() => {
+        window.__bn_drag_active = false;
+      }, 100);
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
 
       if (lassoRafRef.current) {
@@ -1794,6 +1868,13 @@ export const CanvasBoard = ({
       initialTexts: [...textElements],
       initialImages: [...imageElements]
     };
+
+    window.__bn_drag_active = true;
+    isPanningRef.current = false;
+    if (momentumAnimRef.current) {
+      cancelAnimationFrame(momentumAnimRef.current);
+      momentumAnimRef.current = null;
+    }
   };
 
   const handleLassoResizePointerMove = (e) => {
@@ -1838,6 +1919,9 @@ export const CanvasBoard = ({
   const handleLassoResizePointerUp = (e) => {
     if (lassoDragRef.current.isResizing) {
       lassoDragRef.current.isResizing = false;
+      setTimeout(() => {
+        window.__bn_drag_active = false;
+      }, 100);
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
 
       const { initialBbox, initialStrokes, initialTexts, initialImages } = lassoDragRef.current;
@@ -2116,6 +2200,8 @@ export const CanvasBoard = ({
                 height: `${(img.height / canvasHeight) * 100}%`
               }}
               onPointerDown={(e) => handleImagePointerDown(e, img)}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
             >
               <img 
                 src={img.src} 
@@ -2259,6 +2345,8 @@ export const CanvasBoard = ({
             onPointerMove={handleLassoBoxPointerMove}
             onPointerUp={handleLassoBoxPointerUp}
             onPointerCancel={handleLassoBoxPointerUp}
+            onTouchStart={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
           >
             {/* Floating Action Bar above Lasso Box */}
             <div 
