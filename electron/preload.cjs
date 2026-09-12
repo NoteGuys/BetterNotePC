@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, clipboard } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
@@ -12,4 +12,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   revealBackupFile: (filePath) => ipcRenderer.invoke('reveal-backup-file', filePath),
   readClipboardImage: () => ipcRenderer.invoke('read-clipboard-image')
 });
+
 

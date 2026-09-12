@@ -533,21 +533,61 @@ function createWindow() {
   // Handle reading image from Windows / system clipboard (for Long-Press Paste, External Copy, Win+Shift+S, Explorer)
   ipcMain.handle('read-clipboard-image', async () => {
     try {
-      // 1. Direct Image Bitmap in Clipboard (Win+Shift+S, Snipping Tool, Chrome Right Click -> Copy Image, etc.)
-      const img = clipboard.readImage();
-      if (img && !img.isEmpty()) {
-        const size = img.getSize();
-        const dataUrl = img.toDataURL();
-        return {
-          success: true,
-          dataUrl,
-          width: size.width,
-          height: size.height
-        };
+      // 1. Modern Electron Clipboard (W3C Clipboard API: clipboard.read() returns Promise<ClipboardItem[]>)
+      if (typeof clipboard.read === 'function') {
+        try {
+          const items = await clipboard.read();
+          if (Array.isArray(items)) {
+            for (const item of items) {
+              const imgType = item.types && item.types.find(t => t.startsWith('image/'));
+              if (imgType && typeof item.getType === 'function') {
+                const blob = await item.getType(imgType);
+                if (blob && blob.size > 0) {
+                  const arrayBuf = await blob.arrayBuffer();
+                  const base64 = Buffer.from(arrayBuf).toString('base64');
+                  const dataUrl = `data:${imgType};base64,${base64}`;
+                  return {
+                    success: true,
+                    dataUrl,
+                    width: 0,
+                    height: 0
+                  };
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('clipboard.read() error:', e.message);
+        }
       }
 
-      // 2. Check File Path in Clipboard (e.g. copied an image file from Windows Explorer or Desktop)
-      const rawText = clipboard.readText()?.trim();
+      // 2. Legacy Electron Image Bitmap (Win+Shift+S, Snipping Tool, Chrome Right Click -> Copy Image, etc.)
+      if (typeof clipboard.readImage === 'function') {
+        try {
+          const img = clipboard.readImage();
+          if (img && !img.isEmpty()) {
+            const size = img.getSize();
+            const dataUrl = img.toDataURL();
+            return {
+              success: true,
+              dataUrl,
+              width: size.width,
+              height: size.height
+            };
+          }
+        } catch (e) {
+          console.warn('clipboard.readImage() error:', e.message);
+        }
+      }
+
+      // 3. Check File Path in Clipboard (e.g. copied an image file from Windows Explorer or Desktop)
+      let rawText = '';
+      try {
+        if (typeof clipboard.readText === 'function') {
+          rawText = clipboard.readText()?.trim() || '';
+        }
+      } catch (_) {}
+
       let filePath = rawText;
       if (filePath && filePath.startsWith('"') && filePath.endsWith('"')) {
         filePath = filePath.slice(1, -1);
@@ -570,24 +610,26 @@ function createWindow() {
         }
       }
 
-      // 3. Check HTML snippet in clipboard (e.g. copied an image element from a web page)
-      const html = clipboard.readHTML();
-      if (html) {
-        const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-        if (match && match[1]) {
-          const src = match[1];
-          if (src.startsWith('data:image/')) {
-            return {
-              success: true,
-              dataUrl: src,
-              width: 600,
-              height: 450
-            };
+      // 4. Check HTML snippet in clipboard (e.g. copied an image element from a web page)
+      try {
+        const html = typeof clipboard.readHTML === 'function' ? clipboard.readHTML() : '';
+        if (html) {
+          const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+          if (match && match[1]) {
+            const src = match[1];
+            if (src.startsWith('data:image/')) {
+              return {
+                success: true,
+                dataUrl: src,
+                width: 600,
+                height: 450
+              };
+            }
           }
         }
-      }
+      } catch (_) {}
 
-      // 4. Raw Text with Data URL
+      // 5. Raw Text with Data URL
       if (rawText && rawText.startsWith('data:image/')) {
         return {
           success: true,

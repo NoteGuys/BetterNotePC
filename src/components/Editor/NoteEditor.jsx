@@ -176,6 +176,11 @@ export const NoteEditor = ({
         return;
       }
 
+      // PALM / PEN PROTECTION: If pen is active or recently used within 1200ms, IGNORE wheel flips completely!
+      if (window.__bn_pen_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) {
+        return;
+      }
+
       // In Horizontal Mode: Mouse wheel or touchpad scroll flips pages smoothly
       if (scrollDirection === 'horizontal') {
         const now = Date.now();
@@ -229,6 +234,12 @@ export const NoteEditor = ({
   const pinchCooldownTimerRef = useRef(null);
 
   const handleStageTouchStart = (e) => {
+    // STRICT PALM REJECTION: If pen is active or used within 1200ms, IGNORE touch!
+    if (window.__bn_pen_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) {
+      stagePanRef.current.isPanning = false;
+      return;
+    }
+
     if (e.touches.length === 1) {
       firstTouchRef.current = {
         time: Date.now(),
@@ -238,7 +249,7 @@ export const NoteEditor = ({
       const stage = stageRef.current;
       if (stage) {
         stagePanRef.current = {
-          isPanning: true,
+          isPanning: false, // will engage on intentional movement > 16px
           startX: e.touches[0].clientX,
           startY: e.touches[0].clientY,
           scrollLeft: stage.scrollLeft,
@@ -302,12 +313,28 @@ export const NoteEditor = ({
   };
 
   const handleStageTouchMove = (e) => {
+    // Palm Rejection: If pen is active or used within 1200ms, DO NOT SCROLL!
+    if (window.__bn_pen_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) {
+      stagePanRef.current.isPanning = false;
+      return;
+    }
+
     // 1. Single Finger Panning on stage background
-    if (e.touches.length === 1 && stagePanRef.current.isPanning) {
+    if (e.touches.length === 1) {
+      const dx = e.touches[0].clientX - stagePanRef.current.startX;
+      const dy = e.touches[0].clientY - stagePanRef.current.startY;
+      const dist = Math.hypot(dx, dy);
+
+      if (!stagePanRef.current.isPanning) {
+        if (dist > 16) {
+          stagePanRef.current.isPanning = true;
+        } else {
+          return;
+        }
+      }
+
       const stage = stageRef.current;
       if (stage) {
-        const dx = e.touches[0].clientX - stagePanRef.current.startX;
-        const dy = e.touches[0].clientY - stagePanRef.current.startY;
         stage.scrollLeft = stagePanRef.current.scrollLeft - dx;
         stage.scrollTop = stagePanRef.current.scrollTop - dy;
       }
@@ -407,19 +434,6 @@ export const NoteEditor = ({
         stage.scrollLeft = contentX * zoomRatio - pinch.focalOffsetX - pinch.panX;
         stage.scrollTop = contentY * zoomRatio - pinch.focalOffsetY - pinch.panY;
         setZoom(finalZoom);
-      }
-    }
-
-    // In Horizontal Mode: Single-finger horizontal swipe flips pages smoothly
-    if (e.changedTouches && e.changedTouches.length === 1 && scrollDirection === 'horizontal' && firstTouchRef.current) {
-      const dx = e.changedTouches[0].clientX - firstTouchRef.current.x;
-      const dt = Date.now() - firstTouchRef.current.time;
-      if (dt < 450 && Math.abs(dx) > 40) {
-        if (dx < 0 && currentPageIndexRef.current < pagesRef.current.length - 1) {
-          handleSelectPage(currentPageIndexRef.current + 1);
-        } else if (dx > 0 && currentPageIndexRef.current > 0) {
-          handleSelectPage(currentPageIndexRef.current - 1);
-        }
       }
     }
 
@@ -530,6 +544,7 @@ export const NoteEditor = ({
   // Snip Area Complete: stores crop in clipboard
   const handleSnipComplete = (dataUrl, width, height) => {
     setClipboardImage({ dataUrl, width, height });
+    window.__bn_clipboard_image = { dataUrl, width, height };
   };
 
   // Capture Full Current Page
@@ -538,6 +553,7 @@ export const NoteEditor = ({
     try {
       const dataUrl = await renderPageToCanvasDataUrl(currentPage, notebook.templateId);
       setClipboardImage({ dataUrl, width: 600, height: 800 });
+      window.__bn_clipboard_image = { dataUrl, width: 600, height: 800 };
       alert('แคปภาพทั้งหน้าเรียบร้อยแล้ว! กดปุ่ม "วางภาพ" หรือ Ctrl+V เพื่อวางในหน้านี้หรือหน้าอื่นได้เลย');
     } catch (err) {
       console.error(err);

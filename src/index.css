@@ -490,6 +490,7 @@ input, textarea, select {
   align-items: center;
   gap: 36px;
   width: 100%;
+  touch-action: none;
 }
 
 .bn-vertical-page-wrapper {
@@ -497,6 +498,7 @@ input, textarea, select {
   display: flex;
   flex-direction: column;
   align-items: center;
+  touch-action: none;
 }
 
 .bn-vertical-page-badge {
@@ -1397,6 +1399,7 @@ input, textarea, select {
   overflow-y: auto;
   overflow-x: auto;
   overscroll-behavior: contain;
+  touch-action: none;
   background-color: #121826;
   background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 24px 24px;

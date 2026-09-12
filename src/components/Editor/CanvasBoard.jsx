@@ -239,9 +239,14 @@ export const CanvasBoard = ({
   const handleTouchStart = (e) => {
     lastTouchTimeRef.current = Date.now();
 
-    // If stylus pen is currently drawing on screen:
-    // STRICT PALM REJECTION: Any touch contact (user's resting palm) MUST BE COMPLETELY IGNORED!
-    if (isDrawingRef.current) {
+    // STRICT PALM REJECTION:
+    // If stylus pen is currently writing OR was active within the last 600ms:
+    // Any touch contact is the user's resting palm! COMPLETELY IGNORE!
+    const isPenWritingRecently = isDrawingRef.current || 
+                                 window.__bn_pen_active || 
+                                 (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 600));
+
+    if (isPenWritingRecently) {
       isPanningRef.current = false;
       return;
     }
@@ -260,14 +265,8 @@ export const CanvasBoard = ({
           ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         }
       }
-      isPanningRef.current = false;
-      if (momentumAnimRef.current) {
-        cancelAnimationFrame(momentumAnimRef.current);
-        momentumAnimRef.current = null;
-      }
       // Release any pointer capture on active canvas so multi-touch gestures work cleanly
       try { activeCanvasRef.current?.releasePointerCapture(); } catch (_) {}
-      // DO NOT stopPropagation! Let touch bubble freely to NoteEditor for pinch-zoom and 2-finger tap undo!
       return;
     }
 
@@ -288,11 +287,10 @@ export const CanvasBoard = ({
       setFloatingPasteMenu(null);
     }
 
-    // Single Finger Touch Scrolling: ALLOWED AT ALL TIMES whenever pen is NOT drawing!
-    // User can scroll the page with finger at any time without switching tools!
-    if (e.touches.length === 1 && !isDrawingRef.current && !isSnippingRef.current && activeTool !== 'snip') {
+    // Single Finger Touch Scrolling: record start position
+    // (Panning engages only on intentional movement > 16px to avoid palm rest jitter)
+    if (e.touches.length === 1) {
       const scrollParent = containerRef.current?.closest('.bn-editor-canvas-stage') || window;
-      isPanningRef.current = true;
       const t = e.touches[0];
       panStartRef.current = {
         x: t.clientX,
@@ -308,6 +306,7 @@ export const CanvasBoard = ({
         lastY: t.clientY,
         lastTime: performance.now()
       };
+      isPanningRef.current = false;
     }
   };
 
@@ -321,22 +320,39 @@ export const CanvasBoard = ({
       return;
     }
 
-    // If pen is drawing or snipping, DO NOT SCROLL AT ALL (Palm Rejection)!
-    if (isDrawingRef.current || isSnippingRef.current || activeTool === 'snip') {
+    // PALM REJECTION: If pen is drawing or was active recently (within 1200ms), DO NOT SCROLL AT ALL!
+    const isPenWritingRecently = isDrawingRef.current || 
+                                 window.__bn_pen_active || 
+                                 (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200));
+
+    if (isPenWritingRecently || isSnippingRef.current || activeTool === 'snip') {
       isPanningRef.current = false;
       return;
     }
 
     // Single Finger Pan: move page smoothly whenever pen is not drawing
-    if (isPanningRef.current && e.touches.length === 1) {
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      const deltaX = t.clientX - panStartRef.current.x;
+      const deltaY = t.clientY - panStartRef.current.y;
+      const dist = Math.hypot(deltaX, deltaY);
+
+      // Require intentional drag (> 16px) to distinguish deliberate finger swipe from resting palm
+      if (!isPanningRef.current) {
+        if (dist > 16) {
+          isPanningRef.current = true;
+        } else {
+          return;
+        }
+      }
+
+      // Stop propagation to avoid double-scrolling conflict with NoteEditor stage
+      e.stopPropagation();
+
       const scrollParent = containerRef.current?.closest('.bn-editor-canvas-stage');
       if (scrollParent) {
-        const t = e.touches[0];
         const now = performance.now();
         const dt = Math.max(1, now - touchVelocityRef.current.lastTime);
-
-        const deltaX = t.clientX - panStartRef.current.x;
-        const deltaY = t.clientY - panStartRef.current.y;
 
         scrollParent.scrollLeft = panStartRef.current.scrollLeft - deltaX;
         scrollParent.scrollTop = panStartRef.current.scrollTop - deltaY;
@@ -365,6 +381,12 @@ export const CanvasBoard = ({
       return;
     }
 
+    // If pen is active or used recently, kill any momentum scrolling immediately
+    if (window.__bn_pen_active || (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200))) {
+      isPanningRef.current = false;
+      return;
+    }
+
     // Single Finger Pan End (Momentum Scrolling)
     if (isPanningRef.current) {
       isPanningRef.current = false;
@@ -373,11 +395,17 @@ export const CanvasBoard = ({
         let { vx, vy } = touchVelocityRef.current;
         const speed = Math.hypot(vx, vy);
 
-        if (speed > 0.2) {
+        if (speed > 0.25) {
           const friction = 0.95;
           const minVelocity = 0.05;
 
           const applyMomentum = () => {
+            // Cancel momentum if user touches pen down!
+            if (window.__bn_pen_active || isDrawingRef.current) {
+              momentumAnimRef.current = null;
+              return;
+            }
+
             vx *= friction;
             vy *= friction;
 
@@ -411,6 +439,16 @@ export const CanvasBoard = ({
     if (e.pointerType === 'touch') {
       lastTouchTimeRef.current = Date.now();
 
+      // Discard large palm contacts (Surface touch digitizer geometry)
+      if (e.width > 28 || e.height > 28) {
+        return;
+      }
+
+      // If pen is active or was used recently (within 1200ms), IGNORE touch completely (Palm Rejection)
+      if (window.__bn_pen_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) {
+        return;
+      }
+
       // Start Long-Press Timer for Floating "วาง" (Paste) Menu (450ms stationary hold)
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
       longPressStartPosRef.current = {
@@ -433,7 +471,7 @@ export const CanvasBoard = ({
         }, 450);
       }
 
-      // DO NOT draw ink. DO NOT call preventDefault (so touch can pan/scroll smoothly)!
+      // DO NOT draw ink. Return so touch can pan/scroll smoothly if pen is not active.
       return;
     }
 
@@ -442,13 +480,15 @@ export const CanvasBoard = ({
       return;
     }
 
-    // 3. Reject large palm contacts if detected
+    // 3. Reject non-pen large contacts
     if (penOnly && e.pointerType !== 'pen' && (e.width > 25 || e.height > 25)) {
       return;
     }
 
     // 4. STYLUS PEN (or physical desktop mouse click)
     // When pen touches the canvas: halt any scrolling immediately!
+    window.__bn_pen_active = true;
+    window.__bn_pen_last_time = Date.now();
     isPanningRef.current = false;
     if (momentumAnimRef.current) {
       cancelAnimationFrame(momentumAnimRef.current);
@@ -625,8 +665,18 @@ export const CanvasBoard = ({
       return;
     }
 
+    // Pen activity tracking (including hover & movement)
+    if (e.pointerType === 'pen') {
+      window.__bn_pen_last_time = Date.now();
+      if (e.buttons > 0 || e.pressure > 0) {
+        window.__bn_pen_active = true;
+      }
+    }
+
     // 3. Strict Scroll Lock during Active Inking: Prevent any page panning while pen is down
     if (isDrawingRef.current) {
+      window.__bn_pen_active = true;
+      window.__bn_pen_last_time = Date.now();
       e.preventDefault();
       e.stopPropagation();
     }
@@ -830,6 +880,11 @@ export const CanvasBoard = ({
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
+    }
+
+    if (e.pointerType === 'pen') {
+      window.__bn_pen_active = false;
+      window.__bn_pen_last_time = Date.now();
     }
 
     // 2. Touch Up: Finger never inks! Update touch timestamp and return
@@ -1186,12 +1241,11 @@ export const CanvasBoard = ({
 
   // Execute Paste Image from System / Windows Clipboard
   const handleExecutePaste = async (posX, posY) => {
-    setFloatingPasteMenu(null);
     let imgDataUrl = null;
     let imgWidth = 0;
     let imgHeight = 0;
 
-    // 1. Electron Native Clipboard IPC (Windows Snipping Tool, Win+Shift+S, external image copy)
+    // 1. Electron Native Clipboard IPC
     if (window.electronAPI?.readClipboardImage) {
       try {
         const res = await window.electronAPI.readClipboardImage();
@@ -1205,8 +1259,16 @@ export const CanvasBoard = ({
       }
     }
 
-    // 2. Web Clipboard API Fallback
-    if (!imgDataUrl && navigator.clipboard && navigator.clipboard.read) {
+    // 2. In-App Clipboard Image (from full page capture, snip, or internal copy)
+    if (!imgDataUrl && (window.__bn_clipboard_image?.dataUrl || lastSnippedImage?.dataUrl)) {
+      const srcObj = window.__bn_clipboard_image || lastSnippedImage;
+      imgDataUrl = srcObj.dataUrl;
+      imgWidth = srcObj.width || 0;
+      imgHeight = srcObj.height || 0;
+    }
+
+    // 3. Web Clipboard API Fallback
+    if (!imgDataUrl && navigator.clipboard?.read) {
       try {
         const clipboardItems = await navigator.clipboard.read();
         for (const item of clipboardItems) {
@@ -1226,8 +1288,21 @@ export const CanvasBoard = ({
       }
     }
 
+    // 4. Web Clipboard Text Fallback (Base64 data url)
+    if (!imgDataUrl && navigator.clipboard?.readText) {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && text.startsWith('data:image/')) {
+          imgDataUrl = text;
+        }
+      } catch (_) {}
+    }
+
+    // Dismiss floating paste menu now that reading is finished
+    setFloatingPasteMenu(null);
+
     if (!imgDataUrl) {
-      showToast('ไม่พบรูปภาพในคลิปบอร์ด (กรุณาคัดลอกภาพก่อน) 📋');
+      showToast('ไม่พบรูปภาพในคลิปบอร์ด (กรุณาคัดลอกภาพก่อน หรือใช้ Win+Shift+S) 📋');
       return;
     }
 
