@@ -639,10 +639,9 @@ export const EditorToolbar = ({
           </button>
 
           <button
-            className={`bn-btn-icon ${hasClipboardImage ? 'text-amber-400 font-bold' : 'text-zinc-600'}`}
+            className={`bn-btn-icon ${hasClipboardImage ? 'text-amber-400 font-bold' : 'text-zinc-300 hover:text-white'}`}
             onClick={onPasteClipboardImage}
-            disabled={!hasClipboardImage}
-            title={hasClipboardImage ? "วางรูปภาพที่แคปไว้ (Paste Snippet)" : "ยังไม่มีภาพในคลิปบอร์ด"}
+            title="วางรูปภาพจากคลิปบอร์ด / แคปหน้าจอ (Paste Image) [Ctrl+V]"
           >
             <ClipboardPaste size={17} />
           </button>

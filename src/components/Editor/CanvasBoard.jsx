@@ -100,6 +100,7 @@ export const CanvasBoard = ({
   const [floatingPasteMenu, setFloatingPasteMenu] = useState(null); // { x, y, canvasX, canvasY }
   const longPressTimerRef = useRef(null);
   const longPressStartPosRef = useRef({ clientX: 0, clientY: 0, canvasX: 0, canvasY: 0 });
+  const lastTouchTimeRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -236,6 +237,15 @@ export const CanvasBoard = ({
 
   // Touch Start: Strict Isolation between Pen, Snip, Touch Panning & Pinch-to-Zoom
   const handleTouchStart = (e) => {
+    lastTouchTimeRef.current = Date.now();
+
+    // If stylus pen is currently drawing on screen:
+    // STRICT PALM REJECTION: Any touch contact (user's resting palm) MUST BE COMPLETELY IGNORED!
+    if (isDrawingRef.current) {
+      isPanningRef.current = false;
+      return;
+    }
+
     // If multiple touches detected (2 or more fingers), cancel any active in-progress drawing immediately
     if (e.touches.length >= 2) {
       if (isDrawingRef.current) {
@@ -261,8 +271,8 @@ export const CanvasBoard = ({
       return;
     }
 
-    // If drawing with pen or snipping, do not pan/scroll
-    if ((isDrawingRef.current && e.touches.length < 2) || isSnippingRef.current || activeTool === 'snip') {
+    // If snipping, do not pan/scroll
+    if (isSnippingRef.current || activeTool === 'snip') {
       isPanningRef.current = false;
       return;
     }
@@ -278,9 +288,9 @@ export const CanvasBoard = ({
       setFloatingPasteMenu(null);
     }
 
-    // Single Finger Touch Scrolling (STRICTLY limited to 'hand' tool)
-    // Prevents resting palm while using pen/highlighter/eraser from accidentally panning the canvas
-    if (e.touches.length === 1 && activeTool === 'hand' && !isDrawingRef.current && !isSnippingRef.current) {
+    // Single Finger Touch Scrolling: ALLOWED AT ALL TIMES whenever pen is NOT drawing!
+    // User can scroll the page with finger at any time without switching tools!
+    if (e.touches.length === 1 && !isDrawingRef.current && !isSnippingRef.current && activeTool !== 'snip') {
       const scrollParent = containerRef.current?.closest('.bn-editor-canvas-stage') || window;
       isPanningRef.current = true;
       const t = e.touches[0];
@@ -303,19 +313,21 @@ export const CanvasBoard = ({
 
   // Touch Move: Handle Single Finger Panning (2 fingers bubble to Stage for pinch-to-zoom)
   const handleTouchMove = (e) => {
+    lastTouchTimeRef.current = Date.now();
+
     // Two or more fingers: let Stage handle pinch-to-zoom cleanly without interference
     if (e.touches.length >= 2) {
       isPanningRef.current = false;
       return;
     }
 
-    // If tool is not 'hand' or pen is drawing or snipping, DO NOT SCROLL AT ALL!
-    if (activeTool !== 'hand' || isDrawingRef.current || isSnippingRef.current || activeTool === 'snip') {
+    // If pen is drawing or snipping, DO NOT SCROLL AT ALL (Palm Rejection)!
+    if (isDrawingRef.current || isSnippingRef.current || activeTool === 'snip') {
       isPanningRef.current = false;
       return;
     }
 
-    // Single Finger Pan
+    // Single Finger Pan: move page smoothly whenever pen is not drawing
     if (isPanningRef.current && e.touches.length === 1) {
       const scrollParent = containerRef.current?.closest('.bn-editor-canvas-stage');
       if (scrollParent) {
@@ -346,6 +358,7 @@ export const CanvasBoard = ({
 
   // Touch End: Handle Inertial Momentum Scrolling (Never stops propagation for multi-touch)
   const handleTouchEnd = (e) => {
+    lastTouchTimeRef.current = Date.now();
     // If multi-touch in progress, cancel panning and allow touchend to bubble cleanly to NoteEditor
     if (e.touches.length >= 2) {
       isPanningRef.current = false;
@@ -391,29 +404,55 @@ export const CanvasBoard = ({
       setFloatingPasteMenu(null);
     }
 
-    // 1. Strict Palm Rejection:
-    // When palm rejection is active (penOnly), reject finger touch & palm contacts completely
-    // Calling preventDefault() prevents Chromium from synthesizing mouse events (mousedown/mousemove)
-    if (penOnly && e.pointerType === 'touch') {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
+    const coords = getCanvasCoordinates(e);
 
-    // Reject large palm contacts (Windows sends contact geometry e.width, e.height)
-    if (penOnly && e.pointerType !== 'pen' && (e.width > 25 || e.height > 25)) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
+    // 1. TOUCH INPUT (Finger / Palm):
+    // Standard rule: Finger NEVER draws ink! Finger is dedicated to scrolling/panning or long-pressing to paste!
+    if (e.pointerType === 'touch') {
+      lastTouchTimeRef.current = Date.now();
 
-    // STRICT: When pen touches the screen, halt any scrolling immediately!
-    if (e.pointerType === 'pen') {
-      isPanningRef.current = false;
-      if (momentumAnimRef.current) {
-        cancelAnimationFrame(momentumAnimRef.current);
-        momentumAnimRef.current = null;
+      // Start Long-Press Timer for Floating "วาง" (Paste) Menu (450ms stationary hold)
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      longPressStartPosRef.current = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        canvasX: coords.x,
+        canvasY: coords.y
+      };
+
+      if (activeTool !== 'snip' && activeTool !== 'lasso') {
+        longPressTimerRef.current = setTimeout(() => {
+          if (!isSnippingRef.current && !isLassoingRef.current && !imageDragRef.current.isDragging) {
+            setFloatingPasteMenu({
+              x: coords.x,
+              y: coords.y,
+              canvasX: coords.x,
+              canvasY: coords.y
+            });
+          }
+        }, 450);
       }
+
+      // DO NOT draw ink. DO NOT call preventDefault (so touch can pan/scroll smoothly)!
+      return;
+    }
+
+    // 2. Suppress synthetic mouse events generated from touch
+    if (e.pointerType === 'mouse' && (Date.now() - lastTouchTimeRef.current < 700)) {
+      return;
+    }
+
+    // 3. Reject large palm contacts if detected
+    if (penOnly && e.pointerType !== 'pen' && (e.width > 25 || e.height > 25)) {
+      return;
+    }
+
+    // 4. STYLUS PEN (or physical desktop mouse click)
+    // When pen touches the canvas: halt any scrolling immediately!
+    isPanningRef.current = false;
+    if (momentumAnimRef.current) {
+      cancelAnimationFrame(momentumAnimRef.current);
+      momentumAnimRef.current = null;
     }
 
     if (activeTool === 'hand') return;
@@ -423,9 +462,7 @@ export const CanvasBoard = ({
       setSelectedImageId(null);
     }
 
-    const coords = getCanvasCoordinates(e);
-
-    // 2. Long-Press Setup for Floating Paste Menu (Touch or Pen stationary hold ~450ms)
+    // Setup long-press for pen as well (e.g. if user holds pen still without moving):
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     longPressStartPosRef.current = {
       clientX: e.clientX,
@@ -437,7 +474,6 @@ export const CanvasBoard = ({
     if (activeTool !== 'hand' && activeTool !== 'snip' && activeTool !== 'lasso') {
       longPressTimerRef.current = setTimeout(() => {
         if (!isSnippingRef.current && !isLassoingRef.current && !imageDragRef.current.isDragging) {
-          // Cancel active stroke if long press was triggered
           if (isDrawingRef.current) {
             isDrawingRef.current = false;
             currentPointsRef.current = [];
@@ -583,15 +619,9 @@ export const CanvasBoard = ({
       }
     }
 
-    // 2. Strict Palm Rejection on Move
-    if (penOnly && e.pointerType === 'touch') {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (penOnly && e.pointerType !== 'pen' && (e.width > 25 || e.height > 25)) {
-      e.preventDefault();
-      e.stopPropagation();
+    // 2. Touch Move: Finger never inks! Update touch timestamp and return
+    if (e.pointerType === 'touch') {
+      lastTouchTimeRef.current = Date.now();
       return;
     }
 
@@ -802,15 +832,9 @@ export const CanvasBoard = ({
       longPressTimerRef.current = null;
     }
 
-    // 2. Strict Palm Rejection on Up
-    if (penOnly && e.pointerType === 'touch') {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (penOnly && e.pointerType !== 'pen' && (e.width > 25 || e.height > 25)) {
-      e.preventDefault();
-      e.stopPropagation();
+    // 2. Touch Up: Finger never inks! Update touch timestamp and return
+    if (e.pointerType === 'touch') {
+      lastTouchTimeRef.current = Date.now();
       return;
     }
     // Snipping Tool Finalize Crop

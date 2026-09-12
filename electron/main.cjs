@@ -530,9 +530,10 @@ function createWindow() {
     }
   });
 
-  // Handle reading image from Windows / system clipboard (for Long-Press Paste & external copy)
+  // Handle reading image from Windows / system clipboard (for Long-Press Paste, External Copy, Win+Shift+S, Explorer)
   ipcMain.handle('read-clipboard-image', async () => {
     try {
+      // 1. Direct Image Bitmap in Clipboard (Win+Shift+S, Snipping Tool, Chrome Right Click -> Copy Image, etc.)
       const img = clipboard.readImage();
       if (img && !img.isEmpty()) {
         const size = img.getSize();
@@ -544,6 +545,58 @@ function createWindow() {
           height: size.height
         };
       }
+
+      // 2. Check File Path in Clipboard (e.g. copied an image file from Windows Explorer or Desktop)
+      const rawText = clipboard.readText()?.trim();
+      let filePath = rawText;
+      if (filePath && filePath.startsWith('"') && filePath.endsWith('"')) {
+        filePath = filePath.slice(1, -1);
+      }
+
+      const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.svg'];
+      if (filePath && imageExtensions.some(ext => filePath.toLowerCase().endsWith(ext))) {
+        if (fs.existsSync(filePath)) {
+          const ext = path.extname(filePath).slice(1).toLowerCase();
+          const mime = ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+          const buffer = fs.readFileSync(filePath);
+          const base64 = buffer.toString('base64');
+          const dataUrl = `data:${mime};base64,${base64}`;
+          return {
+            success: true,
+            dataUrl,
+            width: 600,
+            height: 450
+          };
+        }
+      }
+
+      // 3. Check HTML snippet in clipboard (e.g. copied an image element from a web page)
+      const html = clipboard.readHTML();
+      if (html) {
+        const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (match && match[1]) {
+          const src = match[1];
+          if (src.startsWith('data:image/')) {
+            return {
+              success: true,
+              dataUrl: src,
+              width: 600,
+              height: 450
+            };
+          }
+        }
+      }
+
+      // 4. Raw Text with Data URL
+      if (rawText && rawText.startsWith('data:image/')) {
+        return {
+          success: true,
+          dataUrl: rawText,
+          width: 600,
+          height: 450
+        };
+      }
+
       return { success: false, reason: 'empty' };
     } catch (err) {
       console.error('read-clipboard-image error:', err);

@@ -235,14 +235,6 @@ export const NoteEditor = ({
         x: e.touches[0].clientX,
         y: e.touches[0].clientY
       };
-      // Single-finger panning on stage:
-      // STRICT PALM REJECTION: If penOnly is active and tool is not 'hand',
-      // DO NOT initiate single-finger stage panning (this is the user's resting palm while writing)
-      if (penOnly && activeTool !== 'hand') {
-        stagePanRef.current.isPanning = false;
-        return;
-      }
-
       const stage = stageRef.current;
       if (stage) {
         stagePanRef.current = {
@@ -312,10 +304,6 @@ export const NoteEditor = ({
   const handleStageTouchMove = (e) => {
     // 1. Single Finger Panning on stage background
     if (e.touches.length === 1 && stagePanRef.current.isPanning) {
-      if (penOnly && activeTool !== 'hand') {
-        stagePanRef.current.isPanning = false;
-        return;
-      }
       const stage = stageRef.current;
       if (stage) {
         const dx = e.touches[0].clientX - stagePanRef.current.startX;
@@ -557,21 +545,95 @@ export const NoteEditor = ({
     }
   };
 
-  // Paste Snipped Image on Current Page
-  const handlePasteClipboardImage = async () => {
-    if (!clipboardImage || !currentPage) return;
+  // Paste Snipped / External Clipboard Image on Current Page
+  const handlePasteClipboardImage = async (customPos = null) => {
+    if (!currentPage) return;
 
-    const newImg = {
-      id: `img-${Date.now()}`,
-      src: clipboardImage.dataUrl,
-      x: 120,
-      y: 140,
-      width: Math.min(600, clipboardImage.width || 350),
-      height: Math.min(600, clipboardImage.height || 250)
+    let imgDataUrl = null;
+    let imgWidth = 400;
+    let imgHeight = 300;
+
+    // 1. Check Native Electron Clipboard (Windows Snipping Tool, Win+Shift+S, Explorer copy file)
+    if (window.electronAPI?.readClipboardImage) {
+      try {
+        const res = await window.electronAPI.readClipboardImage();
+        if (res && res.success && res.dataUrl) {
+          imgDataUrl = res.dataUrl;
+          imgWidth = res.width || 400;
+          imgHeight = res.height || 300;
+        }
+      } catch (err) {
+        console.warn('Native clipboard read error:', err);
+      }
+    }
+
+    // 2. Check In-App Snipped Image
+    if (!imgDataUrl && clipboardImage?.dataUrl) {
+      imgDataUrl = clipboardImage.dataUrl;
+      imgWidth = clipboardImage.width || 400;
+      imgHeight = clipboardImage.height || 300;
+    }
+
+    // 3. Fallback to Web Clipboard API
+    if (!imgDataUrl && navigator.clipboard?.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const type = item.types.find(t => t.startsWith('image/'));
+          if (type) {
+            const blob = await item.getType(type);
+            imgDataUrl = await new Promise((res) => {
+              const reader = new FileReader();
+              reader.onload = () => res(reader.result);
+              reader.readAsDataURL(blob);
+            });
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn('Web clipboard error:', err);
+      }
+    }
+
+    if (!imgDataUrl) {
+      alert('ไม่พบรูปภาพในคลิปบอร์ด (กรุณาคัดลอกภาพก่อน หรือใช้ Win+Shift+S แคปภาพแล้วกดวาง)');
+      return;
+    }
+
+    const img = new Image();
+    img.onload = async () => {
+      let w = img.naturalWidth || imgWidth || 400;
+      let h = img.naturalHeight || imgHeight || 300;
+
+      const maxDim = 650;
+      if (w > maxDim || h > maxDim) {
+        const r = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * r);
+        h = Math.round(h * r);
+      }
+
+      const pWidth = currentPage.pageWidth || 1200;
+      const pHeight = currentPage.pageHeight || 1600;
+
+      let posX = customPos ? customPos.x - w / 2 : (pWidth - w) / 2;
+      let posY = customPos ? customPos.y - h / 2 : (pHeight - h) / 2;
+
+      posX = Math.max(20, Math.min(pWidth - w - 20, Math.round(posX)));
+      posY = Math.max(20, Math.min(pHeight - h - 20, Math.round(posY)));
+
+      const newImg = {
+        id: `img-${Date.now()}`,
+        src: imgDataUrl,
+        x: posX,
+        y: posY,
+        width: w,
+        height: h
+      };
+
+      const existingImgs = currentPage.imageElements || [];
+      await handleImageElementsChange([...existingImgs, newImg]);
     };
-
-    const existingImgs = currentPage.imageElements || [];
-    await handleImageElementsChange([...existingImgs, newImg]);
+    img.src = imgDataUrl;
   };
 
   // Duplicate Current Notebook
@@ -675,15 +737,26 @@ export const NoteEditor = ({
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
         e.preventDefault();
         handleRedo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        if (clipboardImage) {
-          e.preventDefault();
-          handlePasteClipboardImage();
-        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        handlePasteClipboardImage();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+
+    // Global native window paste handler
+    const handleWindowPaste = (e) => {
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      e.preventDefault();
+      handlePasteClipboardImage();
+    };
+    window.addEventListener('paste', handleWindowPaste);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('paste', handleWindowPaste);
+    };
   }, [canUndo, canRedo, historyPointer, historyStack, currentPageIndex, pages, clipboardImage]);
 
   // Programmatic scroll state lock to prevent IntersectionObserver fighting
