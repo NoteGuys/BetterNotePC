@@ -11,8 +11,8 @@
 [![React](https://img.shields.io/badge/React-18.3.1-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.4.3-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Tailored for Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20Surface-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/surface)
-[![Download for Windows](https://img.shields.io/badge/⬇️_Download-v1.0.0_(Windows_x64)-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.0.0/BetterNotePC-v1.0.0-Windows-x64.zip)
-[![Latest Release](https://img.shields.io/badge/Release-v1.0.0-blue?style=for-the-badge)](https://github.com/NoteGuys/BetterNotePC/releases/latest)
+[![Download for Windows](https://img.shields.io/badge/⬇️_Download-v1.1.0_(Windows_x64)-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.1.0/BetterNotePC-v1.1.0-Windows-x64.zip)
+[![Latest Release](https://img.shields.io/badge/Release-v1.1.0-blue?style=for-the-badge)](https://github.com/NoteGuys/BetterNotePC/releases/latest)
 
 </div>
 
@@ -22,7 +22,7 @@
 
 For Windows 10 and Windows 11 users, a pre-compiled standalone package is available without requiring Node.js or additional dependencies:
 
-📦 **👉 [Download BetterNotePC v1.0.0 (Windows 64-bit .zip)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.0.0/BetterNotePC-v1.0.0-Windows-x64.zip)** *(~151 MB)*
+📦 **👉 [Download BetterNotePC v1.1.0 (Windows 64-bit .zip)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.1.0/BetterNotePC-v1.1.0-Windows-x64.zip)** *(~151 MB)*
 
 > **💡 Quick Start Guide:**
 > 1. Download the `.zip` archive from the link above.
@@ -79,6 +79,11 @@ Traditional note-taking applications on Windows often suffer from high pen laten
   - Protected against accidental triggers from resting palms or single-finger taps.
 - **Fluid Pinch-to-Zoom & Pan**:
   - Seamless two-finger navigation with viewport anchor lock preventing canvas jumping.
+- **Hardware-Grade Palm Rejection & Screen Lock (New in v1.1.0)**:
+  - Complete screen-lock while writing with pen: prevents resting palms from accidentally scrolling or shifting pages.
+  - 1,200ms active protection window after stylus lift to prevent palm shifts between words.
+  - Contact geometry filtering rejects touches with width/height > 28px.
+  - Radiant glowing neon emerald shield button with pulsing animation when active.
 
 ---
 
@@ -99,9 +104,15 @@ Traditional note-taking applications on Windows often suffer from high pen laten
 
 ---
 
-### 6. ✂️ Snip & Lasso Selection Tools
+### 6. ✂️ Snip, Lasso Selection & External Image Pasting
+- **External Image Paste (New in v1.1.0)**:
+  - Paste images directly from the Windows system clipboard into any note page.
+  - Full support for **Windows Snipping Tool (`Win + Shift + S`)**, File Explorer copied image files (`.png`, `.jpg`, `.webp`), web browsers, and screenshots.
+  - Easily paste via the Canvas Long-Press / Right-Click Context Menu ("วาง") or the Top Toolbar Paste button.
+  - Zero-lag image scaling, drag-to-reposition, and corner resizing.
 - **Snip Area Tool**: Draw a selection box to crop any handwritten note or image and copy it to the clipboard.
 - **Lasso Selection**: Freehand outline strokes, text, and images to move, duplicate, resize, recolor, or delete them in one click.
+- **Object Drag Lock**: Screen never pans or shifts while dragging or resizing images and lasso selections.
 
 ---
 
