@@ -28,8 +28,12 @@ import {
   LassoSelect,
   Triangle,
   FilePlus,
-  Star
+  Star,
+  Image as ImageIcon,
+  X
 } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
+import { DEFAULT_TOOL_WIDTH_SLOTS } from '../../services/userPreferences';
 
 const DEFAULT_PRESET_COLORS = [
   '#1e293b', // Midnight Black
@@ -112,12 +116,83 @@ export const EditorToolbar = ({
   onPasteClipboardImage,
   onCaptureFullPage
 }) => {
+  const { t } = useLanguage();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(notebookTitle);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showPenSettings, setShowPenSettings] = useState(false);
   const [showEraserMenu, setShowEraserMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showWidthSlider, setShowWidthSlider] = useState(false);
+  const [activeSlotIdx, setActiveSlotIdx] = useState(1);
+
+  // 3 Custom Width Slots per Tool (Persisted in localStorage)
+  const [widthSlots, setWidthSlots] = useState(() => {
+    try {
+      const saved = localStorage.getItem('betternote_tool_width_slots');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return {
+            pen: Array.isArray(parsed.pen) && parsed.pen.length === 3 ? parsed.pen : DEFAULT_TOOL_WIDTH_SLOTS.pen,
+            highlighter: Array.isArray(parsed.highlighter) && parsed.highlighter.length === 3 ? parsed.highlighter : DEFAULT_TOOL_WIDTH_SLOTS.highlighter,
+            eraser: Array.isArray(parsed.eraser) && parsed.eraser.length === 3 ? parsed.eraser : DEFAULT_TOOL_WIDTH_SLOTS.eraser,
+            shape: Array.isArray(parsed.shape) && parsed.shape.length === 3 ? parsed.shape : DEFAULT_TOOL_WIDTH_SLOTS.shape,
+          };
+        }
+      }
+    } catch (_) {}
+    return DEFAULT_TOOL_WIDTH_SLOTS;
+  });
+
+  const getToolSliderConfig = (tool) => {
+    switch(tool) {
+      case 'highlighter':
+        return { min: 4, max: 60, step: 1, chips: [8, 14, 20, 28, 36, 48] };
+      case 'eraser':
+        return { min: 4, max: 80, step: 2, chips: [10, 20, 30, 45, 60] };
+      case 'shape':
+        return { min: 0.5, max: 24, step: 0.5, chips: [1, 2, 3, 5, 8, 12] };
+      case 'pen':
+      default:
+        return { min: 0.5, max: 24, step: 0.5, chips: [1, 1.5, 2.5, 3.5, 5, 8, 12] };
+    }
+  };
+
+  const handleWidthChangeAndSaveToSlot = (newVal) => {
+    const rounded = Math.round(Number(newVal) * 10) / 10;
+    setActiveWidth(rounded);
+    if (onToolWidthChange) onToolWidthChange(activeTool, rounded);
+
+    // Save into active slot for activeTool
+    setWidthSlots(prev => {
+      const toolKey = ['pen', 'highlighter', 'eraser', 'shape'].includes(activeTool) ? activeTool : 'pen';
+      const curSlots = [...(prev[toolKey] || DEFAULT_TOOL_WIDTH_SLOTS[toolKey])];
+      curSlots[activeSlotIdx] = rounded;
+      const updated = {
+        ...prev,
+        [toolKey]: curSlots
+      };
+      try {
+        localStorage.setItem('betternote_tool_width_slots', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+  };
+
+  const handleSelectSlot = (idx) => {
+    const toolKey = ['pen', 'highlighter', 'eraser', 'shape'].includes(activeTool) ? activeTool : 'pen';
+    const slots = widthSlots[toolKey] || DEFAULT_TOOL_WIDTH_SLOTS[toolKey];
+    const val = slots[idx] || 4;
+
+    if (activeSlotIdx === idx) {
+      setShowWidthSlider(prev => !prev);
+    } else {
+      setActiveSlotIdx(idx);
+      setActiveWidth(val);
+      if (onToolWidthChange) onToolWidthChange(activeTool, val);
+    }
+  };
 
   // 5 Quick Color Slots (Persisted in localStorage for Studio style palette)
   const [colorSlots, setColorSlots] = useState(() => {
@@ -175,12 +250,13 @@ export const EditorToolbar = ({
     setShowShapeMenu(false);
     setShowEraserMenu(false);
     setShowExportMenu(false);
+    setShowWidthSlider(false);
   };
 
   return (
     <div className="bn-editor-toolbar-container" onClick={(e) => {
       // Don't close if clicking inside a dropdown
-      if (!e.target.closest('.bn-pen-settings-dropdown') && !e.target.closest('.bn-shape-dropdown')) {
+      if (!e.target.closest('.bn-pen-settings-dropdown') && !e.target.closest('.bn-shape-dropdown') && !e.target.closest('.bn-width-slider-dropdown')) {
         closeAllPopovers();
       }
     }}>
@@ -533,9 +609,18 @@ export const EditorToolbar = ({
           <button 
             className={`bn-tool-btn ${activeTool === 'text' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('text'); closeAllPopovers(); }}
-            title="กล่องข้อความ (Text)"
+            title={t('text')}
           >
             <Type size={17} />
+          </button>
+
+          {/* Image Tool (Select, Move, Layer) */}
+          <button 
+            className={`bn-tool-btn ${activeTool === 'image' ? 'bn-tool-btn-active' : ''}`}
+            onClick={() => { setActiveTool('image'); closeAllPopovers(); }}
+            title={t('imageTool')}
+          >
+            <ImageIcon size={17} />
           </button>
 
           {/* Snipping Tool (Windows Snipping Tool Style) */}
@@ -545,7 +630,7 @@ export const EditorToolbar = ({
               setActiveTool(activeTool === 'snip' ? 'pen' : 'snip'); 
               closeAllPopovers(); 
             }}
-            title="แคปเจอร์เฉพาะจุด (Snipping Tool) - ลากกรอบเพื่อแคปภาพนำไปแปะหน้าอื่น"
+            title={t('snip')}
           >
             <Scissors size={17} />
           </button>
@@ -554,7 +639,7 @@ export const EditorToolbar = ({
           <button 
             className={`bn-tool-btn ${activeTool === 'hand' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('hand'); closeAllPopovers(); }}
-            title="เลื่อนหน้าจอ (Hand Pan)"
+            title={t('hand')}
           >
             <Hand size={17} />
           </button>
@@ -562,7 +647,7 @@ export const EditorToolbar = ({
           {/* Divider */}
           <div className="w-[1px] h-4 bg-white/15 mx-1" />
 
-          {/* Quick 3-Color Swatches + Custom (+) Picker (Studio style) */}
+          {/* Quick 5-Color Swatches + Custom (+) Picker (Studio style) */}
           <div className="bn-quick-colors flex items-center gap-1.5 px-1">
             {colorSlots.map((col, idx) => {
               const isSelected = activeColor.toLowerCase() === col.toLowerCase();
@@ -595,31 +680,139 @@ export const EditorToolbar = ({
           {/* Divider */}
           <div className="w-[1px] h-4 bg-white/15 mx-1" />
 
-          {/* Quick Stroke Width Slots (Context-aware for Pen, Highlighter, Eraser, Shape) */}
+          {/* Quick Stroke Width Slots with Custom Slider Popover */}
           {(() => {
-            const presets = TOOL_PRESET_WIDTHS[activeTool] || TOOL_PRESET_WIDTHS.pen;
+            const toolKey = ['pen', 'highlighter', 'eraser', 'shape'].includes(activeTool) ? activeTool : 'pen';
+            const slots = widthSlots[toolKey] || DEFAULT_TOOL_WIDTH_SLOTS[toolKey];
             const currentWidth = (toolWidths && toolWidths[activeTool] !== undefined)
               ? toolWidths[activeTool] 
               : activeWidth;
+            const sliderCfg = getToolSliderConfig(activeTool);
 
             return (
-              <div className="bn-quick-widths flex items-center gap-1">
-                {presets.map(w => (
+              <div className="relative flex items-center">
+                <div className="bn-quick-widths flex items-center gap-1">
+                  {slots.map((val, idx) => {
+                    const isSelected = activeSlotIdx === idx;
+                    const dotPx = Math.min(14, Math.max(3.5, Math.round(
+                      toolKey === 'highlighter' ? val * 0.35 :
+                      toolKey === 'eraser' ? val * 0.25 :
+                      val * 1.5
+                    )));
+
+                    return (
+                      <button
+                        key={`slot-${idx}-${val}`}
+                        className={`bn-width-btn ${isSelected ? 'bn-width-btn-active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectSlot(idx);
+                        }}
+                        title={`สล็อต #${idx + 1}: ${val}px (แตะซ้ำเพื่อเลื่อนปรับระดับ)`}
+                      >
+                        <div 
+                          className="bn-width-circle" 
+                          style={{ width: `${dotPx}px`, height: `${dotPx}px` }}
+                        />
+                      </button>
+                    );
+                  })}
+
+                  {/* Slider Popover Trigger Icon */}
                   <button
-                    key={w.value}
-                    className={`bn-width-btn ${currentWidth === w.value ? 'bn-width-btn-active' : ''}`}
-                    onClick={() => {
-                      setActiveWidth(w.value);
-                      if (onToolWidthChange) onToolWidthChange(activeTool, w.value);
+                    className={`bn-btn-icon w-6 h-6 ml-0.5 ${showWidthSlider ? 'text-blue-400 bg-blue-500/20' : 'text-zinc-400 hover:text-zinc-200'}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowWidthSlider(!showWidthSlider);
                     }}
-                    title={`ขนาด${activeTool === 'eraser' ? 'ยางลบ' : activeTool === 'highlighter' ? 'ไฮไลท์' : 'เส้น'}: ${w.label} (${w.value}px)`}
+                    title={t('adjustWidth')}
                   >
-                    <div 
-                      className="bn-width-circle" 
-                      style={{ width: `${w.dotSize}px`, height: `${w.dotSize}px` }}
-                    />
+                    <SlidersHorizontal size={13} />
                   </button>
-                ))}
+                </div>
+
+                {/* Floating Continuous Width Slider Popover */}
+                {showWidthSlider && (
+                  <div 
+                    className="bn-width-slider-dropdown"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="bn-width-slider-header">
+                      <div className="flex items-center gap-1.5">
+                        <SlidersHorizontal size={13} className="text-blue-400" />
+                        <span>{t('strokeWidth')} (Slot #{activeSlotIdx + 1})</span>
+                      </div>
+                      <button 
+                        className="text-zinc-400 hover:text-white p-0.5"
+                        onClick={() => setShowWidthSlider(false)}
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+
+                    {/* Preview Row with dynamic circle */}
+                    <div className="bn-width-preview-row">
+                      <div className="bn-width-preview-dot-wrap">
+                        <div 
+                          style={{
+                            width: `${Math.min(38, Math.max(2, currentWidth * (toolKey === 'highlighter' ? 0.8 : toolKey === 'eraser' ? 0.6 : 2)))}px`,
+                            height: `${Math.min(38, Math.max(2, currentWidth * (toolKey === 'highlighter' ? 0.8 : toolKey === 'eraser' ? 0.6 : 2)))}px`,
+                            borderRadius: '50%',
+                            backgroundColor: toolKey === 'eraser' ? '#ffffff' : activeColor,
+                            opacity: toolKey === 'highlighter' ? 0.6 : 1,
+                            boxShadow: '0 0 8px rgba(0,0,0,0.4)'
+                          }}
+                        />
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-sm font-bold text-white font-mono">
+                          {currentWidth.toFixed(1)} px
+                        </span>
+                        <span className="text-[10px] text-emerald-400 font-medium">
+                          ✓ {t('slotSaved')} #{activeSlotIdx + 1}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Continuous Range Slider with - / + Steppers */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center text-xs font-bold transition"
+                        onClick={() => handleWidthChangeAndSaveToSlot(Math.max(sliderCfg.min, currentWidth - sliderCfg.step))}
+                      >
+                        -
+                      </button>
+                      <input 
+                        type="range"
+                        className="bn-width-range-input flex-1"
+                        min={sliderCfg.min}
+                        max={sliderCfg.max}
+                        step={sliderCfg.step}
+                        value={currentWidth}
+                        onChange={(e) => handleWidthChangeAndSaveToSlot(e.target.value)}
+                      />
+                      <button
+                        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center text-xs font-bold transition"
+                        onClick={() => handleWidthChangeAndSaveToSlot(Math.min(sliderCfg.max, currentWidth + sliderCfg.step))}
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    {/* Quick Preset Chips */}
+                    <div className="bn-width-chips">
+                      {sliderCfg.chips.map(chipVal => (
+                        <button
+                          key={chipVal}
+                          className={`bn-width-chip ${Math.abs(currentWidth - chipVal) < 0.1 ? 'bn-width-chip-active' : ''}`}
+                          onClick={() => handleWidthChangeAndSaveToSlot(chipVal)}
+                        >
+                          {chipVal}px
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -653,7 +846,7 @@ export const EditorToolbar = ({
         <button 
           className={`bn-btn-icon ${penOnly ? 'bn-shield-active' : 'text-zinc-400 hover:text-white'}`}
           onClick={() => setPenOnly(!penOnly)}
-          title={penOnly ? 'เปิดอยู่: โหมด Surface Pen Only (ป้องกันอุ้งมือสัมผัสจอ ไม่เลื่อนขณะเขียน - โล่สว่างทำงาน)' : 'ปิดอยู่: อนุญาตให้นิ้วมือเขียนได้'}
+          title={penOnly ? t('palmRejectionOn') : t('palmRejectionOff')}
         >
           <ShieldCheck size={18} />
         </button>
@@ -662,7 +855,7 @@ export const EditorToolbar = ({
         <button 
           className={`bn-btn-icon ${scrollDirection === 'vertical' ? 'text-blue-400 bg-blue-500/15 border border-blue-500/30' : 'text-zinc-400'}`}
           onClick={() => setScrollDirection(scrollDirection === 'vertical' ? 'horizontal' : 'vertical')}
-          title={scrollDirection === 'vertical' ? 'โหมดเลื่อนแนวตั้ง (บนลงล่างต่อเนื่อง) - คลิกเพื่อสลับเป็นแนวนอน' : 'โหมดพลิกหน้าแนวนอน - คลิกเพื่อสลับเป็นเลื่อนแนวตั้ง'}
+          title={scrollDirection === 'vertical' ? t('scrollVertical') : t('scrollHorizontal')}
         >
           <ScrollText size={17} />
         </button>
@@ -673,7 +866,7 @@ export const EditorToolbar = ({
             className="bn-btn-icon bn-btn-undo" 
             onClick={onUndo} 
             disabled={!canUndo}
-            title="ย้อนกลับ (Undo: แตะ 2 นิ้ว หรือ Ctrl+Z)"
+            title={t('undo')}
           >
             <RotateCcw size={16} />
           </button>
@@ -681,7 +874,7 @@ export const EditorToolbar = ({
             className="bn-btn-icon bn-btn-undo" 
             onClick={onRedo} 
             disabled={!canRedo}
-            title="ทำซ้ำ (Redo: Ctrl+Y)"
+            title={t('redo')}
           >
             <RotateCw size={16} />
           </button>
@@ -689,13 +882,13 @@ export const EditorToolbar = ({
 
         {/* Zoom Controls */}
         <div className="bn-zoom-controls">
-          <button className="bn-zoom-btn" onClick={onZoomOut} title="ซูมออก (-)">
+          <button className="bn-zoom-btn" onClick={onZoomOut} title={t('zoomOut')}>
             <ZoomOut size={13} />
           </button>
-          <span className="bn-zoom-label" onClick={onResetZoom} title="คลิกเพื่อรีเซ็ต 100%">
+          <span className="bn-zoom-label" onClick={onResetZoom} title={t('zoomReset')}>
             {Math.round(zoom * 100)}%
           </span>
-          <button className="bn-zoom-btn" onClick={onZoomIn} title="ซูมเข้า (+)">
+          <button className="bn-zoom-btn" onClick={onZoomIn} title={t('zoomIn')}>
             <ZoomIn size={13} />
           </button>
         </div>
@@ -706,7 +899,7 @@ export const EditorToolbar = ({
         <button 
           className="bn-btn-icon text-zinc-400 hover:text-white"
           onClick={onDuplicateNotebook}
-          title="ทำสำเนาสมุดเล่มนี้ (Duplicate Notebook)"
+          title={t('duplicate')}
         >
           <Copy size={16} />
         </button>

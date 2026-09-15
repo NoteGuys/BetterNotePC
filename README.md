@@ -219,6 +219,23 @@ npm run pack
 | `Ctrl + V` | Paste Image | Pastes cropped snip onto current page |
 | `Ctrl + Wheel` | Trackpad Zoom | Zooms in/out anchored to cursor |
 
+## 🔒 Privacy Policy <a id="privacy-policy"></a>
+
+BetterNote Pro Studio is built with an **offline-first, zero-surveillance architecture**:
+- **100% Offline & Local**: All notes, vector handwriting strokes, inserted images, and configuration settings are processed and stored strictly on your local device.
+- **Zero Data Collection**: We do not collect, transmit, or monetize any personal data, usage metrics, or handwritten notes.
+- **No Account Required**: The app runs completely standalone without requiring registration or external login.
+- **Full Policy**: Read our comprehensive [Privacy Policy Document (PRIVACY_POLICY.md)](./PRIVACY_POLICY.md).
+
+---
+
+## 🛡️ Support & Community <a id="support"></a>
+
+Need assistance, found a bug, or want to suggest a feature?
+- 🐛 **Issue Tracker**: [Submit an Issue or Bug Report](https://github.com/NoteGuys/BetterNotePC/issues)
+- 💬 **Discussions & Feedback**: [GitHub Discussions](https://github.com/NoteGuys/BetterNotePC/discussions)
+- 📦 **Releases & Updates**: [Official Releases](https://github.com/NoteGuys/BetterNotePC/releases)
+
 ---
 
 ## 📄 License

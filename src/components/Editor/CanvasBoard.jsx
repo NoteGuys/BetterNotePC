@@ -29,8 +29,14 @@ import {
   LassoSelect,
   Maximize2,
   ZoomIn,
-  ImagePlus
+  ImagePlus,
+  Lock,
+  Unlock,
+  ArrowDown,
+  ArrowUp,
+  Layers
 } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 import { ImageCropModal } from './ImageCropModal';
 import { SnipModal } from './SnipModal';
 
@@ -61,6 +67,7 @@ export const CanvasBoard = ({
   onSnipComplete,
   onUndo
 }) => {
+  const { t } = useLanguage();
   const containerRef = useRef(null);
   const sheetRef = useRef(null);
   const bgCanvasRef = useRef(null);
@@ -1406,6 +1413,40 @@ export const CanvasBoard = ({
     if (selectedImageId === id) setSelectedImageId(null);
   };
 
+  // Toggle Image Layer between 'under' (behind handwriting) and 'over' (in front of handwriting)
+  const handleImageLayerToggle = (imgId) => {
+    const updated = imageElements.map(img => {
+      if (img.id === imgId) {
+        const nextLayer = img.layer === 'over' ? 'under' : 'over';
+        showToast(nextLayer === 'over' ? 'ย้ายรูปภาพไป: หน้ารอยเขียน 📄🔝' : 'ย้ายรูปภาพไป: ใต้รอยเขียน (เขียนทับภาพได้) ✍️📄');
+        return { ...img, layer: nextLayer };
+      }
+      return img;
+    });
+    if (onBatchUpdatePage) {
+      onBatchUpdatePage({ imageElements: updated });
+    } else if (onImageElementsChange) {
+      onImageElementsChange(updated);
+    }
+  };
+
+  // Toggle Image Lock state to prevent accidental repositioning or scaling
+  const handleImageLockToggle = (imgId) => {
+    const updated = imageElements.map(img => {
+      if (img.id === imgId) {
+        const nextLocked = !img.locked;
+        showToast(nextLocked ? 'ล็อกตำแหน่งรูปภาพแล้ว 🔒' : 'ปลดล็อกรูปภาพแล้ว 🔓');
+        return { ...img, locked: nextLocked };
+      }
+      return img;
+    });
+    if (onBatchUpdatePage) {
+      onBatchUpdatePage({ imageElements: updated });
+    } else if (onImageElementsChange) {
+      onImageElementsChange(updated);
+    }
+  };
+
   // 5. Image Element True Drag-and-Drop Handlers:
   // - Click to select without moving or sticking to mouse
   // - Press & Hold & Drag with threshold (> 4px) for 60fps GPU movement
@@ -1417,6 +1458,12 @@ export const CanvasBoard = ({
     }
     e.stopPropagation();
     e.preventDefault();
+
+    if (img.locked) {
+      setSelectedImageId(img.id);
+      return;
+    }
+
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
 
     imageDragRef.current.isDragging = true;
@@ -1505,6 +1552,7 @@ export const CanvasBoard = ({
   const handleImageResizeStart = (e, img, handle) => {
     e.stopPropagation();
     e.preventDefault();
+    if (img.locked) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
 
     imageDragRef.current.isResizing = true;
@@ -2109,6 +2157,188 @@ export const CanvasBoard = ({
     showToast('ลบส่วนที่เลือกแล้ว 🗑️');
   };
 
+  // Reusable Image Element Renderer with Layer Status, Locking, and Action Bar
+  const renderImageElement = (img) => {
+    const isSelected = selectedImageId === img.id;
+    const isLocked = !!img.locked;
+    const isOver = img.layer === 'over';
+    const isDrawingTool = ['pen', 'highlighter', 'eraser', 'shape'].includes(activeTool);
+
+    return (
+      <div
+        key={img.id}
+        id={`img-${img.id}`}
+        className={`bn-image-element ${isSelected ? 'bn-image-element-selected' : ''} ${isLocked ? 'bn-image-element-locked' : ''}`}
+        style={{
+          left: `${(img.x / canvasWidth) * 100}%`,
+          top: `${(img.y / canvasHeight) * 100}%`,
+          width: `${(img.width / canvasWidth) * 100}%`,
+          height: `${(img.height / canvasHeight) * 100}%`,
+          pointerEvents: isDrawingTool && !isSelected ? 'none' : 'auto'
+        }}
+        onPointerDown={(e) => handleImagePointerDown(e, img)}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+      >
+        <img 
+          src={img.src} 
+          alt="Pasted" 
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'fill',
+            display: 'block',
+            userSelect: 'none',
+            pointerEvents: 'none'
+          }}
+          className="pointer-events-none select-none" 
+        />
+
+        {/* Status Tag when selected or locked */}
+        {(isSelected || isLocked) && (
+          <div className="bn-image-layer-tag flex items-center gap-1">
+            {isLocked && <Lock size={10} className="text-amber-400" />}
+            <span>{isOver ? t('layerAboveInk') : t('layerUnderInk')}</span>
+          </div>
+        )}
+
+        {/* Floating Action Bar above selected image - STOP ALL PROPAGATION */}
+        {isSelected && (
+          <div 
+            className="bn-image-action-bar" 
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Layer Toggle Button */}
+            <button 
+              className="bn-image-action-btn flex items-center gap-1 text-xs"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleImageLayerToggle(img.id);
+              }}
+              title={isOver ? t('sendBehindInk') : t('bringInFrontOfInk')}
+            >
+              {isOver ? (
+                <>
+                  <ArrowDown size={13} className="text-amber-400" />
+                  <span>{t('sendBehindInk')}</span>
+                </>
+              ) : (
+                <>
+                  <ArrowUp size={13} className="text-blue-400" />
+                  <span>{t('bringInFrontOfInk')}</span>
+                </>
+              )}
+            </button>
+
+            <div className="w-px h-3 bg-zinc-700 mx-0.5" />
+
+            {/* Lock / Unlock Toggle Button */}
+            <button 
+              className={`bn-image-action-btn flex items-center gap-1 text-xs ${isLocked ? 'text-amber-300 font-bold' : 'text-zinc-200'}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleImageLockToggle(img.id);
+              }}
+              title={isLocked ? t('unlockImage') : t('lockImage')}
+            >
+              {isLocked ? (
+                <>
+                  <Unlock size={13} className="text-emerald-400" />
+                  <span>{t('unlockImage')}</span>
+                </>
+              ) : (
+                <>
+                  <Lock size={13} className="text-zinc-300" />
+                  <span>{t('lockImage')}</span>
+                </>
+              )}
+            </button>
+
+            <div className="w-px h-3 bg-zinc-700 mx-0.5" />
+
+            {/* Crop Button (if not locked) */}
+            {!isLocked && (
+              <>
+                <button 
+                  className="bn-image-action-btn flex items-center gap-1 text-xs"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCropModalImg(img);
+                  }}
+                  title={t('cropImage')}
+                >
+                  <Crop size={13} className="text-blue-400" />
+                  <span>{t('cropImage')}</span>
+                </button>
+                <div className="w-px h-3 bg-zinc-700 mx-0.5" />
+              </>
+            )}
+
+            {/* Delete Button */}
+            <button 
+              className="bn-image-action-btn text-red-400 hover:text-red-300 flex items-center gap-1"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleImageDelete(img.id);
+              }}
+              title={t('deleteImage')}
+            >
+              <Trash2 size={13} />
+              <span>{t('deleteImage')}</span>
+            </button>
+
+            <div className="w-px h-3 bg-zinc-700 mx-0.5" />
+
+            {/* Close / Deselect Button */}
+            <button 
+              className="bn-image-action-btn text-zinc-400 hover:text-white"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                setSelectedImageId(null);
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedImageId(null);
+              }}
+              title={t('close')}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
+        {/* 4 Corner Resize Handles (only when selected and not locked) */}
+        {isSelected && !isLocked && (
+          <>
+            <div 
+              className="bn-image-resize-handle bn-handle-nw"
+              onPointerDown={(e) => handleImageResizeStart(e, img, 'nw')}
+            />
+            <div 
+              className="bn-image-resize-handle bn-handle-ne"
+              onPointerDown={(e) => handleImageResizeStart(e, img, 'ne')}
+            />
+            <div 
+              className="bn-image-resize-handle bn-handle-sw"
+              onPointerDown={(e) => handleImageResizeStart(e, img, 'sw')}
+            />
+            <div 
+              className="bn-image-resize-handle bn-handle-se"
+              onPointerDown={(e) => handleImageResizeStart(e, img, 'se')}
+            />
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div 
       className="bn-canvas-container" 
@@ -2128,8 +2358,6 @@ export const CanvasBoard = ({
         </div>
       )}
 
-
-
       <div 
         ref={sheetRef}
         className="bn-paper-sheet"
@@ -2144,6 +2372,11 @@ export const CanvasBoard = ({
           className="bn-layer-bg"
           style={{ width: '100%', height: '100%' }}
         />
+
+        {/* Layer 1.5: Under-Ink Image Elements (Writing and inking directly over images) */}
+        <div className="bn-images-layer-under">
+          {imageElements.filter(img => img.layer !== 'over').map(renderImageElement)}
+        </div>
 
         {/* Layer 2: Finalized Static Strokes Canvas (Hi-DPI) */}
         <canvas 
@@ -2185,110 +2418,10 @@ export const CanvasBoard = ({
           </div>
         )}
 
-        {/* Layer 4: Pasted Image Elements (Move, Resize Handles, Crop Action Bar) */}
-        {imageElements.map(img => {
-          const isSelected = selectedImageId === img.id;
-          return (
-            <div
-              key={img.id}
-              id={`img-${img.id}`}
-              className={`bn-image-element ${isSelected ? 'bn-image-element-selected' : ''}`}
-              style={{
-                left: `${(img.x / canvasWidth) * 100}%`,
-                top: `${(img.y / canvasHeight) * 100}%`,
-                width: `${(img.width / canvasWidth) * 100}%`,
-                height: `${(img.height / canvasHeight) * 100}%`
-              }}
-              onPointerDown={(e) => handleImagePointerDown(e, img)}
-              onTouchStart={(e) => e.stopPropagation()}
-              onTouchMove={(e) => e.stopPropagation()}
-            >
-              <img 
-                src={img.src} 
-                alt="Pasted" 
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'fill',
-                  display: 'block',
-                  userSelect: 'none',
-                  pointerEvents: 'none'
-                }}
-                className="pointer-events-none select-none" 
-              />
-
-              {/* Floating Action Bar above selected image - STOP ALL PROPAGATION */}
-              {isSelected && (
-                <div 
-                  className="bn-image-action-bar" 
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onPointerUp={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button 
-                    className="bn-image-action-btn flex items-center gap-1 text-xs"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCropModalImg(img);
-                    }}
-                    title="ครอบตัดรูปภาพ"
-                  >
-                    <Crop size={13} className="text-blue-400" />
-                    <span>ครอบตัด</span>
-                  </button>
-                  <div className="w-px h-3 bg-zinc-700 mx-0.5" />
-                  <button 
-                    className="bn-image-action-btn text-red-400 hover:text-red-300"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleImageDelete(img.id);
-                    }}
-                    title="ลบรูปภาพ"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                  <div className="w-px h-3 bg-zinc-700 mx-0.5" />
-                  <button 
-                    className="bn-image-action-btn text-zinc-400 hover:text-white"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedImageId(null);
-                    }}
-                    title="ยกเลิกการเลือก"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              )}
-
-              {/* 4 Corner Resize Handles */}
-              {isSelected && (
-                <>
-                  <div 
-                    className="bn-image-resize-handle bn-handle-nw"
-                    onPointerDown={(e) => handleImageResizeStart(e, img, 'nw')}
-                  />
-                  <div 
-                    className="bn-image-resize-handle bn-handle-ne"
-                    onPointerDown={(e) => handleImageResizeStart(e, img, 'ne')}
-                  />
-                  <div 
-                    className="bn-image-resize-handle bn-handle-sw"
-                    onPointerDown={(e) => handleImageResizeStart(e, img, 'sw')}
-                  />
-                  <div 
-                    className="bn-image-resize-handle bn-handle-se"
-                    onPointerDown={(e) => handleImageResizeStart(e, img, 'se')}
-                  />
-                </>
-              )}
-            </div>
-          );
-        })}
+        {/* Layer 4: Over-Ink Image Elements (Images in front of handwriting) */}
+        <div className="bn-images-layer-over">
+          {imageElements.filter(img => img.layer === 'over').map(renderImageElement)}
+        </div>
 
         {/* Layer 5: Interactive Text Elements */}
         {textElements.map(txt => {

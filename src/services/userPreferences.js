@@ -10,12 +10,21 @@ export const DEFAULT_TOOL_WIDTHS = {
   shape: 3
 };
 
+export const DEFAULT_TOOL_WIDTH_SLOTS = {
+  pen: [1.5, 3.5, 6.0],
+  highlighter: [12, 18, 28],
+  eraser: [15, 25, 40],
+  shape: [2, 4, 8]
+};
+
 export const DEFAULT_PREFERENCES = {
   theme: 'dark', // 'dark' | 'light'
+  language: 'th', // 'th' | 'en'
   activeTool: 'pen',
   activeColor: '#2563eb', // Royal Blue
-  activeWidth: 4,
+  activeWidth: 3.5,
   toolWidths: { ...DEFAULT_TOOL_WIDTHS },
+  toolWidthSlots: { ...DEFAULT_TOOL_WIDTH_SLOTS },
   activeShape: 'rectangle',
   penNib: 'fountain', // 'fountain' | 'ballpoint' | 'brush'
   isTapered: true, // คมต้นคมปลาย
@@ -34,6 +43,7 @@ export const DEFAULT_PREFERENCES = {
  */
 export const loadEditorPreferences = () => {
   try {
+    if (typeof localStorage === 'undefined') return { ...DEFAULT_PREFERENCES };
     const raw = localStorage.getItem(PREFERENCES_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_PREFERENCES };
     const parsed = JSON.parse(raw);
@@ -45,10 +55,16 @@ export const loadEditorPreferences = () => {
       mergedToolWidths.pen = parsed.activeWidth;
     }
 
+    const mergedToolWidthSlots = {
+      ...DEFAULT_TOOL_WIDTH_SLOTS,
+      ...(parsed.toolWidthSlots || {})
+    };
+
     return {
       ...DEFAULT_PREFERENCES,
       ...parsed,
-      toolWidths: mergedToolWidths
+      toolWidths: mergedToolWidths,
+      toolWidthSlots: mergedToolWidthSlots
     };
   } catch (err) {
     console.warn('Could not load editor preferences, using defaults:', err);
@@ -66,7 +82,9 @@ export const saveEditorPreferences = (updates) => {
       ...current,
       ...updates
     };
-    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(updated));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(updated));
+    }
     return updated;
   } catch (err) {
     console.warn('Could not save editor preferences:', err);
@@ -100,5 +118,30 @@ export const applyThemeToDom = (theme) => {
   if (typeof document !== 'undefined' && document.documentElement) {
     document.documentElement.setAttribute('data-theme', normalized);
   }
+};
+
+/**
+ * Get current language ('th' | 'en')
+ */
+export const getAppLanguage = () => {
+  try {
+    const saved = localStorage.getItem('betternote_language');
+    if (saved === 'en' || saved === 'th') return saved;
+  } catch (_) {}
+  const prefs = loadEditorPreferences();
+  return prefs.language || 'th';
+};
+
+/**
+ * Set application language
+ */
+export const setAppLanguage = (lang) => {
+  const normalized = lang === 'en' ? 'en' : 'th';
+  saveEditorPreferences({ language: normalized });
+  try {
+    localStorage.setItem('betternote_language', normalized);
+    window.dispatchEvent(new CustomEvent('betternote_language_changed', { detail: normalized }));
+  } catch (_) {}
+  return normalized;
 };
 

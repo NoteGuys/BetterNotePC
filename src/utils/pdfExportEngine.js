@@ -28,9 +28,10 @@ export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', widt
     renderPaperBackground(ctx, canvas.width, canvas.height, tmpl);
   }
 
-  // 2. Draw pasted image elements & snipped crops
-  if (page.imageElements && page.imageElements.length > 0) {
-    for (const imgEl of page.imageElements) {
+  // Helper to draw image elements on canvas
+  const drawImages = async (imgs) => {
+    if (!imgs || imgs.length === 0) return;
+    for (const imgEl of imgs) {
       if (imgEl.src) {
         await new Promise((resolve) => {
           const img = new Image();
@@ -43,12 +44,20 @@ export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', widt
         });
       }
     }
-  }
+  };
+
+  // 2. Draw under-ink image elements (handwriting can be drawn over them)
+  const underImages = (page.imageElements || []).filter(img => img.layer !== 'over');
+  await drawImages(underImages);
 
   // 3. Draw all handwritten strokes
   if (page.strokes && page.strokes.length > 0) {
     renderAllStrokes(ctx, page.strokes);
   }
+
+  // 3.5 Draw over-ink image elements (images placed in front of ink)
+  const overImages = (page.imageElements || []).filter(img => img.layer === 'over');
+  await drawImages(overImages);
 
   // 4. Draw text boxes
   if (page.textElements && page.textElements.length > 0) {

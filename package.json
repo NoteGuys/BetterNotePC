@@ -52,7 +52,8 @@
       "publisher": "CN=01BEC724-2F5E-47FF-BC4E-71824A714A56",
       "publisherDisplayName": "JustStone",
       "applicationId": "BetterNotePC",
-      "displayName": "BetterNotePC"
+      "displayName": "BetterNotePC",
+      "backgroundColor": "#18181b"
     },
     "nsis": {
       "oneClick": false,

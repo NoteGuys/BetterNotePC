@@ -15,11 +15,13 @@ import {
   FolderOpen,
   Save,
   Check,
-  Trash2
+  Trash2,
+  Globe
 } from 'lucide-react';
 import { PAPER_SIZES } from '../../data/templates';
 import { getSetting, saveSetting } from '../../services/db';
 import { appCacheService } from '../../services/appCacheService';
+import { useLanguage } from '../../services/i18n';
 
 
 export const SettingsModal = ({
@@ -35,7 +37,8 @@ export const SettingsModal = ({
   onImportBackup,
   onOpenDriveModal
 }) => {
-  const [activeTab, setActiveTab] = useState('drive'); // 'drive', 'backup', 'defaults', 'theme'
+  const { language, setLanguage, t } = useLanguage();
+  const [activeTab, setActiveTab] = useState('drive'); // 'drive', 'backup', 'defaults', 'theme', 'language'
   const fileInputRef = useRef(null);
   const [backupPath, setBackupPath] = useState(driveUserEmail || 'H:\\My Drive\\BetterNote.AppPC');
   const [pathSavedToast, setPathSavedToast] = useState(false);
@@ -209,7 +212,16 @@ export const SettingsModal = ({
             ) : (
               <Moon size={16} className={activeTab === 'theme' ? 'text-blue-400' : 'text-zinc-400'} />
             )}
-            <span>ธีมหน้าจอ (Theme)</span>
+            <span>{t('themeTab')}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`bn-settings-tab-item ${activeTab === 'language' ? 'bn-settings-tab-item-active' : ''}`}
+            onClick={() => setActiveTab('language')}
+          >
+            <Globe size={16} className={activeTab === 'language' ? 'text-emerald-400' : 'text-zinc-400'} />
+            <span>{t('languageTab')}</span>
           </button>
         </div>
 
@@ -603,7 +615,99 @@ export const SettingsModal = ({
                       </div>
                     </div>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      สะอาดตา สไตล์สมุดสีสว่าง ใช้งานสะดวกในที่สว่าง
+                      {t('themeLightDesc')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Language Switcher beside Theme */}
+              <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <label style={{ fontSize: '12.5px', fontWeight: 600, display: 'block', marginBottom: '10px' }}>
+                  {t('languageChoice')}
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  {/* Thai Card */}
+                  <div
+                    className={`bn-new-paper-card ${language === 'th' ? 'bn-new-paper-card-active' : ''}`}
+                    style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                    onClick={() => setLanguage('th')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '18px' }}>🇹🇭</span>
+                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langThai')}</span>
+                      </div>
+                      {language === 'th' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                      {t('langThaiDesc')}
+                    </span>
+                  </div>
+
+                  {/* English Card */}
+                  <div
+                    className={`bn-new-paper-card ${language === 'en' ? 'bn-new-paper-card-active' : ''}`}
+                    style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                    onClick={() => setLanguage('en')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '18px' }}>🇬🇧</span>
+                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langEnglish')}</span>
+                      </div>
+                      {language === 'en' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                      {t('langEnglishDesc')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Tab 5: ภาษา (Language) */}
+          {activeTab === 'language' && (
+            <>
+              <div>
+                <label style={{ fontSize: '12.5px', fontWeight: 600, display: 'block', marginBottom: '10px' }}>
+                  {t('languageChoice')}
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  {/* Thai Card */}
+                  <div
+                    className={`bn-new-paper-card ${language === 'th' ? 'bn-new-paper-card-active' : ''}`}
+                    style={{ padding: '16px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' }}
+                    onClick={() => setLanguage('th')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '22px' }}>🇹🇭</span>
+                        <span style={{ fontWeight: 700, fontSize: '14px' }}>{t('langThai')}</span>
+                      </div>
+                      {language === 'th' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                    </div>
+                    <span style={{ fontSize: '12px', color: '#a1a1aa', lineHeight: 1.4 }}>
+                      {t('langThaiDesc')}
+                    </span>
+                  </div>
+
+                  {/* English Card */}
+                  <div
+                    className={`bn-new-paper-card ${language === 'en' ? 'bn-new-paper-card-active' : ''}`}
+                    style={{ padding: '16px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' }}
+                    onClick={() => setLanguage('en')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '22px' }}>🇬🇧</span>
+                        <span style={{ fontWeight: 700, fontSize: '14px' }}>{t('langEnglish')}</span>
+                      </div>
+                      {language === 'en' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                    </div>
+                    <span style={{ fontSize: '12px', color: '#a1a1aa', lineHeight: 1.4 }}>
+                      {t('langEnglishDesc')}
                     </span>
                   </div>
                 </div>
