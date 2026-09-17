@@ -1,7 +1,7 @@
 {
   "name": "betternote",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.5",
   "description": "Ultra-responsive digital handwriting, PDF annotation, and stylus notebook for Windows and Surface PC",
   "author": "NoteGuys",
   "type": "module",

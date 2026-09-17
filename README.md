@@ -11,8 +11,8 @@
 [![React](https://img.shields.io/badge/React-18.3.1-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.4.3-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Tailored for Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20Surface-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/surface)
-[![Download for Windows](https://img.shields.io/badge/⬇️_Download-v1.1.0_(Windows_x64)-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.1.0/BetterNotePC-v1.1.0-Windows-x64.zip)
-[![Latest Release](https://img.shields.io/badge/Release-v1.1.0-blue?style=for-the-badge)](https://github.com/NoteGuys/BetterNotePC/releases/latest)
+[![Download for Windows](https://img.shields.io/badge/⬇️_Download-v1.1.5_(Windows_x64)-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.1.5/BetterNotePC-v1.1.5-Windows-x64.zip)
+[![Latest Release](https://img.shields.io/badge/Release-v1.1.5-blue?style=for-the-badge)](https://github.com/NoteGuys/BetterNotePC/releases/latest)
 
 </div>
 
@@ -22,7 +22,7 @@
 
 For Windows 10 and Windows 11 users, a pre-compiled standalone package is available without requiring Node.js or additional dependencies:
 
-📦 **👉 [Download BetterNotePC v1.1.0 (Windows 64-bit .zip)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.1.0/BetterNotePC-v1.1.0-Windows-x64.zip)** *(~151 MB)*
+📦 **👉 [Download BetterNotePC v1.1.5 (Windows 64-bit .zip)](https://github.com/NoteGuys/BetterNotePC/releases/download/v1.1.5/BetterNotePC-v1.1.5-Windows-x64.zip)** *(~151 MB)*
 
 > **💡 Quick Start Guide:**
 > 1. Download the `.zip` archive from the link above.
