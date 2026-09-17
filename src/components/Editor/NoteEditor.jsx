@@ -16,6 +16,7 @@ import { loadEditorPreferences, saveEditorPreferences } from '../../services/use
 import { AddPageModal } from './AddPageModal';
 import { getPaperSize } from '../../data/templates';
 import { RotateCcw } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
 export const NoteEditor = ({ 
   notebook, 
@@ -24,6 +25,7 @@ export const NoteEditor = ({
   initialPageIndex = 0,
   onPageChanged 
 }) => {
+  const { t, language } = useLanguage();
   const [pages, setPages] = useState([]);
   const pagesRef = useRef([]);
   useEffect(() => {
@@ -410,7 +412,7 @@ export const NoteEditor = ({
           // Confirmed Two-Finger Double Tap!
           lastTwoFingerTapTimeRef.current = 0;
           handleUndo();
-          showGestureToast('ย้อนกลับ (แตะ 2 นิ้ว 2 ครั้ง) ↶');
+          showGestureToast(t('twoFingerUndoToast', 'ย้อนกลับ (แตะ 2 นิ้ว 2 ครั้ง) ↶'));
         } else {
           // First tap recorded, awaiting second tap within 480ms
           lastTwoFingerTapTimeRef.current = now;
@@ -558,10 +560,10 @@ export const NoteEditor = ({
       const dataUrl = await renderPageToCanvasDataUrl(currentPage, notebook.templateId);
       setClipboardImage({ dataUrl, width: 600, height: 800 });
       window.__bn_clipboard_image = { dataUrl, width: 600, height: 800 };
-      alert('แคปภาพทั้งหน้าเรียบร้อยแล้ว! กดปุ่ม "วางภาพ" หรือ Ctrl+V เพื่อวางในหน้านี้หรือหน้าอื่นได้เลย');
+      alert(t('fullPageSnipSuccess', 'แคปภาพทั้งหน้าเรียบร้อยแล้ว! กดปุ่ม "วางภาพ" หรือ Ctrl+V เพื่อวางในหน้านี้หรือหน้าอื่นได้เลย'));
     } catch (err) {
       console.error(err);
-      alert('เกิดข้อผิดพลาดในการแคปหน้า: ' + err.message);
+      alert(t('fullPageSnipError', 'เกิดข้อผิดพลาดในการแคปหน้า: {error}', { error: err.message }));
     }
   };
 
@@ -616,7 +618,7 @@ export const NoteEditor = ({
     }
 
     if (!imgDataUrl) {
-      alert('ไม่พบรูปภาพในคลิปบอร์ด (กรุณาคัดลอกภาพก่อน หรือใช้ Win+Shift+S แคปภาพแล้วกดวาง)');
+      alert(t('noImageInClipboard', 'ไม่พบรูปภาพในคลิปบอร์ด (กรุณาคัดลอกภาพก่อน หรือใช้ Win+Shift+S แคปภาพแล้วกดวาง)'));
       return;
     }
 
@@ -660,11 +662,11 @@ export const NoteEditor = ({
   const handleDuplicateCurrentNotebook = async () => {
     try {
       const cloned = await duplicateNotebook(notebook.id);
-      alert(`ทำสำเนาสำเร็จ! สร้างสมุดเล่มใหม่: "${cloned.name}"`);
+      alert(language === 'en' ? `Duplicated successfully! Created new notebook: "${cloned.name}"` : `ทำสำเนาสำเร็จ! สร้างสมุดเล่มใหม่: "${cloned.name}"`);
       if (onNotebookUpdated) onNotebookUpdated(cloned);
     } catch (err) {
       console.error(err);
-      alert('ไม่สามารถทำสำเนาได้: ' + err.message);
+      alert(language === 'en' ? `Could not duplicate: ${err.message}` : `ไม่สามารถทำสำเนาได้: ${err.message}`);
     }
   };
 
@@ -673,10 +675,10 @@ export const NoteEditor = ({
     if (!currentPage) return;
     try {
       await exportSinglePageToPdf(notebook, currentPage, currentPageIndex);
-      alert(`ส่งออกหน้า ${currentPageIndex + 1} เป็น PDF เรียบร้อยแล้ว!`);
+      alert(language === 'en' ? `Exported page ${currentPageIndex + 1} to PDF successfully!` : `ส่งออกหน้า ${currentPageIndex + 1} เป็น PDF เรียบร้อยแล้ว!`);
     } catch (err) {
       console.error(err);
-      alert('เกิดข้อผิดพลาดในการส่งออก PDF: ' + err.message);
+      alert(language === 'en' ? `Error exporting PDF: ${err.message}` : `เกิดข้อผิดพลาดในการส่งออก PDF: ${err.message}`);
     }
   };
 
@@ -1072,11 +1074,11 @@ export const NoteEditor = ({
   const handleDeletePage = async (targetIndex = currentPageIndex) => {
     const currentPagesList = pagesRef.current;
     if (currentPagesList.length <= 1) {
-      alert('ไม่สามารถลบหน้าสุดท้ายของสมุดได้');
+      alert(language === 'en' ? 'Cannot delete the only remaining page of the notebook' : 'ไม่สามารถลบหน้าสุดท้ายของสมุดได้');
       return;
     }
 
-    if (!confirm(`คุณต้องการลบหน้า ${targetIndex + 1} ใช่หรือไม่?`)) {
+    if (!confirm(language === 'en' ? `Are you sure you want to delete page ${targetIndex + 1}?` : `คุณต้องการลบหน้า ${targetIndex + 1} ใช่หรือไม่?`)) {
       return;
     }
 
@@ -1151,7 +1153,7 @@ export const NoteEditor = ({
     return (
       <div className="bn-loading-screen">
         <div className="bn-spinner"></div>
-        <p className="text-zinc-400 mt-3 text-sm">กำลังเปิดสมุดบันทึก...</p>
+        <p className="text-zinc-400 mt-3 text-sm">{language === 'en' ? 'Opening notebook...' : 'กำลังเปิดสมุดบันทึก...'}</p>
       </div>
     );
   }
@@ -1260,7 +1262,7 @@ export const NoteEditor = ({
                     data-page-index={idx}
                     className="bn-vertical-page-wrapper"
                   >
-                    <div className="bn-vertical-page-badge">หน้า {idx + 1}</div>
+                    <div className="bn-vertical-page-badge">{t('page', 'หน้า')} {idx + 1}</div>
                     {isMounted ? (
                       <CanvasBoard 
                         key={p.id}
@@ -1307,13 +1309,13 @@ export const NoteEditor = ({
                         {(p.thumbnailUrl || p.pdfPageImage) ? (
                           <img 
                             src={p.thumbnailUrl || p.pdfPageImage} 
-                            alt={`หน้า ${idx + 1}`} 
+                            alt={`${t('page', 'หน้า')} ${idx + 1}`} 
                             style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.95 }}
                             loading="lazy"
                           />
                         ) : (
                           <span style={{ color: '#94a3b8', fontSize: '15px', fontWeight: 600 }}>
-                            หน้า {idx + 1}
+                            {t('page', 'หน้า')} {idx + 1}
                           </span>
                         )}
                       </div>

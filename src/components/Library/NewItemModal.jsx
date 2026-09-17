@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Book, Folder, Check, FileUp, Sparkles, FileCode2 } from 'lucide-react';
 import { NOTEBOOK_COVERS } from '../../data/covers';
 import { PAPER_TEMPLATES, PAPER_SIZES, getPaperSize } from '../../data/templates';
+import { useLanguage } from '../../services/i18n';
 
 const FOLDER_COLORS = [
   '#3b82f6', // Blue
@@ -23,6 +24,7 @@ export const NewItemModal = ({
   onOpenBnoteImport,
   currentFolderId 
 }) => {
+  const { t, language } = useLanguage();
   const [tab, setTab] = useState('notebook'); // 'notebook' | 'folder'
   
   // Folder state
@@ -56,7 +58,7 @@ export const NewItemModal = ({
 
   const handleCreateNotebook = (e) => {
     e.preventDefault();
-    const name = notebookName.trim() || 'สมุดบันทึกไม่มีชื่อ';
+    const name = notebookName.trim() || t('untitled', 'สมุดบันทึกไม่มีชื่อ');
     const sizeDim = getPaperSize(selectedSize, selectedOrientation);
 
     onCreateNotebook({
@@ -93,17 +95,17 @@ export const NewItemModal = ({
             </div>
             <div>
               <h3 className="bn-settings-title">
-                {tab === 'notebook' ? 'สร้างสมุดโน้ตใหม่' : 'สร้างโฟลเดอร์ใหม่'}
+                {tab === 'notebook' ? t('newNotebookTitle', 'สร้างสมุดโน้ตใหม่') : t('newFolderTitle', 'สร้างโฟลเดอร์ใหม่')}
               </h3>
               <p className="bn-settings-sub">
-                {tab === 'notebook' ? 'เลือกขนาดกระดาษ ทิศทาง และแบบลายเส้นที่ต้องการ' : 'จัดระเบียบเอกสารของคุณด้วยโฟลเดอร์สีสันสวยงาม'}
+                {tab === 'notebook' ? t('newNotebookSub', 'เลือกขนาดกระดาษ ทิศทาง และแบบลายเส้นที่ต้องการ') : t('newFolderSub', 'จัดระเบียบเอกสารของคุณด้วยโฟลเดอร์สีสันสวยงาม')}
               </p>
             </div>
           </div>
           <button 
             className="bn-modal-close-btn" 
             onClick={onClose}
-            title="ปิดหน้าต่าง"
+            title={t('close', 'ปิดหน้าต่าง')}
           >
             <X size={18} />
           </button>
@@ -117,7 +119,7 @@ export const NewItemModal = ({
             onClick={() => setTab('notebook')}
           >
             <Book size={16} className={tab === 'notebook' ? 'text-blue-400' : 'text-zinc-400'} />
-            <span>สมุดบันทึก & กระดาษ</span>
+            <span>{t('notebookTab', 'สมุดบันทึก & กระดาษ')}</span>
           </button>
 
           <button 
@@ -126,7 +128,7 @@ export const NewItemModal = ({
             onClick={() => setTab('folder')}
           >
             <Folder size={16} className={tab === 'folder' ? 'text-amber-400' : 'text-zinc-400'} />
-            <span>โฟลเดอร์</span>
+            <span>{t('folderTab', 'โฟลเดอร์')}</span>
           </button>
 
           {onOpenPdfImport && (
@@ -139,7 +141,7 @@ export const NewItemModal = ({
               }}
             >
               <FileUp size={16} className="text-emerald-400" />
-              <span>นำเข้าเอกสาร PDF...</span>
+              <span>{t('importPdfTab', 'นำเข้าเอกสาร PDF...')}</span>
             </button>
           )}
 
@@ -153,7 +155,7 @@ export const NewItemModal = ({
               }}
             >
               <FileCode2 size={16} className="text-purple-400" />
-              <span>นำเข้าไฟล์ .bnote...</span>
+              <span>{t('importBnoteTab', 'นำเข้าไฟล์ .bnote...')}</span>
             </button>
           )}
         </div>
@@ -164,12 +166,12 @@ export const NewItemModal = ({
             <form onSubmit={handleCreateNotebook} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  ชื่อสมุดโน้ต
+                  {t('notebookNameLabel', 'ชื่อสมุดโน้ต')}
                 </label>
                 <input 
                   type="text" 
                   className="bn-input" 
-                  placeholder="เช่น สรุปชีววิทยา บทที่ 1, สมุดวางแผนประจำปี"
+                  placeholder={t('notebookNamePlaceholder', 'เช่น สรุปชีววิทยา บทที่ 1, สมุดวางแผนประจำปี')}
                   value={notebookName}
                   onChange={(e) => setNotebookName(e.target.value)}
                   autoFocus
@@ -181,10 +183,12 @@ export const NewItemModal = ({
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                   <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7' }}>
-                    ขนาดหน้ากระดาษ (Paper Size)
+                    {t('paperSizeLabel', 'ขนาดหน้ากระดาษ (Paper Size)')}
                   </label>
                   <span style={{ fontSize: '11px', color: '#60a5fa' }}>
-                    {PAPER_SIZES.find(s => s.id === selectedSize)?.fullName || selectedSize}
+                    {language === 'en' 
+                      ? (selectedSize === 'A4' ? 'A4 (Standard)' : selectedSize === 'A3' ? 'A3 (2x Large)' : selectedSize === 'A2' ? 'A2 (Poster/Blueprint)' : selectedSize)
+                      : (PAPER_SIZES.find(s => s.id === selectedSize)?.fullName || selectedSize)}
                   </span>
                 </div>
                 <div className="bn-new-paper-grid">
@@ -207,7 +211,7 @@ export const NewItemModal = ({
                               padding: '2px 5px', 
                               borderRadius: '4px' 
                             }}>
-                              {s.badge}
+                              {language === 'en' ? (s.id === 'A4' ? 'Popular' : s.id === 'A3' ? 'Extra Wide' : 'Giant') : s.badge}
                             </span>
                           )}
                         </div>
@@ -223,7 +227,7 @@ export const NewItemModal = ({
               {/* Paper Orientation */}
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  ทิศทางหน้ากระดาษ
+                  {t('orientationLabel', 'ทิศทางหน้ากระดาษ')}
                 </label>
                 <div className="bn-new-orient-row">
                   <button
@@ -232,7 +236,7 @@ export const NewItemModal = ({
                     onClick={() => setSelectedOrientation('portrait')}
                   >
                     <div style={{ width: '12px', height: '16px', border: '1.5px solid currentColor', borderRadius: '2px' }} />
-                    <span>แนวตั้ง (Portrait)</span>
+                    <span>{t('portrait', 'แนวตั้ง (Portrait)')}</span>
                   </button>
                   <button
                     type="button"
@@ -240,7 +244,7 @@ export const NewItemModal = ({
                     onClick={() => setSelectedOrientation('landscape')}
                   >
                     <div style={{ width: '16px', height: '12px', border: '1.5px solid currentColor', borderRadius: '2px' }} />
-                    <span>แนวนอน (Landscape)</span>
+                    <span>{t('landscape', 'แนวนอน (Landscape)')}</span>
                   </button>
                 </div>
               </div>
@@ -248,7 +252,7 @@ export const NewItemModal = ({
               {/* Paper Template Selection */}
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  เลือกรูปแบบหน้ากระดาษ (Paper Template)
+                  {t('paperTemplateLabel', 'เลือกรูปแบบหน้ากระดาษ (Paper Template)')}
                 </label>
                 <div className="bn-templates-list" style={{ maxHeight: '180px', overflowY: 'auto' }}>
                   {PAPER_TEMPLATES.map((tmpl) => (
@@ -262,10 +266,20 @@ export const NewItemModal = ({
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: '12.5px', color: '#f4f4f5' }}>
-                          {tmpl.name}
+                          {language === 'en' ? (tmpl.name.includes('(') ? tmpl.name.split('(')[1].replace(')', '') : tmpl.name) : tmpl.name}
                         </div>
                         <div style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                          {tmpl.description}
+                          {language === 'en' ? (
+                            tmpl.id === 'dotted' ? 'Bullet journal guide dots for planning and sketching' :
+                            tmpl.id === 'narrow-ruled' ? 'Narrow 22px lined spacing for dense text' :
+                            tmpl.id === 'wide-ruled' ? 'Wide 38px lined spacing for headers or calligraphy' :
+                            tmpl.id === 'ruled' ? 'Standard 30px lined notebook paper' :
+                            tmpl.id === 'grid' ? '5mm grid squares for math, charts, and statistics' :
+                            tmpl.id === 'blank' ? 'Plain white unlined paper for freehand drawing' :
+                            tmpl.id === 'cornell' ? 'Cornell format with cues and summary section' :
+                            tmpl.id === 'dark-dotted' ? 'Dark contrast paper highlights neon & white ink' :
+                            tmpl.description
+                          ) : tmpl.description}
                         </div>
                       </div>
                     </div>
@@ -276,7 +290,7 @@ export const NewItemModal = ({
               {/* Cover Selection */}
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  เลือกแบบปกสมุด (Cover Style)
+                  {t('coverStyleLabel', 'เลือกแบบปกสมุด (Cover Style)')}
                 </label>
                 <div className="bn-covers-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
                   {NOTEBOOK_COVERS.slice(0, 8).map((cover) => (
@@ -300,10 +314,10 @@ export const NewItemModal = ({
 
               <div className="bn-modal-footer" style={{ padding: '12px 0 0 0', background: 'transparent' }}>
                 <button type="button" className="bn-btn-secondary" onClick={onClose}>
-                  ยกเลิก
+                  {t('cancel', 'ยกเลิก')}
                 </button>
                 <button type="submit" className="bn-btn-primary">
-                  สร้างสมุดโน้ต
+                  {t('createNotebookBtn', 'สร้างสมุดโน้ต')}
                 </button>
               </div>
             </form>
@@ -311,12 +325,12 @@ export const NewItemModal = ({
             <form onSubmit={handleCreateFolder} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  ชื่อโฟลเดอร์
+                  {t('folderNameLabel', 'ชื่อโฟลเดอร์')}
                 </label>
                 <input 
                   type="text" 
                   className="bn-input" 
-                  placeholder="เช่น วิชาเรียนเทอม 1, โครงการวิจัย, บันทึกส่วนตัว"
+                  placeholder={t('folderNamePlaceholder', 'เช่น วิชาเรียนเทอม 1, โครงการวิจัย, บันทึกส่วนตัว')}
                   value={folderName}
                   onChange={(e) => setFolderName(e.target.value)}
                   autoFocus
@@ -326,7 +340,7 @@ export const NewItemModal = ({
 
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '8px' }}>
-                  เลือกสีประจำโฟลเดอร์
+                  {t('folderColorLabel', 'เลือกสีประจำโฟลเดอร์')}
                 </label>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                   {FOLDER_COLORS.map((color) => (
@@ -356,10 +370,10 @@ export const NewItemModal = ({
 
               <div className="bn-modal-footer" style={{ padding: '12px 0 0 0', background: 'transparent' }}>
                 <button type="button" className="bn-btn-secondary" onClick={onClose}>
-                  ยกเลิก
+                  {t('cancel', 'ยกเลิก')}
                 </button>
                 <button type="submit" className="bn-btn-primary">
-                  สร้างโฟลเดอร์
+                  {t('createFolderBtn', 'สร้างโฟลเดอร์')}
                 </button>
               </div>
             </form>

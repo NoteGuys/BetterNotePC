@@ -5,10 +5,11 @@ import {
   Folder as FolderIcon, 
   BookOpen, 
   FileText, 
-  ChevronRight,
+  ChevronRight, 
   Clock
 } from 'lucide-react';
 import { getFolderIconComponent } from '../../data/folderCustomization';
+import { useLanguage } from '../../services/i18n';
 
 export const SearchModal = ({ 
   isOpen, 
@@ -18,6 +19,7 @@ export const SearchModal = ({
   onOpenNotebook, 
   onNavigateFolder 
 }) => {
+  const { t, language } = useLanguage();
   const [query, setQuery] = useState('');
   const inputRef = useRef(null);
 
@@ -51,7 +53,7 @@ export const SearchModal = ({
     .slice(0, 6);
 
   const getFolderPath = (folderId) => {
-    if (!folderId) return 'เอกสาร (หน้าหลัก)';
+    if (!folderId) return language === 'en' ? 'Documents (Home)' : 'เอกสาร (หน้าหลัก)';
     const chain = [];
     let curId = folderId;
     while (curId) {
@@ -75,7 +77,7 @@ export const SearchModal = ({
           <input
             ref={inputRef}
             type="text"
-            placeholder="ค้นหาเอกสาร สมุดโน้ต หรือโฟลเดอร์ทั้งหมด..."
+            placeholder={t('searchModalPlaceholder', 'ค้นหาเอกสาร สมุดโน้ต หรือโฟลเดอร์ทั้งหมด...')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="bn-search-input"
@@ -85,7 +87,7 @@ export const SearchModal = ({
               className="bn-btn-icon"
               style={{ width: '24px', height: '24px' }}
               onClick={() => setQuery('')}
-              title="ล้างข้อความ"
+              title={t('clearText', 'ล้างข้อความ')}
             >
               <X size={14} />
             </button>
@@ -105,10 +107,10 @@ export const SearchModal = ({
               <div style={{ padding: '40px 20px', textAlign: 'center', color: '#71717a' }}>
                 <Search size={36} style={{ margin: '0 auto 10px auto', opacity: 0.35 }} />
                 <p style={{ fontSize: '14px', fontWeight: 600, color: '#d4d4d8', margin: 0 }}>
-                  ไม่พบเอกสารที่ตรงกับ "{query}"
+                  {language === 'en' ? `No documents found matching "${query}"` : `ไม่พบเอกสารที่ตรงกับ "${query}"`}
                 </p>
                 <p style={{ fontSize: '12px', color: '#71717a', margin: '4px 0 0 0' }}>
-                  ลองค้นหาด้วยคำอื่น หรือชื่อโฟลเดอร์
+                  {t('searchNotFoundDesc', 'ลองค้นหาด้วยคำอื่น หรือชื่อโฟลเดอร์')}
                 </p>
               </div>
             ) : (
@@ -118,7 +120,7 @@ export const SearchModal = ({
                   <div>
                     <div className="bn-search-section-label">
                       <FolderIcon size={13} />
-                      <span>โฟลเดอร์ ({matchedFolders.length})</span>
+                      <span>{t('searchFoldersSection', 'โฟลเดอร์ ({count})', { count: matchedFolders.length })}</span>
                     </div>
                     <div className="bn-search-list">
                       {matchedFolders.map(f => {
@@ -162,7 +164,7 @@ export const SearchModal = ({
                   <div>
                     <div className="bn-search-section-label">
                       <BookOpen size={13} />
-                      <span>สมุดโน้ต & PDF ({matchedNotebooks.length})</span>
+                      <span>{t('searchNotebooksSection', 'สมุดโน้ต & PDF ({count})', { count: matchedNotebooks.length })}</span>
                     </div>
                     <div className="bn-search-list">
                       {matchedNotebooks.map(nb => (
@@ -196,7 +198,7 @@ export const SearchModal = ({
                                 {nb.name}
                               </div>
                               <div className="bn-search-entry-path">
-                                📁 {getFolderPath(nb.folderId)} • {nb.pageCount || 1} หน้า
+                                📁 {getFolderPath(nb.folderId)} • {nb.pageCount || 1} {t('page', 'หน้า')}
                               </div>
                             </div>
                           </div>
@@ -213,7 +215,7 @@ export const SearchModal = ({
             <div>
               <div className="bn-search-section-label">
                 <Clock size={13} />
-                <span>เอกสารที่เปิดใช้งานล่าสุด</span>
+                <span>{t('searchRecentSection', 'เอกสารที่เปิดใช้งานล่าสุด')}</span>
               </div>
               <div className="bn-search-list">
                 {recentNotebooks.map(nb => (
@@ -262,3 +264,4 @@ export const SearchModal = ({
     </div>
   );
 };
+

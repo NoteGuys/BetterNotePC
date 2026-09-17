@@ -41,6 +41,7 @@ import { SettingsModal } from './SettingsModal';
 import BackupStatusModal from './BackupStatusModal';
 import { getAllFavoritePages, savePage } from '../../services/db';
 import { importBnoteFile } from '../../services/fileSystemService';
+import { useLanguage } from '../../services/i18n';
 
 export const LibraryView = ({
   folders = [],
@@ -70,6 +71,7 @@ export const LibraryView = ({
   onExportBackup,
   onImportBackup
 }) => {
+  const { t, language } = useLanguage();
   const [activeView, setActiveView] = useState('documents'); // 'documents', 'favorites', 'shared', 'marketplace', 'trash'
   const [favTab, setFavTab] = useState('all'); // 'all', 'documents', 'pages'
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,10 +129,10 @@ export const LibraryView = ({
         setCloudBackupDetected(null);
         window.location.reload();
       } else {
-        alert('กู้คืนไม่สำเร็จ: ' + (res.reason || 'ไม่พบไฟล์สำรอง'));
+        alert(t('cloudRestoreFailed', 'กู้คืนไม่สำเร็จ: {reason}', { reason: res.reason || t('backupNotFound', 'ไม่พบไฟล์สำรอง') }));
       }
     } catch (err) {
-      alert('เกิดข้อผิดพลาดในการกู้คืน: ' + err.message);
+      alert(t('cloudRestoreError', 'เกิดข้อผิดพลาดในการกู้คืน: {error}', { error: err.message }));
     } finally {
       setIsAutoRestoring(false);
     }
@@ -164,7 +166,7 @@ export const LibraryView = ({
       const updated = { ...page, isFavorite: !page.isFavorite, updatedAt: Date.now() };
       await savePage(updated);
       await loadFavorites();
-      showToast(page.isFavorite ? 'นำหน้าออกจากรายการโปรดแล้ว' : 'เพิ่มหน้าในรายการโปรดแล้ว ⭐');
+      showToast(page.isFavorite ? t('toastPageRemovedFromFavorites', 'นำหน้าออกจากรายการโปรดแล้ว') : t('toastPageAddedToFavorites', 'เพิ่มหน้าในรายการโปรดแล้ว ⭐'));
     } catch (err) {
       console.error('Failed to toggle page favorite:', err);
     }
@@ -219,18 +221,18 @@ export const LibraryView = ({
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      showToast('กำลังนำเข้าไฟล์ .bnote...');
+      showToast(t('toastImportingBnote', 'กำลังนำเข้าไฟล์ .bnote...'));
       const importedNb = await importBnoteFile(file, currentFolderId);
       if (onImportBnoteSuccess) {
         onImportBnoteSuccess(importedNb);
       } else if (onImportPdfSuccess) {
         onImportPdfSuccess(importedNb);
       }
-      showToast(`นำเข้าสมุดโน้ต "${importedNb.name}" สำเร็จ! 📘`);
+      showToast(t('toastImportBnoteSuccess', 'นำเข้าสมุดโน้ต "{name}" สำเร็จ! 📘', { name: importedNb.name }));
       if (onTriggerAutoSync) onTriggerAutoSync();
     } catch (err) {
       console.error('Failed to import .bnote:', err);
-      alert('เกิดข้อผิดพลาดในการนำเข้า .bnote: ' + err.message);
+      alert(t('importBnoteError', 'เกิดข้อผิดพลาดในการนำเข้า .bnote: {error}', { error: err.message }));
     } finally {
       if (e.target) e.target.value = '';
     }
@@ -344,21 +346,21 @@ export const LibraryView = ({
     switch (sortBy) {
       case 'name-asc':
       case 'name':
-        return 'ชื่อ (ก - ฮ)';
+        return t('sortLabelNameAsc', 'ชื่อ (ก - ฮ)');
       case 'name-desc':
-        return 'ชื่อ (ฮ - ก)';
+        return t('sortLabelNameDesc', 'ชื่อ (ฮ - ก)');
       case 'number-asc':
       case 'number':
-        return 'ตัวเลข (1 - 9)';
+        return t('sortLabelNumAsc', 'ตัวเลข (1 - 9)');
       case 'number-desc':
-        return 'ตัวเลข (9 - 1)';
+        return t('sortLabelNumDesc', 'ตัวเลข (9 - 1)');
       case 'date-desc':
       case 'date':
-        return 'วันที่ (ล่าสุด)';
+        return t('sortLabelDateDesc', 'วันที่ (ล่าสุด)');
       case 'date-asc':
-        return 'วันที่ (เก่าสุด)';
+        return t('sortLabelDateAsc', 'วันที่ (เก่าสุด)');
       default:
-        return 'ชื่อ (ก - ฮ)';
+        return t('sortLabelNameAsc', 'ชื่อ (ก - ฮ)');
     }
   };
 
@@ -388,18 +390,18 @@ export const LibraryView = ({
     const target = folders.find(f => f.id === folderId);
     if (target) {
       handleUpdateFolder(folderId, { isFavorite: !target.isFavorite });
-      showToast(target.isFavorite ? 'นำออกจากรายการโปรดแล้ว' : 'เพิ่มเป็นรายการโปรดแล้ว ⭐');
+      showToast(target.isFavorite ? t('toastRemovedFromFavorites', 'นำออกจากรายการโปรดแล้ว') : t('toastAddedToFavorites', 'เพิ่มเป็นรายการโปรดแล้ว ⭐'));
     }
   };
 
   const handleSoftDeleteFolder = (folderId) => {
     handleUpdateFolder(folderId, { isDeleted: true, deletedAt: Date.now() });
-    showToast('ย้ายโฟลเดอร์ไปยังถังขยะแล้ว 🗑️');
+    showToast(t('toastMovedFolderToTrash', 'ย้ายโฟลเดอร์ไปยังถังขยะแล้ว 🗑️'));
   };
 
   const handleRestoreFolder = (folderId) => {
     handleUpdateFolder(folderId, { isDeleted: false, deletedAt: null });
-    showToast('กู้คืนโฟลเดอร์เรียบร้อยแล้ว ✨');
+    showToast(t('toastRestoredFolder', 'กู้คืนโฟลเดอร์เรียบร้อยแล้ว ✨'));
   };
 
   // Notebook Actions
@@ -419,30 +421,30 @@ export const LibraryView = ({
     const target = notebooks.find(nb => nb.id === notebookId);
     if (target) {
       handleUpdateNotebook(notebookId, { isFavorite: !target.isFavorite });
-      showToast(target.isFavorite ? 'นำออกจากรายการโปรดแล้ว' : 'เพิ่มเป็นรายการโปรดแล้ว ⭐');
+      showToast(target.isFavorite ? t('toastRemovedFromFavorites', 'นำออกจากรายการโปรดแล้ว') : t('toastAddedToFavorites', 'เพิ่มเป็นรายการโปรดแล้ว ⭐'));
     }
   };
 
   const handleSoftDeleteNotebook = (notebookId) => {
     handleUpdateNotebook(notebookId, { isDeleted: true, deletedAt: Date.now() });
-    showToast('ย้ายสมุดไปยังถังขยะแล้ว 🗑️');
+    showToast(t('toastMovedNotebookToTrash', 'ย้ายสมุดไปยังถังขยะแล้ว 🗑️'));
   };
 
   const handleRestoreNotebook = (notebookId) => {
     handleUpdateNotebook(notebookId, { isDeleted: false, deletedAt: null });
-    showToast('กู้คืนสมุดเรียบร้อยแล้ว ✨');
+    showToast(t('toastRestoredNotebook', 'กู้คืนสมุดเรียบร้อยแล้ว ✨'));
   };
 
   const handleShare = (item) => {
-    showToast(`พร้อมแชร์ "${item.name}" แล้ว`);
+    showToast(t('toastReadyToShare', 'พร้อมแชร์ "{name}" แล้ว', { name: item.name }));
   };
 
   const handleCopyLink = (item) => {
     try {
       navigator.clipboard?.writeText(window.location.href);
-      showToast(`คัดลอกลิงก์ของ "${item.name}" เรียบร้อยแล้ว 🔗`);
+      showToast(t('toastLinkCopiedItem', 'คัดลอกลิงก์ของ "{name}" เรียบร้อยแล้ว 🔗', { name: item.name }));
     } catch (_) {
-      showToast(`คัดลอกลิงก์สำเร็จ 🔗`);
+      showToast(t('toastLinkCopied', 'คัดลอกลิงก์สำเร็จ 🔗'));
     }
   };
 
@@ -454,7 +456,7 @@ export const LibraryView = ({
     } else {
       handleUpdateNotebook(renameItem.item.id, { name: newName });
     }
-    showToast('เปลี่ยนชื่อสำเร็จ!');
+    showToast(t('toastRenameSuccess', 'เปลี่ยนชื่อสำเร็จ!'));
   };
 
   // Move Confirmation
@@ -465,7 +467,7 @@ export const LibraryView = ({
     } else {
       handleUpdateFolder(itemId, { parentId: targetFolderId });
     }
-    showToast('ย้ายตำแหน่งสำเร็จ!');
+    showToast(t('toastMoveSuccess', 'ย้ายตำแหน่งสำเร็จ!'));
   };
 
   // Navigate Up
@@ -541,16 +543,16 @@ export const LibraryView = ({
       setSelectedItemIds(new Set());
       setIsSelectMode(false);
       setBatchMoveItems(null);
-      showToast(`ย้าย ${list.length} รายการสำเร็จ! 📁`);
+      showToast(t('toastBatchMoveSuccess', 'ย้าย {count} รายการสำเร็จ! 📁', { count: list.length }));
     } catch (err) {
       console.error('Error during batch move:', err);
-      showToast('เกิดข้อผิดพลาดในการย้ายไฟล์');
+      showToast(t('toastBatchMoveError', 'เกิดข้อผิดพลาดในการย้ายไฟล์'));
     }
   };
 
   const handleBatchDuplicate = async () => {
     if (selectedNotebooks.length === 0) {
-      showToast('การทำสำเนารองรับเฉพาะสมุดบันทึก');
+      showToast(t('toastDuplicateNotebookOnly', 'การทำสำเนารองรับเฉพาะสมุดบันทึก'));
       return;
     }
     try {
@@ -562,29 +564,29 @@ export const LibraryView = ({
       const count = selectedNotebooks.length;
       setSelectedItemIds(new Set());
       setIsSelectMode(false);
-      showToast(`ทำสำเนา ${count} เล่มเรียบร้อยแล้ว ✨`);
+      showToast(t('toastDuplicateSuccess', 'ทำสำเนา {count} เล่มเรียบร้อยแล้ว ✨', { count }));
     } catch (err) {
       console.error('Error during batch duplicate:', err);
-      showToast('เกิดข้อผิดพลาดในการทำสำเนา');
+      showToast(t('toastDuplicateError', 'เกิดข้อผิดพลาดในการทำสำเนา'));
     }
   };
 
   const handleBatchExportPdf = async () => {
     if (selectedNotebooks.length === 0) {
-      showToast('การส่งออก PDF รองรับเฉพาะสมุดบันทึก');
+      showToast(t('toastExportPdfNotebookOnly', 'การส่งออก PDF รองรับเฉพาะสมุดบันทึก'));
       return;
     }
     try {
-      showToast(`กำลังเริ่มส่งออก PDF ${selectedNotebooks.length} เล่ม...`);
+      showToast(t('toastExportPdfStarting', 'กำลังเริ่มส่งออก PDF {count} เล่ม...', { count: selectedNotebooks.length }));
       for (const nb of selectedNotebooks) {
         if (onExportNotebookPdf) {
           await onExportNotebookPdf(nb);
         }
       }
-      showToast(`ส่งออก PDF สำเร็จ ${selectedNotebooks.length} เล่ม! 📄`);
+      showToast(t('toastExportPdfSuccess', 'ส่งออก PDF สำเร็จ {count} เล่ม! 📄', { count: selectedNotebooks.length }));
     } catch (err) {
       console.error('Error during batch export:', err);
-      showToast('เกิดข้อผิดพลาดในการส่งออก PDF');
+      showToast(t('toastExportPdfError', 'เกิดข้อผิดพลาดในการส่งออก PDF'));
     }
   };
 
@@ -592,7 +594,7 @@ export const LibraryView = ({
     if (selectedCount === 0) return;
     try {
       if (activeView === 'trash') {
-        if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบถาวร ${selectedCount} รายการนี้? การกระทำนี้ไม่สามารถย้อนกลับได้`)) {
+        if (!window.confirm(t('confirmPermanentDeleteBatch', 'คุณแน่ใจหรือไม่ว่าต้องการลบถาวร {count} รายการนี้? การกระทำนี้ไม่สามารถย้อนกลับได้', { count: selectedCount }))) {
           return;
         }
         for (const f of selectedFolders) {
@@ -601,7 +603,7 @@ export const LibraryView = ({
         for (const nb of selectedNotebooks) {
           if (onDeleteNotebook) await onDeleteNotebook(nb.id);
         }
-        showToast(`ลบถาวร ${selectedCount} รายการเรียบร้อยแล้ว`);
+        showToast(t('toastBatchDeletePermanentSuccess', 'ลบถาวร {count} รายการเรียบร้อยแล้ว', { count: selectedCount }));
       } else {
         for (const f of selectedFolders) {
           await handleSoftDeleteFolder(f.id);
@@ -609,13 +611,13 @@ export const LibraryView = ({
         for (const nb of selectedNotebooks) {
           await handleSoftDeleteNotebook(nb.id);
         }
-        showToast(`ย้าย ${selectedCount} รายการไปยังถังขยะแล้ว 🗑️`);
+        showToast(t('toastBatchDeleteTrashSuccess', 'ย้าย {count} รายการไปยังถังขยะแล้ว 🗑️', { count: selectedCount }));
       }
       setSelectedItemIds(new Set());
       setIsSelectMode(false);
     } catch (err) {
       console.error('Error during batch delete:', err);
-      showToast('เกิดข้อผิดพลาดในการลบ');
+      showToast(t('toastBatchDeleteError', 'เกิดข้อผิดพลาดในการลบ'));
     }
   };
 
@@ -653,7 +655,7 @@ export const LibraryView = ({
                 className="hover:underline cursor-pointer"
                 onClick={() => { setActiveView('documents'); onNavigateFolder(null); }}
               >
-                เอกสาร
+                {t('libraryDocuments', 'เอกสาร')}
               </span>
               {folderChain.map((f, idx) => (
                 <React.Fragment key={f.id}>
@@ -680,17 +682,17 @@ export const LibraryView = ({
                       setActiveView('documents');
                     }
                   }}
-                  title="ย้อนกลับ"
+                  title={t('back', 'ย้อนกลับ')}
                 >
                   <ArrowLeft size={18} />
                 </button>
               )}
               <h2 className="bn-gn-title">
-                {activeView === 'favorites' ? 'รายการโปรด' :
-                 activeView === 'trash' ? 'ลบทิ้ง (ถังขยะ)' :
-                 activeView === 'shared' ? 'แชร์' :
-                 activeView === 'marketplace' ? 'มาร์เก็ตเพลส' :
-                 (currentFolder ? currentFolder.name : 'เอกสาร')}
+                {activeView === 'favorites' ? t('libraryFavorites', 'รายการโปรด') :
+                 activeView === 'trash' ? t('libraryTrash', 'ลบทิ้ง (ถังขยะ)') :
+                 activeView === 'shared' ? t('libraryShared', 'แชร์') :
+                 activeView === 'marketplace' ? t('libraryMarketplace', 'มาร์เก็ตเพลส') :
+                 (currentFolder ? currentFolder.name : t('libraryDocuments', 'เอกสาร'))}
               </h2>
             </div>
           </div>
@@ -701,10 +703,10 @@ export const LibraryView = ({
             <button
               className="bn-gn-search-trigger"
               onClick={() => setIsSearchModalOpen(true)}
-              title="ค้นหาเอกสาร สมุดโน้ต หรือโฟลเดอร์ทั้งหมด (Ctrl+K)"
+              title={t('librarySearchTooltip', 'ค้นหาเอกสาร สมุดโน้ต หรือโฟลเดอร์ทั้งหมด (Ctrl+K)')}
             >
               <Search size={15} className="text-zinc-400" />
-              <span className="text-xs text-zinc-300 hidden sm:inline">ค้นหาเอกสาร...</span>
+              <span className="text-xs text-zinc-300 hidden sm:inline">{t('librarySearchInput', 'ค้นหาเอกสาร...')}</span>
               <kbd className="hidden md:inline text-[10px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 ml-1">Ctrl+K</kbd>
             </button>
 
@@ -712,12 +714,12 @@ export const LibraryView = ({
             <div 
               className="bn-gn-cloud-pill cursor-pointer hover:border-emerald-500/50 transition-colors"
               onClick={() => setIsBackupStatusModalOpen(true)}
-              title="Google Drive: H:\My Drive\BetterNote.AppPC (คลิกเพื่อตรวจสอบสถานะ Backup & รายการไฟล์)"
+              title={t('libraryDriveTooltip', 'Google Drive: H:\\My Drive\\BetterNote.AppPC (คลิกเพื่อตรวจสอบสถานะ Backup & รายการไฟล์)')}
             >
               <span className={`bn-pulse-dot ${isSyncing ? 'bg-amber-400' : 'bg-emerald-400'}`} />
               <Cloud size={14} className={isSyncing ? 'text-amber-400 animate-pulse' : 'text-emerald-400'} />
               <span className="text-[11px] font-medium hidden md:inline text-zinc-300">
-                {isSyncing ? 'กำลังซิงค์...' : 'Drive'}
+                {isSyncing ? t('libraryDriveSyncing', 'กำลังซิงค์...') : t('libraryDriveStatusBtn', 'Drive')}
               </span>
             </div>
 
@@ -725,7 +727,7 @@ export const LibraryView = ({
             <button
               className="bn-gn-icon-btn text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30 transition-colors"
               onClick={() => setIsBackupStatusModalOpen(true)}
-              title="ตรวจสอบสถานะ Backup (ดูไฟล์ไหนถูกสำรองแล้ว เวลาเท่าไร ที่ไหน)"
+              title={t('libraryBackupBtnTooltip', 'ตรวจสอบสถานะ Backup (ดูไฟล์ไหนถูกสำรองแล้ว เวลาเท่าไร ที่ไหน)')}
             >
               <ShieldCheck size={18} />
             </button>
@@ -734,7 +736,7 @@ export const LibraryView = ({
             <button
               className="bn-gn-icon-btn"
               onClick={() => setIsSettingsModalOpen(true)}
-              title="การตั้งค่า & สำรองข้อมูล (Google Drive, สำรอง/กู้คืน, ค่าเริ่มต้น)"
+              title={t('librarySettingsBtnTooltip', 'การตั้งค่า & สำรองข้อมูล (Google Drive, สำรอง/กู้คืน, ค่าเริ่มต้น)')}
             >
               <Settings size={18} />
             </button>
@@ -758,16 +760,16 @@ export const LibraryView = ({
               onChange={handleBnoteFileSelect} 
             />
 
-            {/* Studio Blue Pill "+ ใหม่" Button */}
+            {/* Studio Blue Pill "+ New" Button */}
             <div className="bn-gn-menu-anchor" ref={newMenuRef}>
               <button
                 type="button"
                 className="bn-gn-new-pill-btn"
                 onClick={() => setIsNewItemModalOpen(true)}
-                title="สร้างสมุดโน้ตใหม่ (เลือกกระดาษและขนาด)"
+                title={t('libraryNewBtnTooltip', 'สร้างสมุดโน้ตใหม่ (เลือกกระดาษและขนาด)')}
               >
                 <Plus size={16} strokeWidth={2.5} />
-                <span>ใหม่</span>
+                <span>{t('libraryNewBtn', 'ใหม่')}</span>
                 <span 
                   onClick={(e) => {
                     e.stopPropagation();
@@ -775,7 +777,7 @@ export const LibraryView = ({
                     setShowSortMenu(false);
                   }}
                   style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 0 2px 4px', cursor: 'pointer' }}
-                  title="ตัวเลือกเพิ่มเติม"
+                  title={t('libraryMoreOptionsTooltip', 'ตัวเลือกเพิ่มเติม')}
                 >
                   <ChevronDown size={13} className={`transition-transform duration-150 ${showNewMenu ? 'rotate-180' : ''}`} />
                 </span>
@@ -795,7 +797,7 @@ export const LibraryView = ({
                     }}
                   >
                     <BookOpen size={16} className="text-blue-400" />
-                    <span>สมุดบันทึกใหม่...</span>
+                    <span>{t('libraryNewNotebookMenu', 'สมุดบันทึกใหม่...')}</span>
                   </button>
 
                   <button
@@ -807,7 +809,7 @@ export const LibraryView = ({
                     }}
                   >
                     <FolderIcon size={16} className="text-amber-400" />
-                    <span>โฟลเดอร์ใหม่...</span>
+                    <span>{t('libraryNewFolderMenu', 'โฟลเดอร์ใหม่...')}</span>
                   </button>
 
                   <button
@@ -819,7 +821,7 @@ export const LibraryView = ({
                     }}
                   >
                     <FileText size={16} className="text-red-400" />
-                    <span>นำเข้าไฟล์ PDF...</span>
+                    <span>{t('libraryImportPdfMenu', 'นำเข้าไฟล์ PDF...')}</span>
                   </button>
 
                   <button
@@ -831,7 +833,7 @@ export const LibraryView = ({
                     }}
                   >
                     <FileCode2 size={16} className="text-purple-400" />
-                    <span>นำเข้าไฟล์ .bnote...</span>
+                    <span>{t('libraryImportBnoteMenu', 'นำเข้าไฟล์ .bnote...')}</span>
                   </button>
 
                   <div className="w-full h-px bg-zinc-800 my-1" />
@@ -845,7 +847,7 @@ export const LibraryView = ({
                     }}
                   >
                     <FolderSync size={16} className="text-emerald-400" />
-                    <span>ดึงข้อมูลสำรองจาก Google Drive...</span>
+                    <span>{t('libraryPullDriveMenu', 'ดึงข้อมูลสำรองจาก Google Drive...')}</span>
                   </button>
 
                   <button
@@ -857,13 +859,13 @@ export const LibraryView = ({
                     }}
                   >
                     <ShieldCheck size={16} className="text-emerald-400" />
-                    <span>ตรวจสอบสถานะการ Backup (ดูไฟล์และเวลา)...</span>
+                    <span>{t('libraryCheckBackupMenu', 'ตรวจสอบสถานะการ Backup (ดูไฟล์และเวลา)...')}</span>
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Sort Dropdown Button ("ชื่อ ⌵", "ตัวเลข ⌵", "วันที่ ⌵") */}
+            {/* Sort Dropdown Button */}
             <div className="bn-gn-menu-anchor" ref={sortMenuRef}>
               <button
                 type="button"
@@ -874,7 +876,7 @@ export const LibraryView = ({
                   setShowSortMenu(prev => !prev);
                   setShowNewMenu(false);
                 }}
-                title="เรียงลำดับเอกสาร (ชื่อ, ตัวเลข, วันที่)"
+                title={t('librarySortTooltip', 'เรียงลำดับเอกสาร (ชื่อ, ตัวเลข, วันที่)')}
               >
                 <span>{getSortLabel()}</span>
                 <ChevronDown size={13} className={`transition-transform duration-150 ${showSortMenu ? 'rotate-180' : ''}`} />
@@ -886,7 +888,7 @@ export const LibraryView = ({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="bn-sort-section-header">
-                    <span>เรียงตามชื่อ</span>
+                    <span>{t('sortSectionName', 'เรียงตามชื่อ')}</span>
                   </div>
                   <button
                     type="button"
@@ -895,10 +897,10 @@ export const LibraryView = ({
                       e.stopPropagation();
                       setSortBy('name-asc'); 
                       setShowSortMenu(false); 
-                      showToast('จัดเรียงตาม: ชื่อ (ก - ฮ / A - Z)'); 
+                      showToast(t('toastSortedBy', 'จัดเรียงตาม: {label}', { label: t('sortByNameAsc', 'ชื่อ (ก - ฮ / A - Z)') })); 
                     }}
                   >
-                    <span>ชื่อ (ก - ฮ / A - Z)</span>
+                    <span>{t('sortByNameAsc', 'ชื่อ (ก - ฮ / A - Z)')}</span>
                     {(sortBy === 'name-asc' || sortBy === 'name') && <Check size={14} color="#60a5fa" />}
                   </button>
                   <button
@@ -908,16 +910,16 @@ export const LibraryView = ({
                       e.stopPropagation();
                       setSortBy('name-desc'); 
                       setShowSortMenu(false); 
-                      showToast('จัดเรียงตาม: ชื่อ (ฮ - ก / Z - A)'); 
+                      showToast(t('toastSortedBy', 'จัดเรียงตาม: {label}', { label: t('sortByNameDesc', 'ชื่อ (ฮ - ก / Z - A)') })); 
                     }}
                   >
-                    <span>ชื่อ (ฮ - ก / Z - A)</span>
+                    <span>{t('sortByNameDesc', 'ชื่อ (ฮ - ก / Z - A)')}</span>
                     {sortBy === 'name-desc' && <Check size={14} color="#60a5fa" />}
                   </button>
 
                   <div className="bn-sort-divider" />
                   <div className="bn-sort-section-header">
-                    <span>เรียงตามตัวเลข</span>
+                    <span>{t('sortSectionNum', 'เรียงตามตัวเลข')}</span>
                   </div>
                   <button
                     type="button"
@@ -926,10 +928,10 @@ export const LibraryView = ({
                       e.stopPropagation();
                       setSortBy('number-asc'); 
                       setShowSortMenu(false); 
-                      showToast('จัดเรียงตาม: ตัวเลข (1 - 9 / น้อยไปมาก)'); 
+                      showToast(t('toastSortedBy', 'จัดเรียงตาม: {label}', { label: t('sortByNumAsc', 'ตัวเลข (1 - 9 / น้อยไปมาก)') })); 
                     }}
                   >
-                    <span>ตัวเลข (1 - 9 / น้อยไปมาก)</span>
+                    <span>{t('sortByNumAsc', 'ตัวเลข (1 - 9 / น้อยไปมาก)')}</span>
                     {(sortBy === 'number-asc' || sortBy === 'number') && <Check size={14} color="#60a5fa" />}
                   </button>
                   <button
@@ -939,16 +941,16 @@ export const LibraryView = ({
                       e.stopPropagation();
                       setSortBy('number-desc'); 
                       setShowSortMenu(false); 
-                      showToast('จัดเรียงตาม: ตัวเลข (9 - 1 / มากไปน้อย)'); 
+                      showToast(t('toastSortedBy', 'จัดเรียงตาม: {label}', { label: t('sortByNumDesc', 'ตัวเลข (9 - 1 / มากไปน้อย)') })); 
                     }}
                   >
-                    <span>ตัวเลข (9 - 1 / มากไปน้อย)</span>
+                    <span>{t('sortByNumDesc', 'ตัวเลข (9 - 1 / มากไปน้อย)')}</span>
                     {sortBy === 'number-desc' && <Check size={14} color="#60a5fa" />}
                   </button>
 
                   <div className="bn-sort-divider" />
                   <div className="bn-sort-section-header">
-                    <span>เรียงตามวันที่แก้ไข</span>
+                    <span>{t('sortSectionDate', 'เรียงตามวันที่แก้ไข')}</span>
                   </div>
                   <button
                     type="button"
@@ -957,10 +959,10 @@ export const LibraryView = ({
                       e.stopPropagation();
                       setSortBy('date-desc'); 
                       setShowSortMenu(false); 
-                      showToast('จัดเรียงตาม: วันที่แก้ไข (ล่าสุดก่อน)'); 
+                      showToast(t('toastSortedBy', 'จัดเรียงตาม: {label}', { label: t('sortByDateDesc', 'วันที่แก้ไข (ล่าสุดก่อน)') })); 
                     }}
                   >
-                    <span>วันที่แก้ไข (ล่าสุดก่อน)</span>
+                    <span>{t('sortByDateDesc', 'วันที่แก้ไข (ล่าสุดก่อน)')}</span>
                     {(sortBy === 'date-desc' || sortBy === 'date') && <Check size={14} color="#60a5fa" />}
                   </button>
                   <button
@@ -970,10 +972,10 @@ export const LibraryView = ({
                       e.stopPropagation();
                       setSortBy('date-asc'); 
                       setShowSortMenu(false); 
-                      showToast('จัดเรียงตาม: วันที่แก้ไข (เก่าสุดก่อน)'); 
+                      showToast(t('toastSortedBy', 'จัดเรียงตาม: {label}', { label: t('sortByDateAsc', 'วันที่แก้ไข (เก่าสุดก่อน)') })); 
                     }}
                   >
-                    <span>วันที่แก้ไข (เก่าสุดก่อน)</span>
+                    <span>{t('sortByDateAsc', 'วันที่แก้ไข (เก่าสุดก่อน)')}</span>
                     {sortBy === 'date-asc' && <Check size={14} color="#60a5fa" />}
                   </button>
                 </div>
@@ -985,7 +987,7 @@ export const LibraryView = ({
               type="button"
               className={`bn-gn-icon-btn ${isSelectMode ? 'bn-select-mode-active' : ''}`}
               onClick={handleToggleSelectMode}
-              title={isSelectMode ? "ยกเลิกโหมดเลือกหลายไฟล์" : "เลือกหลายรายการเพื่อลบ คัดลอก ส่งออก หรือย้าย"}
+              title={isSelectMode ? t('librarySelectModeCancel', 'ยกเลิกโหมดเลือกหลายไฟล์') : t('librarySelectModeToggle', 'เลือกหลายรายการเพื่อลบ คัดลอก ส่งออก หรือย้าย')}
             >
               <CheckCircle size={18} />
             </button>
@@ -1022,10 +1024,10 @@ export const LibraryView = ({
               </div>
               <div>
                 <div style={{ fontSize: '13px', fontWeight: 700, color: '#ffffff' }}>
-                  ☁️ ตรวจพบข้อมูลสำรองจาก Google Drive ({cloudBackupDetected.folder})
+                  {t('cloudBackupDetectedTitle', '☁️ ตรวจพบข้อมูลสำรองจาก Google Drive ({folder})', { folder: cloudBackupDetected.folder })}
                 </div>
                 <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px' }}>
-                  มีสมุดโน้ตสำรองทั้งหมด <strong>{cloudBackupDetected.count} เล่ม</strong> คุณต้องการกู้คืนข้อมูลทั้งหมดลงเครื่องนี้ทันทีหรือไม่?
+                  {t('cloudBackupDetectedBody', 'มีสมุดโน้ตสำรองทั้งหมด {count} เล่ม คุณต้องการกู้คืนข้อมูลทั้งหมดลงเครื่องนี้ทันทีหรือไม่?', { count: cloudBackupDetected.count })}
                 </div>
               </div>
             </div>
@@ -1049,7 +1051,7 @@ export const LibraryView = ({
                 }}
               >
                 <FolderSync size={16} className={isAutoRestoring ? 'animate-spin' : ''} />
-                <span>{isAutoRestoring ? 'กำลังกู้คืนข้อมูล...' : 'กู้คืนข้อมูลทั้งหมดทันที'}</span>
+                <span>{isAutoRestoring ? t('cloudBackupRestoring', 'กำลังกู้คืนข้อมูล...') : t('cloudBackupRestoreNow', 'กู้คืนข้อมูลทั้งหมดทันที')}</span>
               </button>
               <button
                 type="button"
@@ -1064,7 +1066,7 @@ export const LibraryView = ({
                   cursor: 'pointer'
                 }}
               >
-                ปิด
+                {t('close', 'ปิด')}
               </button>
             </div>
           </div>
@@ -1081,10 +1083,10 @@ export const LibraryView = ({
                   onClick={handleSelectAll}
                 >
                   {isAllSelected ? <CheckSquare size={16} /> : <Square size={16} />}
-                  <span>{isAllSelected ? 'ยกเลิกเลือก' : 'เลือกทั้งหมด'}</span>
+                  <span>{isAllSelected ? t('libraryDeselectAll', 'ยกเลิกเลือก') : t('librarySelectAll', 'เลือกทั้งหมด')}</span>
                 </button>
                 <span className="bn-batch-count-badge">
-                  เลือก {selectedCount} รายการ
+                  {t('librarySelectedCount', 'เลือก {count} รายการ', { count: selectedCount })}
                 </span>
               </div>
 
@@ -1094,10 +1096,10 @@ export const LibraryView = ({
                   className="bn-batch-btn"
                   disabled={selectedCount === 0}
                   onClick={handleBatchMove}
-                  title="ย้ายรายการที่เลือกไปยังโฟลเดอร์อื่น"
+                  title={t('libraryBatchMoveTooltip', 'ย้ายรายการที่เลือกไปยังโฟลเดอร์อื่น')}
                 >
                   <FolderInput size={15} />
-                  <span>ย้าย</span>
+                  <span>{t('libraryBatchMove', 'ย้าย')}</span>
                 </button>
 
                 <button
@@ -1105,10 +1107,10 @@ export const LibraryView = ({
                   className="bn-batch-btn"
                   disabled={selectedNotebooks.length === 0}
                   onClick={handleBatchDuplicate}
-                  title="ทำสำเนาสมุดโน้ตที่เลือก"
+                  title={t('libraryBatchDuplicateTooltip', 'ทำสำเนาสมุดโน้ตที่เลือก')}
                 >
                   <Copy size={15} />
-                  <span>ทำสำเนา ({selectedNotebooks.length})</span>
+                  <span>{t('libraryBatchDuplicate', 'ทำสำเนา ({count})', { count: selectedNotebooks.length })}</span>
                 </button>
 
                 <button
@@ -1116,10 +1118,10 @@ export const LibraryView = ({
                   className="bn-batch-btn"
                   disabled={selectedNotebooks.length === 0}
                   onClick={handleBatchExportPdf}
-                  title="ส่งออกสมุดโน้ตที่เลือกเป็น PDF"
+                  title={t('libraryBatchExportPdfTooltip', 'ส่งออกสมุดโน้ตที่เลือกเป็น PDF')}
                 >
                   <Download size={15} />
-                  <span>ส่งออก PDF ({selectedNotebooks.length})</span>
+                  <span>{t('libraryBatchExportPdf', 'ส่งออก PDF ({count})', { count: selectedNotebooks.length })}</span>
                 </button>
 
                 <button
@@ -1127,19 +1129,19 @@ export const LibraryView = ({
                   className="bn-batch-btn bn-batch-btn-danger"
                   disabled={selectedCount === 0}
                   onClick={handleBatchDelete}
-                  title={activeView === 'trash' ? 'ลบถาวร' : 'ย้ายไปยังถังขยะ'}
+                  title={activeView === 'trash' ? t('permanentDeleteAction', 'ลบถาวร') : t('libraryBatchDelete', 'ย้ายไปยังถังขยะ')}
                 >
                   <Trash2 size={15} />
-                  <span>{activeView === 'trash' ? 'ลบถาวร' : 'ลบทิ้ง'}</span>
+                  <span>{activeView === 'trash' ? t('permanentDeleteAction', 'ลบถาวร') : t('libraryBatchDelete', 'ลบทิ้ง')}</span>
                 </button>
 
                 <button
                   type="button"
                   className="bn-batch-done-btn"
                   onClick={handleExitSelectMode}
-                  title="ออกจากโหมดเลือก"
+                  title={t('libraryBatchDone', 'ออกจากโหมดเลือก')}
                 >
-                  เสร็จสิ้น
+                  {t('libraryBatchDone', 'เสร็จสิ้น')}
                 </button>
               </div>
             </div>
@@ -1154,15 +1156,15 @@ export const LibraryView = ({
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-orange-500/20 flex items-center justify-center mx-auto mb-4 border border-amber-500/30">
                 <Store size={32} className="text-amber-400" />
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">มาร์เก็ตเพลส BetterNote</h3>
+              <h3 className="text-lg font-bold text-white mb-2">{t('marketplaceTitle', 'มาร์เก็ตเพลส BetterNote')}</h3>
               <p className="text-sm text-zinc-400 mb-4 leading-relaxed">
-                ค้นพบเทมเพลตกระดาษ แพลนเนอร์ สติกเกอร์ และหน้าปกสมุดกว่า 500+ รายการที่ออกแบบมาเพื่อคุณ
+                {t('marketplaceDesc', 'ค้นพบเทมเพลตกระดาษ แพลนเนอร์ สติกเกอร์ และหน้าปกสมุดกว่า 500+ รายการที่ออกแบบมาเพื่อคุณ')}
               </p>
               <button 
                 className="bn-btn-primary px-4 py-2 rounded-xl text-xs font-semibold"
                 onClick={() => setActiveView('documents')}
               >
-                กลับสู่หน้าเอกสาร
+                {t('backToDocuments', 'กลับสู่หน้าเอกสาร')}
               </button>
             </div>
           )}
@@ -1173,9 +1175,9 @@ export const LibraryView = ({
               <div className="w-16 h-16 rounded-2xl bg-blue-500/15 flex items-center justify-center mx-auto mb-4 border border-blue-500/30">
                 <Share2 size={30} className="text-blue-400" />
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">เอกสารที่แชร์ร่วมกัน</h3>
+              <h3 className="text-lg font-bold text-white mb-2">{t('sharedDocumentsTitle', 'เอกสารที่แชร์ร่วมกัน')}</h3>
               <p className="text-sm text-zinc-400 mb-4 leading-relaxed">
-                ยังไม่มีเอกสารที่แชร์กับผู้อื่น คุณสามารถแชร์สมุดบันทึกหรือส่งออกเป็น PDF ได้ตลอดเวลา
+                {t('sharedDocumentsDesc', 'ยังไม่มีเอกสารที่แชร์กับผู้อื่น คุณสามารถแชร์สมุดบันทึกหรือส่งออกเป็น PDF ได้ตลอดเวลา')}
               </p>
             </div>
           )}
@@ -1191,7 +1193,7 @@ export const LibraryView = ({
                     className={`bn-fav-tab-btn ${favTab === 'all' ? 'bn-fav-tab-active' : ''}`}
                     onClick={() => setFavTab('all')}
                   >
-                    <span>ทั้งหมด</span>
+                    <span>{t('favTabAll', 'ทั้งหมด')}</span>
                     <span className="bn-fav-tab-badge">
                       {visibleFolders.length + visibleNotebooks.length + favoritePages.length}
                     </span>
@@ -1202,7 +1204,7 @@ export const LibraryView = ({
                     onClick={() => setFavTab('documents')}
                   >
                     <Folder size={14} />
-                    <span>ไฟล์และโฟลเดอร์</span>
+                    <span>{t('favTabFiles', 'ไฟล์และโฟลเดอร์')}</span>
                     <span className="bn-fav-tab-badge">
                       {visibleFolders.length + visibleNotebooks.length}
                     </span>
@@ -1213,7 +1215,7 @@ export const LibraryView = ({
                     onClick={() => setFavTab('pages')}
                   >
                     <FileText size={14} />
-                    <span>หน้ากระดาษ</span>
+                    <span>{t('favTabPages', 'หน้ากระดาษ')}</span>
                     <span className="bn-fav-tab-badge">
                       {favoritePages.length}
                     </span>
@@ -1227,9 +1229,9 @@ export const LibraryView = ({
                   {visibleFolders.length === 0 && visibleNotebooks.length === 0 && favoritePages.length === 0 ? (
                     <div className="bn-gn-empty-state">
                       <div className="bn-gn-empty-icon">⭐</div>
-                      <h4 className="text-sm font-semibold text-zinc-200 mb-1">ยังไม่มีรายการโปรด</h4>
+                      <h4 className="text-sm font-semibold text-zinc-200 mb-1">{t('emptyFavTitle', 'ยังไม่มีรายการโปรด')}</h4>
                       <p className="text-xs text-zinc-500 max-w-xs">
-                        กดที่ไอคอนรูปดาวบนโฟลเดอร์ สมุดบันทึก หรือหน้ากระดาษเพื่อเพิ่มเข้ามาในหน้านี้
+                        {t('emptyFavDesc', 'กดที่ไอคอนรูปดาวบนโฟลเดอร์ สมุดบันทึก หรือหน้ากระดาษเพื่อเพิ่มเข้ามาในหน้านี้')}
                       </p>
                     </div>
                   ) : (
@@ -1239,7 +1241,7 @@ export const LibraryView = ({
                         <div className="bn-fav-section">
                           <div className="bn-fav-section-title">
                             <Folder size={16} />
-                            <span>ไฟล์และโฟลเดอร์โปรด ({visibleFolders.length + visibleNotebooks.length})</span>
+                            <span>{t('favFilesSection', 'ไฟล์และโฟลเดอร์โปรด ({count})', { count: visibleFolders.length + visibleNotebooks.length })}</span>
                           </div>
                           <div className="bn-gn-grid">
                             {visibleFolders.map(f => (
@@ -1289,22 +1291,22 @@ export const LibraryView = ({
                         <div className="bn-fav-section">
                           <div className="bn-fav-section-title">
                             <FileText size={16} />
-                            <span>หน้ากระดาษที่ติดดาวไว้ ({favoritePages.length} หน้า)</span>
+                            <span>{t('favPagesSection', 'หน้ากระดาษที่ติดดาวไว้ ({count} หน้า)', { count: favoritePages.length })}</span>
                           </div>
                           <div className="bn-gn-pages-grid">
                             {favoritePages.map(p => {
                               const parentNb = (notebooks || []).find(n => n && n.id === p.notebookId);
-                              const nbTitle = parentNb ? parentNb.name : 'สมุดบันทึก';
+                              const nbTitle = parentNb ? parentNb.name : t('newNotebook', 'สมุดบันทึก');
                               return (
                                 <div 
                                   key={p.id} 
                                   className="bn-gn-fav-page-card"
                                   onClick={() => onOpenNotebook(p.notebookId, p.pageIndex)}
-                                  title={`คลิกเพื่อเปิด "${nbTitle}" หน้า ${p.pageIndex + 1}`}
+                                  title={t('openPageTooltip', 'คลิกเพื่อเปิด "{title}" หน้า {page}', { title: nbTitle, page: p.pageIndex + 1 })}
                                 >
                                   <div className="bn-gn-fav-page-preview">
                                     <span className="bn-gn-fav-page-badge">
-                                      หน้า {p.pageIndex + 1}
+                                      {t('pageNumber', 'หน้า {page}', { page: p.pageIndex + 1 })}
                                     </span>
                                     <button
                                       type="button"
@@ -1313,14 +1315,14 @@ export const LibraryView = ({
                                         e.stopPropagation();
                                         handleToggleFavoritePage(p);
                                       }}
-                                      title="นำหน้านี้ออกจากรายการโปรด"
+                                      title={t('removeStarTooltip', 'นำหน้านี้ออกจากรายการโปรด')}
                                     >
                                       <Star size={13} fill="#f59e0b" color="#f59e0b" className="bn-star-gold" />
                                     </button>
                                     {p.pdfPageImage ? (
                                       <img 
                                         src={p.pdfPageImage} 
-                                        alt={`หน้า ${p.pageIndex + 1}`}
+                                        alt={t('pageNumber', 'หน้า {page}', { page: p.pageIndex + 1 })}
                                         className="bn-gn-fav-page-img"
                                       />
                                     ) : (
@@ -1331,11 +1333,11 @@ export const LibraryView = ({
                                         <div className="bn-gn-page-rule-line" />
                                         {p.strokes && p.strokes.length > 0 ? (
                                           <div className="bn-gn-page-drawn-indicator">
-                                            มีบันทึกเขียน ({p.strokes.length} เส้น)
+                                            {t('hasStrokesDesc', 'มีบันทึกเขียน ({count} เส้น)', { count: p.strokes.length })}
                                           </div>
                                         ) : (
                                           <div className="bn-gn-page-blank-indicator">
-                                            หน้าว่าง
+                                            {t('emptyPageDesc', 'หน้าว่าง')}
                                           </div>
                                         )}
                                       </div>
@@ -1346,7 +1348,7 @@ export const LibraryView = ({
                                       {nbTitle}
                                     </span>
                                     <span className="bn-gn-fav-page-sub">
-                                      หน้า {p.pageIndex + 1}
+                                      {t('pageNumber', 'หน้า {page}', { page: p.pageIndex + 1 })}
                                     </span>
                                   </div>
                                 </div>
@@ -1365,9 +1367,9 @@ export const LibraryView = ({
                   {visibleFolders.length === 0 && visibleNotebooks.length === 0 ? (
                     <div className="bn-gn-empty-state">
                       <div className="bn-gn-empty-icon">📁</div>
-                      <h4 className="text-sm font-semibold text-zinc-200 mb-1">ยังไม่มีไฟล์หรือโฟลเดอร์โปรด</h4>
+                      <h4 className="text-sm font-semibold text-zinc-200 mb-1">{t('emptyFavTitle', 'ยังไม่มีไฟล์หรือโฟลเดอร์โปรด')}</h4>
                       <p className="text-xs text-zinc-500 max-w-xs">
-                        กดที่ไอคอนรูปดาวบนโฟลเดอร์หรือสมุดโน้ตเพื่อบันทึกไว้ในหมวดหมู่นี้
+                        {t('emptyFavDesc', 'กดที่ไอคอนรูปดาวบนโฟลเดอร์หรือสมุดโน้ตเพื่อบันทึกไว้ในหมวดหมู่นี้')}
                       </p>
                     </div>
                   ) : (
@@ -1420,26 +1422,26 @@ export const LibraryView = ({
                   {favoritePages.length === 0 ? (
                     <div className="bn-gn-empty-state">
                       <div className="bn-gn-empty-icon">📄</div>
-                      <h4 className="text-sm font-semibold text-zinc-200 mb-1">ยังไม่มีหน้ากระดาษที่ติดดาวไว้</h4>
+                      <h4 className="text-sm font-semibold text-zinc-200 mb-1">{t('emptyFavTitle', 'ยังไม่มีหน้ากระดาษที่ติดดาวไว้')}</h4>
                       <p className="text-xs text-zinc-500 max-w-xs">
-                        กดไอคอนรูปดาว ⭐ ที่แถบเครื่องมือด้านบนขณะเขียนสมุดโน้ต เพื่อบันทึกหน้านั้นไว้ที่นี่
+                        {t('emptyFavDesc', 'กดไอคอนรูปดาว ⭐ ที่แถบเครื่องมือด้านบนขณะเขียนสมุดโน้ต เพื่อบันทึกหน้านั้นไว้ที่นี่')}
                       </p>
                     </div>
                   ) : (
                     <div className="bn-gn-pages-grid">
                       {favoritePages.map(p => {
                         const parentNb = (notebooks || []).find(n => n && n.id === p.notebookId);
-                        const nbTitle = parentNb ? parentNb.name : 'สมุดบันทึก';
+                        const nbTitle = parentNb ? parentNb.name : t('newNotebook', 'สมุดบันทึก');
                         return (
                           <div 
                             key={p.id} 
                             className="bn-gn-fav-page-card"
                             onClick={() => onOpenNotebook(p.notebookId, p.pageIndex)}
-                            title={`คลิกเพื่อเปิด "${nbTitle}" หน้า ${p.pageIndex + 1}`}
+                            title={t('openPageTooltip', 'คลิกเพื่อเปิด "{title}" หน้า {page}', { title: nbTitle, page: p.pageIndex + 1 })}
                           >
                             <div className="bn-gn-fav-page-preview">
                               <span className="bn-gn-fav-page-badge">
-                                หน้า {p.pageIndex + 1}
+                                {t('pageNumber', 'หน้า {page}', { page: p.pageIndex + 1 })}
                               </span>
                               <button
                                 type="button"
@@ -1448,14 +1450,14 @@ export const LibraryView = ({
                                   e.stopPropagation();
                                   handleToggleFavoritePage(p);
                                 }}
-                                title="นำหน้านี้ออกจากรายการโปรด"
+                                title={t('removeStarTooltip', 'นำหน้านี้ออกจากรายการโปรด')}
                               >
                                 <Star size={13} fill="#f59e0b" color="#f59e0b" className="bn-star-gold" />
                               </button>
                               {p.pdfPageImage ? (
                                 <img 
                                   src={p.pdfPageImage} 
-                                  alt={`หน้า ${p.pageIndex + 1}`}
+                                  alt={t('pageNumber', 'หน้า {page}', { page: p.pageIndex + 1 })}
                                   className="bn-gn-fav-page-img"
                                 />
                               ) : (
@@ -1466,11 +1468,11 @@ export const LibraryView = ({
                                   <div className="bn-gn-page-rule-line" />
                                   {p.strokes && p.strokes.length > 0 ? (
                                     <div className="bn-gn-page-drawn-indicator">
-                                      มีบันทึกเขียน ({p.strokes.length} เส้น)
+                                      {t('hasStrokesDesc', 'มีบันทึกเขียน ({count} เส้น)', { count: p.strokes.length })}
                                     </div>
                                   ) : (
                                     <div className="bn-gn-page-blank-indicator">
-                                      หน้าว่าง
+                                      {t('emptyPageDesc', 'หน้าว่าง')}
                                     </div>
                                   )}
                                 </div>
@@ -1481,7 +1483,7 @@ export const LibraryView = ({
                                 {nbTitle}
                               </span>
                               <span className="bn-gn-fav-page-sub">
-                                หน้า {p.pageIndex + 1}
+                                {t('pageNumber', 'หน้า {page}', { page: p.pageIndex + 1 })}
                               </span>
                             </div>
                           </div>
@@ -1503,13 +1505,13 @@ export const LibraryView = ({
                     {activeView === 'trash' ? '🗑️' : '📁'}
                   </div>
                   <h4 className="text-sm font-semibold text-zinc-200 mb-1">
-                    {activeView === 'trash' ? 'ถังขยะว่างเปล่า' :
-                     searchQuery ? 'ไม่พบเอกสารที่ค้นหา' : 'โฟลเดอร์นี้ยังว่างเปล่า'}
+                    {activeView === 'trash' ? t('emptyTrashTitle', 'ถังขยะว่างเปล่า') :
+                     searchQuery ? t('emptySearchTitle', 'ไม่พบเอกสารที่ค้นหา') : t('emptyFolderTitle', 'โฟลเดอร์นี้ยังว่างเปล่า')}
                   </h4>
                   <p className="text-xs text-zinc-500 max-w-xs">
                     {activeView === 'trash' 
-                      ? 'ไม่มีเอกสารหรือโฟลเดอร์ที่ถูกลบ' 
-                      : 'กดปุ่ม "+ ใหม่" ด้านบนเพื่อเริ่มสร้างสมุดบันทึกหรือโฟลเดอร์'}
+                      ? t('emptyTrashSubtitle', 'ไม่มีเอกสารหรือโฟลเดอร์ที่ถูกลบ') 
+                      : t('emptyFolderSubtitle', 'กดปุ่ม "+ ใหม่" ด้านบนเพื่อเริ่มสร้างสมุดบันทึกหรือโฟลเดอร์')}
                   </p>
                 </div>
               ) : (
@@ -1542,14 +1544,14 @@ export const LibraryView = ({
                             onClick={() => handleRestoreFolder(f.id)}
                           >
                             <RotateCcw size={12} />
-                            <span>กู้คืน</span>
+                            <span>{t('restoreAction', 'กู้คืน')}</span>
                           </button>
                           <button
                             className="text-[11px] text-red-400 hover:text-red-300 flex items-center gap-1 bg-red-500/10 px-2.5 py-1 rounded-md"
                             onClick={() => onDeleteFolder(f.id)}
                           >
                             <Trash2 size={12} />
-                            <span>ลบถาวร</span>
+                            <span>{t('permanentDeleteAction', 'ลบถาวร')}</span>
                           </button>
                         </div>
                       )}
@@ -1586,14 +1588,14 @@ export const LibraryView = ({
                             onClick={() => handleRestoreNotebook(nb.id)}
                           >
                             <RotateCcw size={12} />
-                            <span>กู้คืน</span>
+                            <span>{t('restoreAction', 'กู้คืน')}</span>
                           </button>
                           <button
                             className="text-[11px] text-red-400 hover:text-red-300 flex items-center gap-1 bg-red-500/10 px-2.5 py-1 rounded-md"
                             onClick={() => onDeleteNotebook(nb.id)}
                           >
                             <Trash2 size={12} />
-                            <span>ลบถาวร</span>
+                            <span>{t('permanentDeleteAction', 'ลบถาวร')}</span>
                           </button>
                         </div>
                       )}
@@ -1634,7 +1636,7 @@ export const LibraryView = ({
       <RenameModal 
         isOpen={!!renameItem}
         initialName={renameItem?.item?.name || ''}
-        title={renameItem?.type === 'folder' ? 'ตั้งชื่อโฟลเดอร์ใหม่' : 'ตั้งชื่อสมุดบันทึกใหม่'}
+        title={renameItem?.type === 'folder' ? t('renameFolderTitle', 'ตั้งชื่อโฟลเดอร์ใหม่') : t('renameNotebookTitle', 'ตั้งชื่อสมุดบันทึกใหม่')}
         onClose={() => setRenameItem(null)}
         onConfirm={handleConfirmRename}
       />

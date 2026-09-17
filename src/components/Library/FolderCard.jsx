@@ -13,6 +13,7 @@ import {
   STUDIO_FOLDER_ICONS, 
   getFolderIconComponent 
 } from '../../data/folderCustomization';
+import { useLanguage } from '../../services/i18n';
 
 export const FolderCard = ({ 
   folder, 
@@ -28,6 +29,7 @@ export const FolderCard = ({
   isSelected = false,
   onToggleSelect
 }) => {
+  const { language, t } = useLanguage();
   const [showMenu, setShowMenu] = useState(false);
   const [activeTab, setActiveTab] = useState('color'); // 'color' or 'icon'
   const [isDragOver, setIsDragOver] = useState(false);
@@ -50,21 +52,34 @@ export const FolderCard = ({
   const currentIconId = folder.icon || 'apple';
   const IconComp = getFolderIconComponent(currentIconId);
 
-  // Thai Date formatting standard format: "30 มิ.ย. 2569 เมื่อ9:23 AM"
-  const formatThaiDate = (timestamp) => {
-    if (!timestamp) return '30 มิ.ย. 2569 เมื่อ9:23 AM';
+  // Bilingual Date formatting
+  const formatLocalizedDate = (timestamp) => {
+    if (!timestamp) {
+      return language === 'en' ? 'Jun 30, 2026 at 9:23 AM' : '30 มิ.ย. 2569 เมื่อ9:23 AM';
+    }
     const date = new Date(timestamp);
-    const months = [
+    const thaiMonths = [
       'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
       'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
     ];
+    const enMonths = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
     const day = date.getDate();
-    const month = months[date.getMonth()];
-    const year = date.getFullYear() + 543; // Buddhist Era
     let hours = date.getHours();
     const minutes = date.getMinutes().toString().padStart(2, '0');
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
+
+    if (language === 'en') {
+      const month = enMonths[date.getMonth()];
+      const year = date.getFullYear();
+      return `${month} ${day}, ${year} at ${hours}:${minutes} ${ampm}`;
+    }
+
+    const month = thaiMonths[date.getMonth()];
+    const year = date.getFullYear() + 543; // Buddhist Era
     return `${day} ${month} ${year} เมื่อ${hours}:${minutes} ${ampm}`;
   };
 
@@ -123,7 +138,7 @@ export const FolderCard = ({
       <div 
         className="bn-gn-folder-graphic-wrapper"
         onClick={handleFolderClick}
-        title={isSelectMode ? `คลิกเพื่อ${isSelected ? 'ยกเลิกเลือก' : 'เลือก'} "${folder.name}"` : `เปิดโฟลเดอร์ "${folder.name}" (${count} รายการ)`}
+        title={isSelectMode ? `${isSelected ? t('deselect') : t('selectFolder')} "${folder.name}"` : `${folder.name} (${count} ${t('page')})`}
       >
         <div 
           className={`bn-gn-folder-graphic ${isSelected ? 'bn-card-selected' : ''}`}
@@ -142,7 +157,7 @@ export const FolderCard = ({
                   e.stopPropagation();
                   if (onToggleSelect) onToggleSelect(folder.id, 'folder');
                 }}
-                title={isSelected ? 'ยกเลิกการเลือก' : 'เลือกโฟลเดอร์นี้'}
+                title={isSelected ? t('deselect', 'ยกเลิกการเลือก') : t('selectFolder', 'เลือกโฟลเดอร์นี้')}
               >
                 {isSelected && <Check size={13} strokeWidth={3} />}
               </div>
@@ -165,7 +180,7 @@ export const FolderCard = ({
                   e.stopPropagation();
                   if (onToggleFavorite) onToggleFavorite(folder.id);
                 }}
-                title={folder.isFavorite ? "นำออกจากรายการโปรด" : "เพิ่มเป็นรายการโปรด"}
+                title={folder.isFavorite ? t('removeFromFavorites', 'นำออกจากรายการโปรด') : t('addToFavorites', 'เพิ่มเป็นรายการโปรด')}
               >
                 <Star 
                   size={14} 
@@ -195,16 +210,16 @@ export const FolderCard = ({
                 e.stopPropagation();
                 setShowMenu(!showMenu);
               }}
-              title="ตัวเลือกโฟลเดอร์"
+              title={t('folderOptions', 'ตัวเลือกโฟลเดอร์')}
             >
               <ChevronDown size={14} />
             </button>
           )}
         </div>
 
-        {/* Date Subtitle in Thai Format */}
+        {/* Date Subtitle in Localized Format */}
         <div className="bn-gn-folder-subtext">
-          {formatThaiDate(folder.updatedAt || folder.createdAt)}
+          {formatLocalizedDate(folder.updatedAt || folder.createdAt)}
         </div>
       </div>
 
@@ -221,13 +236,13 @@ export const FolderCard = ({
               className={`bn-gn-menu-tab ${activeTab === 'color' ? 'bn-gn-tab-active' : ''}`}
               onClick={() => setActiveTab('color')}
             >
-              สี
+              {t('folderColorTab', 'สี')}
             </button>
             <button
               className={`bn-gn-menu-tab ${activeTab === 'icon' ? 'bn-gn-tab-active' : ''}`}
               onClick={() => setActiveTab('icon')}
             >
-              ไอคอน
+              {t('folderIconTab', 'ไอคอน')}
             </button>
           </div>
 
@@ -281,7 +296,7 @@ export const FolderCard = ({
               }}
             >
               <Edit3 size={16} />
-              <span>ตั้งชื่อใหม่</span>
+              <span>{t('renameAction', 'ตั้งชื่อใหม่')}</span>
             </button>
 
             <button 
@@ -292,7 +307,7 @@ export const FolderCard = ({
               }}
             >
               <FolderInput size={16} />
-              <span>ย้าย</span>
+              <span>{t('moveAction', 'ย้าย')}</span>
             </button>
 
             <div className="bn-gn-menu-divider" />
@@ -305,7 +320,7 @@ export const FolderCard = ({
               }}
             >
               <Trash2 size={16} />
-              <span>ย้ายไปยังถังขยะ</span>
+              <span>{t('moveToTrashAction', 'ย้ายไปยังถังขยะ')}</span>
             </button>
           </div>
         </div>

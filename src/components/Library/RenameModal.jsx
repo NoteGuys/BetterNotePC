@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Edit3, Check } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
-export const RenameModal = ({ isOpen, initialName = '', title = 'ตั้งชื่อใหม่', onClose, onConfirm }) => {
+export const RenameModal = ({ isOpen, initialName = '', title = null, onClose, onConfirm }) => {
+  const { t } = useLanguage();
   const [name, setName] = useState(initialName);
   const inputRef = useRef(null);
 
@@ -27,6 +29,8 @@ export const RenameModal = ({ isOpen, initialName = '', title = 'ตั้งช
     }
   };
 
+  const displayTitle = title || t('rename', 'ตั้งชื่อใหม่');
+
   return (
     <div className="bn-modal-backdrop" onClick={onClose}>
       <div className="bn-modal-card bn-rename-dialog" onClick={(e) => e.stopPropagation()}>
@@ -36,11 +40,11 @@ export const RenameModal = ({ isOpen, initialName = '', title = 'ตั้งช
               <Edit3 size={18} />
             </div>
             <div>
-              <h3 className="bn-rename-title">{title}</h3>
-              <p className="bn-rename-subtitle">พิมพ์ชื่อใหม่ที่ต้องการ แล้วกดบันทึก</p>
+              <h3 className="bn-rename-title">{displayTitle}</h3>
+              <p className="bn-rename-subtitle">{t('renameSub', 'พิมพ์ชื่อใหม่ที่ต้องการ แล้วกดบันทึก')}</p>
             </div>
           </div>
-          <button className="bn-modal-close-btn" onClick={onClose} title="ปิด">
+          <button className="bn-modal-close-btn" onClick={onClose} title={t('close', 'ปิด')}>
             <X size={18} />
           </button>
         </div>
@@ -48,7 +52,7 @@ export const RenameModal = ({ isOpen, initialName = '', title = 'ตั้งช
         <form onSubmit={handleSubmit} className="bn-rename-form">
           <div className="bn-rename-body">
             <label className="bn-rename-label">
-              ชื่อใหม่ <span className="bn-rename-required">*</span>
+              {t('newName', 'ชื่อใหม่')} <span className="bn-rename-required">*</span>
             </label>
             <input
               ref={inputRef}
@@ -56,7 +60,7 @@ export const RenameModal = ({ isOpen, initialName = '', title = 'ตั้งช
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="bn-rename-input"
-              placeholder="กรอกชื่อที่ต้องการ..."
+              placeholder={t('enterNamePlaceholder', 'กรอกชื่อที่ต้องการ...')}
               maxLength={120}
             />
           </div>
@@ -67,7 +71,7 @@ export const RenameModal = ({ isOpen, initialName = '', title = 'ตั้งช
               className="bn-btn-secondary bn-rename-cancel-btn"
               onClick={onClose}
             >
-              ยกเลิก
+              {t('cancel', 'ยกเลิก')}
             </button>
             <button
               type="submit"
@@ -75,7 +79,7 @@ export const RenameModal = ({ isOpen, initialName = '', title = 'ตั้งช
               className="bn-btn-primary bn-rename-submit-btn"
             >
               <Check size={15} />
-              <span>บันทึกชื่อ</span>
+              <span>{t('saveName', 'บันทึกชื่อ')}</span>
             </button>
           </div>
         </form>
@@ -83,3 +87,4 @@ export const RenameModal = ({ isOpen, initialName = '', title = 'ตั้งช
     </div>
   );
 };
+

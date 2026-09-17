@@ -67,7 +67,7 @@ export const CanvasBoard = ({
   onSnipComplete,
   onUndo
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const containerRef = useRef(null);
   const sheetRef = useRef(null);
   const bgCanvasRef = useRef(null);
@@ -624,7 +624,7 @@ export const CanvasBoard = ({
         id: `txt-${Date.now()}`,
         x: coords.x,
         y: coords.y,
-        text: 'พิมพ์ข้อความที่นี่...',
+        text: t('typeTextHere', 'พิมพ์ข้อความที่นี่...'),
         fontSize: 20,
         fontFamily: 'Inter',
         color: activeColor,
@@ -862,7 +862,7 @@ export const CanvasBoard = ({
                 recognized.origVertices = recognized.vertices.map(pt => ({ ...pt }));
               }
               heldShapeRef.current = recognized;
-              showToast(`ปรับรูปทรงอัตโนมัติ: ${recognized.label} 📐`);
+              showToast(t('autoShapeToast', 'ปรับรูปทรงอัตโนมัติ: {shape} 📐', { shape: recognized.label }));
               ctx.clearRect(0, 0, canvasWidth, canvasHeight);
               renderShapePreview(ctx, recognized, activeColor, activeWidth);
             }
@@ -1017,7 +1017,7 @@ export const CanvasBoard = ({
               height: Math.max(48, bMaxY - bMinY + 24)
             }
           });
-          showToast(`เลือก ${totalCount} รายการด้วย Lasso 🔗`);
+          showToast(t('lassoSuffix', 'เลือก {count} รายการด้วย Lasso 🔗', { count: totalCount }));
         } else {
           setLassoSelection(null);
         }
@@ -1058,7 +1058,7 @@ export const CanvasBoard = ({
         }
         heldShapeRef.current = null;
         onStrokesChange(scribble.remainingStrokes);
-        showToast(`ขยี้ลบ ${scribble.hitCount} เส้นแล้ว! (Scribble Erased) 🪄`);
+        showToast(t('scribbleErasedToast', 'ขยี้ลบ {count} เส้นแล้ว! (Scribble Erased) 🪄', { count: scribble.hitCount }));
         currentPointsRef.current = [];
         startPointRef.current = null;
         return;
@@ -1240,7 +1240,7 @@ export const CanvasBoard = ({
     
     // 4. Automatically switch back to Pen tool so Snipping Tool does not stay active!
     if (onToolChange) onToolChange('pen');
-    showToast('วางภาพลงในหน้านี้เรียบร้อย! 📋');
+    showToast(language === 'en' ? 'Pasted image onto this page! 📋' : 'วางภาพลงในหน้านี้เรียบร้อย! 📋');
   };
 
   // Close Snip Modal and return to Pen tool
@@ -1330,7 +1330,7 @@ export const CanvasBoard = ({
     setFloatingPasteMenu(null);
 
     if (!imgDataUrl) {
-      showToast('ไม่พบรูปภาพในคลิปบอร์ด (กรุณาคัดลอกภาพก่อน หรือใช้ Win+Shift+S) 📋');
+      showToast(t('noImageInClipboard', 'ไม่พบรูปภาพในคลิปบอร์ด (กรุณาคัดลอกภาพก่อน หรือใช้ Win+Shift+S) 📋'));
       return;
     }
 
@@ -1368,7 +1368,7 @@ export const CanvasBoard = ({
         onImageElementsChange(newImages);
       }
       setSelectedImageId(newImg.id);
-      showToast('วางรูปภาพสำเร็จ! 📋✨');
+      showToast(language === 'en' ? 'Pasted image successfully! 📋✨' : 'วางรูปภาพสำเร็จ! 📋✨');
     };
     img.src = imgDataUrl;
   };
@@ -1418,7 +1418,7 @@ export const CanvasBoard = ({
     const updated = imageElements.map(img => {
       if (img.id === imgId) {
         const nextLayer = img.layer === 'over' ? 'under' : 'over';
-        showToast(nextLayer === 'over' ? 'ย้ายรูปภาพไป: หน้ารอยเขียน 📄🔝' : 'ย้ายรูปภาพไป: ใต้รอยเขียน (เขียนทับภาพได้) ✍️📄');
+        showToast(nextLayer === 'over' ? (language === 'en' ? 'Moved image to: In front of handwriting 📄🔝' : 'ย้ายรูปภาพไป: หน้ารอยเขียน 📄🔝') : (language === 'en' ? 'Moved image to: Behind handwriting ✍️📄' : 'ย้ายรูปภาพไป: ใต้รอยเขียน (เขียนทับภาพได้) ✍️📄'));
         return { ...img, layer: nextLayer };
       }
       return img;
@@ -1435,7 +1435,7 @@ export const CanvasBoard = ({
     const updated = imageElements.map(img => {
       if (img.id === imgId) {
         const nextLocked = !img.locked;
-        showToast(nextLocked ? 'ล็อกตำแหน่งรูปภาพแล้ว 🔒' : 'ปลดล็อกรูปภาพแล้ว 🔓');
+        showToast(nextLocked ? (language === 'en' ? 'Image position locked 🔒' : 'ล็อกตำแหน่งรูปภาพแล้ว 🔒') : (language === 'en' ? 'Image position unlocked 🔓' : 'ปลดล็อกรูปภาพแล้ว 🔓'));
         return { ...img, locked: nextLocked };
       }
       return img;
@@ -2064,7 +2064,7 @@ export const CanvasBoard = ({
       onStrokesChange(newStrokes);
     }
     setShowLassoColorPicker(false);
-    showToast(`เปลี่ยนสีลายเส้นที่เลือกแล้ว! 🎨`);
+    showToast(language === 'en' ? 'Recolored selected strokes! 🎨' : 'เปลี่ยนสีลายเส้นที่เลือกแล้ว! 🎨');
   };
 
   const handleLassoDuplicate = () => {
@@ -2121,7 +2121,7 @@ export const CanvasBoard = ({
         height: lassoSelection.bbox.height
       }
     });
-    showToast('คัดลอกส่วนที่เลือกแล้ว (Duplicated) 📋');
+    showToast(language === 'en' ? 'Duplicated selection! 📋' : 'คัดลอกส่วนที่เลือกแล้ว (Duplicated) 📋');
   };
 
   const handleLassoDelete = () => {
@@ -2154,7 +2154,7 @@ export const CanvasBoard = ({
     }
     setLassoSelection(null);
     setShowLassoColorPicker(false);
-    showToast('ลบส่วนที่เลือกแล้ว 🗑️');
+    showToast(language === 'en' ? 'Deleted selection! 🗑️' : 'ลบส่วนที่เลือกแล้ว 🗑️');
   };
 
   // Reusable Image Element Renderer with Layer Status, Locking, and Action Bar
@@ -2453,7 +2453,7 @@ export const CanvasBoard = ({
                     e.stopPropagation();
                     handleTextDelete(txt.id);
                   }}
-                  title="ลบข้อความ"
+                  title={t('delete', 'ลบข้อความ')}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -2497,10 +2497,10 @@ export const CanvasBoard = ({
                     e.stopPropagation(); 
                     setShowLassoColorPicker(!showLassoColorPicker); 
                   }}
-                  title="เปลี่ยนสีลายเส้นที่เลือก"
+                  title={language === 'en' ? 'Recolor selected strokes' : 'เปลี่ยนสีลายเส้นที่เลือก'}
                 >
                   <Palette size={13} className="text-blue-400" />
-                  <span>เปลี่ยนสี</span>
+                  <span>{language === 'en' ? 'Recolor' : 'เปลี่ยนสี'}</span>
                 </button>
 
                 {/* Studio style Color Palette Popover */}
@@ -2520,10 +2520,10 @@ export const CanvasBoard = ({
                           e.stopPropagation(); 
                           handleLassoRecolor(col); 
                         }}
-                        title={`เปลี่ยนเป็นสี ${col}`}
+                        title={language === 'en' ? `Change to ${col}` : `เปลี่ยนเป็นสี ${col}`}
                       />
                     ))}
-                    <div className="relative w-5 h-5 rounded-full flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 border border-white/40 cursor-pointer overflow-hidden flex-shrink-0" title="เลือกสีอื่น...">
+                    <div className="relative w-5 h-5 rounded-full flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 border border-white/40 cursor-pointer overflow-hidden flex-shrink-0" title={language === 'en' ? 'Choose custom color...' : 'เลือกสีอื่น...'}>
                       <span className="text-[10px] font-bold text-white pointer-events-none">+</span>
                       <input 
                         type="color"
@@ -2549,10 +2549,10 @@ export const CanvasBoard = ({
                   e.stopPropagation(); 
                   handleLassoDuplicate(); 
                 }}
-                title="ทำสำเนาส่วนที่เลือก"
+                title={t('duplicate', 'ทำสำเนาส่วนที่เลือก')}
               >
                 <Copy size={13} />
-                <span>คัดลอก</span>
+                <span>{t('duplicate', 'คัดลอก')}</span>
               </button>
 
               <div className="w-px h-3 bg-zinc-700 mx-0.5" />
@@ -2564,10 +2564,10 @@ export const CanvasBoard = ({
                   e.stopPropagation(); 
                   handleLassoDelete(); 
                 }}
-                title="ลบส่วนที่เลือก"
+                title={t('delete', 'ลบส่วนที่เลือก')}
               >
                 <Trash2 size={13} />
-                <span>ลบ</span>
+                <span>{t('delete', 'ลบ')}</span>
               </button>
 
               <div className="w-px h-3 bg-zinc-700 mx-0.5" />
@@ -2585,7 +2585,7 @@ export const CanvasBoard = ({
                   setLassoSelection(null); 
                   setShowLassoColorPicker(false);
                 }}
-                title="ยกเลิกการเลือก (Close)"
+                title={language === 'en' ? 'Deselect (Close)' : 'ยกเลิกการเลือก (Close)'}
               >
                 <X size={14} />
               </button>
@@ -2597,28 +2597,28 @@ export const CanvasBoard = ({
               onPointerDown={(e) => handleLassoResizePointerDown(e, 'nw')}
               onPointerMove={handleLassoResizePointerMove}
               onPointerUp={handleLassoResizePointerUp}
-              title="ย่อ/ขยาย (บนซ้าย)"
+              title={language === 'en' ? 'Resize (Top-Left)' : 'ย่อ/ขยาย (บนซ้าย)'}
             />
             <div 
               className="bn-lasso-corner-handle bn-lasso-corner-ne"
               onPointerDown={(e) => handleLassoResizePointerDown(e, 'ne')}
               onPointerMove={handleLassoResizePointerMove}
               onPointerUp={handleLassoResizePointerUp}
-              title="ย่อ/ขยาย (บนขวา)"
+              title={language === 'en' ? 'Resize (Top-Right)' : 'ย่อ/ขยาย (บนขวา)'}
             />
             <div 
               className="bn-lasso-corner-handle bn-lasso-corner-se"
               onPointerDown={(e) => handleLassoResizePointerDown(e, 'se')}
               onPointerMove={handleLassoResizePointerMove}
               onPointerUp={handleLassoResizePointerUp}
-              title="ย่อ/ขยาย (ล่างขวา)"
+              title={language === 'en' ? 'Resize (Bottom-Right)' : 'ย่อ/ขยาย (ล่างขวา)'}
             />
             <div 
               className="bn-lasso-corner-handle bn-lasso-corner-sw"
               onPointerDown={(e) => handleLassoResizePointerDown(e, 'sw')}
               onPointerMove={handleLassoResizePointerMove}
               onPointerUp={handleLassoResizePointerUp}
-              title="ย่อ/ขยาย (ล่างซ้าย)"
+              title={language === 'en' ? 'Resize (Bottom-Left)' : 'ย่อ/ขยาย (ล่างซ้าย)'}
             />
           </div>
         )}
@@ -2638,15 +2638,15 @@ export const CanvasBoard = ({
             <button 
               className="bn-floating-paste-btn"
               onClick={() => handleExecutePaste(floatingPasteMenu.canvasX, floatingPasteMenu.canvasY)}
-              title="วางรูปภาพจากคลิปบอร์ด (Paste Image)"
+              title={language === 'en' ? 'Paste image from clipboard (Paste Image)' : 'วางรูปภาพจากคลิปบอร์ด (Paste Image)'}
             >
               <ClipboardPaste size={15} />
-              <span>วาง</span>
+              <span>{t('floatingPaste', 'วาง')}</span>
             </button>
             <button 
               className="bn-floating-paste-close"
               onClick={() => setFloatingPasteMenu(null)}
-              title="ปิดเมนู"
+              title={t('close', 'ปิดเมนู')}
             >
               <X size={13} />
             </button>
@@ -2682,7 +2682,7 @@ export const CanvasBoard = ({
               } : it));
             }
             setCropModalImg(null);
-            showToast('ครอบตัดรูปภาพสำเร็จ! ✂️');
+            showToast(language === 'en' ? 'Cropped image successfully! ✂️' : 'ครอบตัดรูปภาพสำเร็จ! ✂️');
           }}
           onClose={() => setCropModalImg(null)}
         />

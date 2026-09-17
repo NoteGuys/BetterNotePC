@@ -56,22 +56,22 @@ export const SettingsModal = ({
   const handleRestoreFromFolder = async () => {
     if (isRestoringCloud) return;
     setIsRestoringCloud(true);
-    setRestoreMessage('กำลังค้นหาและดึงข้อมูลจากโฟลเดอร์ Google Drive / Local...');
+    setRestoreMessage(language === 'en' ? 'Scanning and restoring notebooks from Google Drive / Local folder...' : 'กำลังค้นหาและดึงข้อมูลจากโฟลเดอร์ Google Drive / Local...');
     try {
       const { autoBackupService } = await import('../../services/autoBackupService');
       const res = await autoBackupService.restoreFromCloudBackup(backupPath);
       if (res.success) {
-        setRestoreMessage(`✓ สำเร็จ! กู้คืนสมุดโน้ต ${res.count} เล่มเรียบร้อยแล้ว`);
+        setRestoreMessage(language === 'en' ? `✓ Success! Restored ${res.count} notebooks.` : `✓ สำเร็จ! กู้คืนสมุดโน้ต ${res.count} เล่มเรียบร้อยแล้ว`);
         setTimeout(() => {
           if (onClose) onClose();
           window.location.reload();
         }, 1500);
       } else {
-        setRestoreMessage('ไม่พบไฟล์สำรองในโฟลเดอร์นี้ กรุณาตรวจสอบตำแหน่งโฟลเดอร์');
+        setRestoreMessage(language === 'en' ? 'No backup files found in this folder. Please verify the folder location.' : 'ไม่พบไฟล์สำรองในโฟลเดอร์นี้ กรุณาตรวจสอบตำแหน่งโฟลเดอร์');
         setTimeout(() => setRestoreMessage(null), 4000);
       }
     } catch (err) {
-      setRestoreMessage(`เกิดข้อผิดพลาด: ${err.message}`);
+      setRestoreMessage(language === 'en' ? `Error: ${err.message}` : `เกิดข้อผิดพลาด: ${err.message}`);
       setTimeout(() => setRestoreMessage(null), 4000);
     } finally {
       setIsRestoringCloud(false);
@@ -160,14 +160,14 @@ export const SettingsModal = ({
               <Settings size={20} />
             </div>
             <div>
-              <h3 className="bn-settings-title">การตั้งค่า (Settings)</h3>
-              <p className="bn-settings-sub">จัดการการสำรองข้อมูล คลาวด์ และค่าเริ่มต้นระบบ</p>
+              <h3 className="bn-settings-title">{t('settingsTitle', 'การตั้งค่า (Settings)')}</h3>
+              <p className="bn-settings-sub">{t('settingsTooltip', 'จัดการการสำรองข้อมูล คลาวด์ และค่าเริ่มต้นระบบ')}</p>
             </div>
           </div>
           <button 
             className="bn-modal-close-btn"
             onClick={onClose}
-            title="ปิดหน้าต่าง"
+            title={t('close', 'ปิดหน้าต่าง')}
           >
             <X size={18} />
           </button>
@@ -190,7 +190,7 @@ export const SettingsModal = ({
             onClick={() => setActiveTab('backup')}
           >
             <HardDrive size={16} className={activeTab === 'backup' ? 'text-blue-400' : 'text-zinc-400'} />
-            <span>สำรอง & กู้คืน</span>
+            <span>{t('backupTab', 'สำรอง & กู้คืน')}</span>
           </button>
 
           <button
@@ -199,7 +199,7 @@ export const SettingsModal = ({
             onClick={() => setActiveTab('defaults')}
           >
             <FileText size={16} className={activeTab === 'defaults' ? 'text-amber-400' : 'text-zinc-400'} />
-            <span>ค่าเริ่มต้นกระดาษ</span>
+            <span>{t('defaultsTab', 'ค่าเริ่มต้นกระดาษ')}</span>
           </button>
 
           <button
@@ -212,7 +212,7 @@ export const SettingsModal = ({
             ) : (
               <Moon size={16} className={activeTab === 'theme' ? 'text-blue-400' : 'text-zinc-400'} />
             )}
-            <span>{t('themeTab')}</span>
+            <span>{t('themeTab', 'ธีมหน้าจอ (Theme)')}</span>
           </button>
 
           <button
@@ -221,7 +221,7 @@ export const SettingsModal = ({
             onClick={() => setActiveTab('language')}
           >
             <Globe size={16} className={activeTab === 'language' ? 'text-emerald-400' : 'text-zinc-400'} />
-            <span>{t('languageTab')}</span>
+            <span>{t('languageTab', 'ภาษา (Language)')}</span>
           </button>
         </div>
 
@@ -241,14 +241,14 @@ export const SettingsModal = ({
                   </div>
                   <div className="bn-settings-card-text">
                     <div className="bn-settings-card-title-row">
-                      <h4 className="bn-settings-card-h4">สถานะระบบสำรองข้อมูลอัตโนมัติ</h4>
+                      <h4 className="bn-settings-card-h4">{t('backupStatus', 'สถานะระบบสำรองข้อมูลอัตโนมัติ')}</h4>
                       <span className="bn-settings-status-tag">ACTIVE</span>
                     </div>
                     <p className="bn-settings-path-label">
-                      ตำแหน่งโฟลเดอร์ปัจจุบัน: {backupPath}
+                      {t('backupPathLabel', 'ตำแหน่งโฟลเดอร์ปัจจุบัน:')} {backupPath}
                     </p>
                     <p className="bn-settings-card-hint">
-                      ระบบจะสำรองข้อมูลอัตโนมัติทุกๆ 1 ชั่วโมง และสำรองก่อนปิดแอปพลิเคชัน (ทั้ง PDF และ .bnote)
+                      {t('backupHint', 'ระบบจะสำรองข้อมูลอัตโนมัติทุกๆ 1 ชั่วโมง และสำรองก่อนปิดแอปพลิเคชัน (ทั้ง PDF และ .bnote)')}
                     </p>
                   </div>
                 </div>
@@ -261,7 +261,7 @@ export const SettingsModal = ({
                     disabled={isSyncing}
                   >
                     <FolderSync size={16} className={isSyncing ? 'animate-spin' : ''} />
-                    <span>{isSyncing ? 'กำลังซิงค์ข้อมูล...' : 'ซิงค์และสำรองข้อมูลทันที'}</span>
+                    <span>{isSyncing ? t('syncing', 'กำลังซิงค์ข้อมูล...') : t('syncNow', 'ซิงค์และสำรองข้อมูลทันที')}</span>
                   </button>
 
                   {onOpenDriveModal && (
@@ -290,15 +290,15 @@ export const SettingsModal = ({
                   </div>
                   <div className="bn-settings-card-text">
                     <div className="bn-settings-card-title-row">
-                      <h4 className="bn-settings-card-h4">ตำแหน่งโฟลเดอร์สำรองข้อมูลภายในเครื่อง</h4>
+                      <h4 className="bn-settings-card-h4">{t('localBackupDirTitle', 'ตำแหน่งโฟลเดอร์สำรองข้อมูลภายในเครื่อง')}</h4>
                       {pathSavedToast && (
                         <span className="bn-settings-status-tag" style={{ background: 'rgba(16, 185, 129, 0.25)', color: '#34d399' }}>
-                          ✓ บันทึกสำเร็จ
+                          {t('pathSavedSuccess', '✓ บันทึกสำเร็จ')}
                         </span>
                       )}
                     </div>
                     <p className="bn-settings-card-hint">
-                      เลือกโฟลเดอร์ในเครื่องที่คุณต้องการให้ไฟล์ที่เขียน อัปโหลด หรือแก้ไข ถูกสำรองไว้ที่นี่ (PDF, .bnote และระบบเต็ม)
+                      {t('localBackupDirHint', 'เลือกโฟลเดอร์ในเครื่องที่คุณต้องการให้ไฟล์ที่เขียน อัปโหลด หรือแก้ไข ถูกสำรองไว้ที่นี่ (PDF, .bnote และระบบเต็ม)')}
                     </p>
                   </div>
                 </div>
@@ -312,7 +312,7 @@ export const SettingsModal = ({
                       className="bn-folder-path-input"
                       value={backupPath}
                       onChange={(e) => setBackupPath(e.target.value)}
-                      placeholder="เช่น H:\My Drive\BetterNote.AppPC หรือ C:\Users\..."
+                      placeholder={t('backupPathPlaceholder', 'เช่น H:\\My Drive\\BetterNote.AppPC หรือ C:\\Users\\...')}
                       style={{
                         width: '100%',
                         padding: '9px 12px 9px 36px',
@@ -331,11 +331,11 @@ export const SettingsModal = ({
                     type="button"
                     className="bn-settings-btn-alt"
                     onClick={handleBrowseFolder}
-                    title="เปิดหน้าต่างเลือกโฟลเดอร์ในเครื่อง"
+                    title={t('browseFolder', 'เปิดหน้าต่างเลือกโฟลเดอร์ในเครื่อง')}
                     style={{ whiteSpace: 'nowrap' }}
                   >
                     <FolderOpen size={15} />
-                    <span>เลือกโฟลเดอร์...</span>
+                    <span>{t('browseFolder', 'เลือกโฟลเดอร์...')}</span>
                   </button>
                   <button
                     type="button"
@@ -344,14 +344,14 @@ export const SettingsModal = ({
                     style={{ padding: '0 16px', flex: 'none', whiteSpace: 'nowrap' }}
                   >
                     <Save size={15} />
-                    <span>บันทึกตำแหน่ง</span>
+                    <span>{t('saveLocation', 'บันทึกตำแหน่ง')}</span>
                   </button>
                 </div>
 
                 {/* Preset shortcuts */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
                   <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>
-                    ตำแหน่งโฟลเดอร์แนะนำ (คลิกเพื่อเลือกทันที):
+                    {t('presetShortcuts', 'ตำแหน่งโฟลเดอร์แนะนำ (คลิกเพื่อเลือกทันที):')}
                   </span>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                     <button
@@ -387,10 +387,10 @@ export const SettingsModal = ({
                     <div>
                       <div style={{ fontSize: '13px', fontWeight: 700, color: '#93c5fd', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <FolderSync size={16} />
-                        <span>กู้คืนข้อมูลเมื่อย้ายเครื่องใหม่ (New PC Migration)</span>
+                        <span>{t('migrationTitle', 'กู้คืนข้อมูลเมื่อย้ายเครื่องใหม่ (New PC Migration)')}</span>
                       </div>
                       <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '3px' }}>
-                        เมื่อติดตั้ง BetterNote บนเครื่องใหม่ หรือเชื่อม Google Drive เข้ามา สามารถกดปุ่มนี้เพื่อดึงสมุดโน้ตทั้งหมดกลับเข้าแอปทันที
+                        {t('migrationDesc', 'เมื่อติดตั้ง BetterNote บนเครื่องใหม่ หรือเชื่อม Google Drive เข้ามา สามารถกดปุ่มนี้เพื่อดึงสมุดโน้ตทั้งหมดกลับเข้าแอปทันที')}
                       </div>
                     </div>
                     <button
@@ -401,7 +401,7 @@ export const SettingsModal = ({
                       style={{ background: '#2563eb', padding: '8px 18px', fontSize: '12px', whiteSpace: 'nowrap', fontWeight: 600 }}
                     >
                       <FolderSync size={15} className={isRestoringCloud ? 'animate-spin' : ''} />
-                      <span>{isRestoringCloud ? 'กำลังดึงข้อมูล...' : 'ดึงและกู้คืนสมุดโน้ตทั้งหมด'}</span>
+                      <span>{isRestoringCloud ? t('cloudRestoring', 'กำลังดึงข้อมูล...') : t('restoreAllDataBtn', 'ดึงและกู้คืนสมุดโน้ตทั้งหมด')}</span>
                     </button>
                   </div>
                   {restoreMessage && (
@@ -426,9 +426,9 @@ export const SettingsModal = ({
                     <Download size={22} />
                   </div>
                   <div className="bn-settings-card-text">
-                    <h4 className="bn-settings-card-h4">ส่งออกไฟล์สำรองฉุกเฉิน (.json)</h4>
+                    <h4 className="bn-settings-card-h4">{t('exportJsonBackupTitle', 'ส่งออกไฟล์สำรองฉุกเฉิน (.json)')}</h4>
                     <p className="bn-settings-card-hint">
-                      ดาวน์โหลดข้อมูลสมุด โฟลเดอร์ และลายเส้นทั้งหมดเป็นไฟล์ .json เก็บไว้ในคอมพิวเตอร์ของคุณ
+                      {t('exportJsonBackupDesc', 'ดาวน์โหลดข้อมูลสมุด โฟลเดอร์ และลายเส้นทั้งหมดเป็นไฟล์ .json เก็บไว้ในคอมพิวเตอร์ของคุณ')}
                     </p>
                     <div style={{ marginTop: '12px' }}>
                       <button
@@ -439,7 +439,7 @@ export const SettingsModal = ({
                         }}
                       >
                         <Download size={14} />
-                        <span>ดาวน์โหลดไฟล์สำรอง</span>
+                        <span>{t('downloadBackupBtn', 'ดาวน์โหลดไฟล์สำรอง')}</span>
                       </button>
                     </div>
                   </div>
@@ -455,9 +455,9 @@ export const SettingsModal = ({
                     <Upload size={22} />
                   </div>
                   <div className="bn-settings-card-text">
-                    <h4 className="bn-settings-card-h4">กู้คืนข้อมูลจากไฟล์สำรอง (.json หรือ .bnote)</h4>
+                    <h4 className="bn-settings-card-h4">{t('restoreBackupFileTitle', 'กู้คืนข้อมูลจากไฟล์สำรอง (.json หรือ .bnote)')}</h4>
                     <p className="bn-settings-card-hint">
-                      นำเข้าไฟล์สำรองที่เคยบันทึกไว้ เพื่อกู้คืนสมุดบันทึกทั้งหมดกลับมา
+                      {t('restoreBackupFileDesc', 'นำเข้าไฟล์สำรองที่เคยบันทึกไว้ เพื่อกู้คืนสมุดบันทึกทั้งหมดกลับมา')}
                     </p>
                     <div style={{ marginTop: '12px' }}>
                       <button
@@ -466,7 +466,7 @@ export const SettingsModal = ({
                         onClick={() => fileInputRef.current?.click()}
                       >
                         <Upload size={14} />
-                        <span>เลือกไฟล์เพื่อกู้คืน</span>
+                        <span>{t('chooseFileToRestore', 'เลือกไฟล์เพื่อกู้คืน')}</span>
                       </button>
                     </div>
                     <input 
@@ -489,9 +489,9 @@ export const SettingsModal = ({
                     <Trash2 size={22} />
                   </div>
                   <div className="bn-settings-card-text">
-                    <h4 className="bn-settings-card-h4">ล้างแคชและคืนหน่วยความจำ (Clear App Cache & RAM)</h4>
+                    <h4 className="bn-settings-card-h4">{t('clearCacheRAMTitle', 'ล้างแคชและคืนหน่วยความจำ (Clear App Cache & RAM)')}</h4>
                     <p className="bn-settings-card-hint">
-                      ล้างแคชภาพเรนเดอร์และพรีวิวชั่วคราว (ไม่ลบสมุดบันทึกของคุณ) ช่วยให้โปรแกรมทำงานลื่นขึ้นและประหยัด RAM
+                      {t('clearCacheRAMDesc', 'ล้างแคชภาพเรนเดอร์และพรีวิวชั่วคราว (ไม่ลบสมุดบันทึกของคุณ) ช่วยให้โปรแกรมทำงานลื่นขึ้นและประหยัด RAM')}
                     </p>
                     <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <button
@@ -501,11 +501,11 @@ export const SettingsModal = ({
                         onClick={handleClearCache}
                       >
                         <Trash2 size={14} />
-                        <span>ล้างแคชทั้งหมด</span>
+                        <span>{t('clearAllCacheBtn', 'ล้างแคชทั้งหมด')}</span>
                       </button>
                       {cacheClearedToast && (
                         <span style={{ fontSize: '11.5px', color: '#34d399', fontWeight: 600 }}>
-                          ✓ ล้างแคชเรียบร้อยแล้ว (คืนพื้นที่ RAM 🚀)
+                          {t('cacheClearedRAM', '✓ ล้างแคชเรียบร้อยแล้ว (คืนพื้นที่ RAM 🚀)')}
                         </span>
                       )}
                     </div>
@@ -520,13 +520,17 @@ export const SettingsModal = ({
             <>
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '8px' }}>
-                  ขนาดหน้ากระดาษมาตรฐาน
+                  {t('paperSizes', 'ขนาดหน้ากระดาษมาตรฐาน')}
                 </label>
                 <div className="bn-new-paper-grid">
                   {PAPER_SIZES.map(s => (
                     <div key={s.id} className="bn-new-paper-card">
                       <span style={{ fontSize: '13px', fontWeight: 700, color: '#ffffff', display: 'block' }}>{s.name}</span>
-                      <span style={{ fontSize: '10px', color: '#a1a1aa' }}>{s.fullName}</span>
+                      <span style={{ fontSize: '10px', color: '#a1a1aa' }}>
+                        {language === 'en' 
+                          ? (s.id === 'A4' ? 'A4 (Standard)' : s.id === 'A3' ? 'A3 (2x Large)' : 'A2 (Poster/Blueprint)') 
+                          : s.fullName}
+                      </span>
                       <span style={{ fontSize: '9px', color: '#71717a', display: 'block', marginTop: '2px' }}>{s.width} × {s.height} px</span>
                     </div>
                   ))}
@@ -535,24 +539,38 @@ export const SettingsModal = ({
 
               <div style={{ marginTop: '10px' }}>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '8px' }}>
-                  รูปแบบลายเส้นที่แนะนำ
+                  {t('recommendedPatterns', 'รูปแบบลายเส้นที่แนะนำ')}
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>• ลายจุด (Dotted 25px)</span>
+                    <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
+                      • {language === 'en' ? 'Dotted (25px)' : 'ลายจุด (Dotted 25px)'}
+                    </span>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>Bullet Journal & Planner</span>
                   </div>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>• เส้นแคบ (Narrow Ruled 22px)</span>
-                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>จดข้อความละเอียด</span>
+                    <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
+                      • {language === 'en' ? 'Narrow Ruled (22px)' : 'เส้นแคบ (Narrow Ruled 22px)'}
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                      {language === 'en' ? 'Detailed handwriting' : 'จดข้อความละเอียด'}
+                    </span>
                   </div>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>• เส้นกว้าง (Wide Ruled 38px)</span>
-                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>เขียนตัวใหญ่และสรุป</span>
+                    <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
+                      • {language === 'en' ? 'Wide Ruled (38px)' : 'เส้นกว้าง (Wide Ruled 38px)'}
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                      {language === 'en' ? 'Large text & summaries' : 'เขียนตัวใหญ่และสรุป'}
+                    </span>
                   </div>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>• ตารางกริด (Grid 25px)</span>
-                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>คณิตศาสตร์ & กราฟ</span>
+                    <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
+                      • {language === 'en' ? 'Grid (25px)' : 'ตารางกริด (Grid 25px)'}
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                      {language === 'en' ? 'Math & graphs' : 'คณิตศาสตร์ & กราฟ'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -564,7 +582,7 @@ export const SettingsModal = ({
             <>
               <div>
                 <label style={{ fontSize: '12.5px', fontWeight: 600, display: 'block', marginBottom: '10px' }}>
-                  เลือกรูปแบบธีมที่ต้องการใช้งาน (Theme Settings)
+                  {t('themeChoice', 'เลือกรูปแบบธีมที่ต้องการใช้งาน (Theme Settings)')}
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   {/* Dark Mode Card */}
@@ -576,9 +594,9 @@ export const SettingsModal = ({
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Moon size={18} className="text-blue-400" />
-                        <span style={{ fontWeight: 700, fontSize: '13px' }}>โหมดมืด (Dark)</span>
+                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('themeDark', 'โหมดมืด (Dark)')}</span>
                       </div>
-                      {currentTheme === 'dark' && <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: 700 }}>✓ ใช้งานอยู่</span>}
+                      {currentTheme === 'dark' && <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: 700 }}>{t('inUse', '✓ ใช้งานอยู่')}</span>}
                     </div>
                     {/* Simulated Mini Screen */}
                     <div style={{ width: '100%', height: '56px', background: '#161618', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', overflow: 'hidden' }}>
@@ -589,7 +607,7 @@ export const SettingsModal = ({
                       </div>
                     </div>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      ถนอมสายตาสำหรับใช้งานในที่มืด หรือประหยัดแบตเตอรี่
+                      {t('themeDarkDesc', 'ถนอมสายตาสำหรับใช้งานในที่มืด หรือประหยัดแบตเตอรี่')}
                     </span>
                   </div>
 
@@ -602,9 +620,9 @@ export const SettingsModal = ({
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Sun size={18} className="text-amber-500" />
-                        <span style={{ fontWeight: 700, fontSize: '13px' }}>โหมดสว่าง (Light)</span>
+                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('themeLight', 'โหมดสว่าง (Light)')}</span>
                       </div>
-                      {currentTheme === 'light' && <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 700 }}>✓ ใช้งานอยู่</span>}
+                      {currentTheme === 'light' && <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 700 }}>{t('inUse', '✓ ใช้งานอยู่')}</span>}
                     </div>
                     {/* Simulated Mini Screen */}
                     <div style={{ width: '100%', height: '56px', background: '#f8fafc', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.1)', display: 'flex', overflow: 'hidden' }}>
@@ -615,7 +633,7 @@ export const SettingsModal = ({
                       </div>
                     </div>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {t('themeLightDesc')}
+                      {t('themeLightDesc', 'สบายตา คมชัด เหมาะสำหรับการพิมพ์หรืออ่านกลางวัน')}
                     </span>
                   </div>
                 </div>
@@ -724,7 +742,7 @@ export const SettingsModal = ({
             style={{ background: '#2563eb', borderColor: '#3b82f6', color: '#ffffff', padding: '8px 22px' }}
             onClick={onClose}
           >
-            เรียบร้อย
+            {t('done', 'เรียบร้อย')}
           </button>
         </div>
       </div>

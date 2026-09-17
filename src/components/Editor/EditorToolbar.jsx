@@ -116,7 +116,7 @@ export const EditorToolbar = ({
   onPasteClipboardImage,
   onCaptureFullPage
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(notebookTitle);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
@@ -265,7 +265,7 @@ export const EditorToolbar = ({
         <button 
           className="bn-btn-icon" 
           onClick={onBackToLibrary}
-          title="กลับไปที่เอกสารทั้งหมด (Back to Library)"
+          title={t('backToLibrary', 'กลับไปที่เอกสารทั้งหมด (Back to Library)')}
         >
           <ArrowLeft size={19} />
         </button>
@@ -273,7 +273,7 @@ export const EditorToolbar = ({
         <button 
           className={`bn-btn-icon ${showThumbnails ? 'bn-btn-icon-active' : ''}`}
           onClick={() => setShowThumbnails(!showThumbnails)}
-          title="มุมมองหน้าทั้งหมด (Page Thumbnails)"
+          title={t('thumbnails', 'มุมมองหน้าทั้งหมด (Page Thumbnails)')}
         >
           <LayoutGrid size={18} />
         </button>
@@ -282,7 +282,7 @@ export const EditorToolbar = ({
         <button 
           className="bn-btn-icon text-blue-400 hover:text-white"
           onClick={onOpenAddPage}
-          title="เพิ่มหน้ากระดาษใหม่ (A2, A3, A4, ลายจุด, เส้นแคบ, เส้นกว้าง)"
+          title={t('addPage', 'เพิ่มหน้ากระดาษใหม่ (A2, A3, A4, ลายจุด, เส้นแคบ, เส้นกว้าง)')}
         >
           <FilePlus size={18} />
         </button>
@@ -291,7 +291,7 @@ export const EditorToolbar = ({
         <button 
           className={`bn-toolbar-star-btn ${isCurrentPageFavorite ? 'bn-star-active' : ''}`}
           onClick={onToggleFavoriteCurrentPage}
-          title={isCurrentPageFavorite ? 'ยกเลิกติดดาวหน้านี้' : 'ติดดาวหน้านี้ (เพิ่มในรายการโปรด)'}
+          title={isCurrentPageFavorite ? t('unstarPage', 'ยกเลิกติดดาวหน้านี้') : t('starPage', 'ติดดาวหน้านี้ (เพิ่มในรายการโปรด)')}
         >
           <Star 
             size={18} 
@@ -323,7 +323,7 @@ export const EditorToolbar = ({
                 setTempTitle(notebookTitle);
                 setIsEditingTitle(true);
               }}
-              title="คลิกเพื่อเปลี่ยนชื่อสมุดโน้ต"
+              title={t('renameNotebookPrompt', 'คลิกเพื่อเปลี่ยนชื่อสมุดโน้ต')}
             >
               {notebookTitle}
             </span>
@@ -347,7 +347,7 @@ export const EditorToolbar = ({
                   setShowPenSettings(false);
                 }
               }}
-              title={`ปากกา: ${penNib === 'fountain' ? 'หมึกซึม' : penNib === 'ballpoint' ? 'ลูกลื่น' : 'พู่กัน'} (แตะซ้ำเพื่อตั้งค่าหัวปากกา)`}
+              title={`${t('pen', 'ปากกา')}: ${penNib === 'fountain' ? t('fountainNib', 'หมึกซึม') : penNib === 'ballpoint' ? t('ballpointNib', 'ลูกลื่น') : t('brushNib', 'พู่กัน')} (${language === 'en' ? 'Tap again for nib settings' : 'แตะซ้ำเพื่อตั้งค่าหัวปากกา'})`}
             >
               {penNib === 'fountain' ? <Feather size={17} /> : penNib === 'brush' ? <Paintbrush size={17} /> : <Pen size={17} />}
               {/* Color pip under pen icon */}
@@ -366,35 +366,35 @@ export const EditorToolbar = ({
                 <div className="text-[12px] font-bold text-zinc-100 border-b border-white/10 pb-2 mb-2.5 flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <SlidersHorizontal size={14} className="text-blue-400" />
-                    <span>ตั้งค่าหัวปากกา & แรงกด</span>
+                    <span>{t('penSettings', 'ตั้งค่าหัวปากกา & แรงกด')}</span>
                   </div>
                   <span className="text-[10px] text-zinc-400 font-mono">Surface Inking</span>
                 </div>
 
                 {/* Nib Types Segmented Choice */}
                 <div className="space-y-1 mb-3">
-                  <div className="text-[11px] font-medium text-zinc-400">ชนิดหัวปากกา</div>
+                  <div className="text-[11px] font-medium text-zinc-400">{t('nibType', 'ชนิดหัวปากกา')}</div>
                   <div className="grid grid-cols-3 gap-1 bg-zinc-900/60 p-1 rounded-lg border border-white/10">
                     <button 
                       className={`bn-nib-choice-btn ${penNib === 'fountain' ? 'bn-nib-choice-active' : ''}`}
                       onClick={() => setPenNib('fountain')}
                     >
                       <Feather size={13} />
-                      <span>หมึกซึม</span>
+                      <span>{t('fountainNib', 'หมึกซึม')}</span>
                     </button>
                     <button 
                       className={`bn-nib-choice-btn ${penNib === 'ballpoint' ? 'bn-nib-choice-active' : ''}`}
                       onClick={() => setPenNib('ballpoint')}
                     >
                       <Pen size={13} />
-                      <span>ลูกลื่น</span>
+                      <span>{t('ballpointNib', 'ลูกลื่น')}</span>
                     </button>
                     <button 
                       className={`bn-nib-choice-btn ${penNib === 'brush' ? 'bn-nib-choice-active' : ''}`}
                       onClick={() => setPenNib('brush')}
                     >
                       <Paintbrush size={13} />
-                      <span>พู่กัน</span>
+                      <span>{t('brushNib', 'พู่กัน')}</span>
                     </button>
                   </div>
                 </div>
@@ -402,7 +402,7 @@ export const EditorToolbar = ({
                 {/* Tapered Stroke Setting */}
                 <div className="mb-2.5 pt-2 border-t border-white/10">
                   <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">คมต้น-คมปลาย (Tapered)</span>
+                    <span className="text-xs text-zinc-200 font-medium">{t('taperedLine', 'คมต้น-คมปลาย (Tapered)')}</span>
                     <input 
                       type="checkbox" 
                       className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
@@ -411,14 +411,14 @@ export const EditorToolbar = ({
                     />
                   </label>
                   <span className="text-[10px] text-zinc-400 block">
-                    {isTapered ? 'เปิด: ปลายเรียวแหลมพลิ้วไหว สไตล์ปากกาคัดลายมือ' : 'ปิด: เส้นหัวมนสม่ำเสมอคงที่'}
+                    {isTapered ? (language === 'en' ? 'On: Elegant tapering tip for calligraphy' : 'เปิด: ปลายเรียวแหลมพลิ้วไหว สไตล์ปากกาคัดลายมือ') : (language === 'en' ? 'Off: Fixed round uniform stroke' : 'ปิด: เส้นหัวมนสม่ำเสมอคงที่')}
                   </span>
                 </div>
 
                 {/* Pen Pressure Switch Setting */}
                 <div className="mb-2.5 pt-2 border-t border-white/10">
                   <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">น้ำหนักกดปากกา (Pressure)</span>
+                    <span className="text-xs text-zinc-200 font-medium">{t('penPressure', 'น้ำหนักกดปากกา (Pressure)')}</span>
                     <input 
                       type="checkbox" 
                       className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
@@ -427,14 +427,14 @@ export const EditorToolbar = ({
                     />
                   </label>
                   <span className="text-[10px] text-zinc-400 block">
-                    {usePressure ? 'เปิด: เส้นหนาบางตามแรงกดจริงของ Surface Pen' : 'ปิด: เส้นคงที่'}
+                    {usePressure ? (language === 'en' ? 'On: Dynamic thickness from Surface Pen pressure' : 'เปิด: เส้นหนาบางตามแรงกดจริงของ Surface Pen') : (language === 'en' ? 'Off: Uniform stroke thickness' : 'ปิด: เส้นคงที่')}
                   </span>
                 </div>
 
                 {/* Pressure Sensitivity Levels (when pressure is ON) */}
                 {usePressure && (
                   <div className="pt-2 border-t border-white/10">
-                    <div className="text-[11px] font-medium text-zinc-400 mb-1.5">ความไวต่อแรงกด</div>
+                    <div className="text-[11px] font-medium text-zinc-400 mb-1.5">{t('pressureSensitivity', 'ความไวต่อแรงกด')}</div>
                     <div className="grid grid-cols-3 gap-1 bg-zinc-900/60 p-1 rounded-lg border border-white/10">
                       {['low', 'medium', 'high'].map(lvl => (
                         <button
@@ -442,7 +442,7 @@ export const EditorToolbar = ({
                           className={`bn-nib-choice-btn ${pressureSensitivity === lvl ? 'bn-nib-choice-active' : ''}`}
                           onClick={() => setPressureSensitivity(lvl)}
                         >
-                          {lvl === 'low' ? 'เบา' : lvl === 'medium' ? 'ปกติ' : 'สูง'}
+                          {lvl === 'low' ? t('pressureLow', 'เบา') : lvl === 'medium' ? t('pressureMedium', 'ปกติ') : t('pressureHigh', 'สูง')}
                         </button>
                       ))}
                     </div>
@@ -452,7 +452,7 @@ export const EditorToolbar = ({
                 {/* Scribble to Erase Toggle Setting */}
                 <div className="mb-2.5 pt-2 border-t border-white/10">
                   <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">ขยี้เส้นเพื่อลบ (Scribble to Erase)</span>
+                    <span className="text-xs text-zinc-200 font-medium">{t('scribbleToErase', 'ขยี้เส้นเพื่อลบ (Scribble to Erase)')}</span>
                     <input 
                       type="checkbox" 
                       className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
@@ -461,7 +461,7 @@ export const EditorToolbar = ({
                     />
                   </label>
                   <span className="text-[10px] text-zinc-400 block">
-                    {scribbleToErase ? 'เปิด: ขยี้ลายเส้นซ้ำๆ รวดเร็วเพื่อลบ' : 'ปิด: ปิดระบบขยี้ลบ (เขียนตัวหนังสือหยักได้ไม่เผลอลบ)'}
+                    {scribbleToErase ? (language === 'en' ? 'On: Scribble back and forth rapidly to erase' : 'เปิด: ขยี้ลายเส้นซ้ำๆ รวดเร็วเพื่อลบ') : (language === 'en' ? 'Off: Scribble-to-erase disabled' : 'ปิด: ปิดระบบขยี้ลบ (เขียนตัวหนังสือหยักได้ไม่เผลอลบ)')}
                   </span>
                 </div>
 
@@ -470,7 +470,7 @@ export const EditorToolbar = ({
                     className="bn-btn-primary bn-btn-sm py-1 px-3 text-xs" 
                     onClick={() => setShowPenSettings(false)}
                   >
-                    เรียบร้อย
+                    {t('done', 'เรียบร้อย')}
                   </button>
                 </div>
               </div>
@@ -481,7 +481,7 @@ export const EditorToolbar = ({
           <button 
             className={`bn-tool-btn ${activeTool === 'highlighter' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('highlighter'); closeAllPopovers(); }}
-            title="ปากกาไฮไลท์ (Highlighter)"
+            title={t('highlighter', 'ปากกาไฮไลท์ (Highlighter)')}
           >
             <Highlighter size={17} />
           </button>
@@ -499,7 +499,7 @@ export const EditorToolbar = ({
                   setShowEraserMenu(false);
                 }
               }}
-              title={`ยางลบ: ${eraserMode === 'precision' ? 'ลบเฉพาะจุดสัมผัส (Precision)' : 'ลบทั้งเส้น (Whole Stroke)'} (แตะซ้ำเพื่อเปลี่ยนโหมด)`}
+              title={`${t('eraser', 'ยางลบ')}: ${eraserMode === 'precision' ? t('eraserPrecision', 'ลบเฉพาะจุดสัมผัส (Precision)') : t('eraserStroke', 'ลบทั้งเส้น (Stroke)')} (${language === 'en' ? 'Tap again to switch mode' : 'แตะซ้ำเพื่อเปลี่ยนโหมด'})`}
             >
               <Eraser size={17} />
             </button>
@@ -509,20 +509,20 @@ export const EditorToolbar = ({
                 className="bn-shape-dropdown" 
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="text-[11px] font-bold text-zinc-400 px-2 py-1">โหมดยางลบ</div>
+                <div className="text-[11px] font-bold text-zinc-400 px-2 py-1">{t('eraserMode', 'โหมดยางลบ')}</div>
                 <button 
                   className={`bn-shape-item ${eraserMode === 'precision' ? 'bn-shape-item-active' : ''}`}
                   onClick={() => { setActiveTool('eraser'); setEraserMode('precision'); setShowEraserMenu(false); }}
                 >
                   <Scissors size={14} />
-                  <span>ลบเฉพาะจุดสัมผัส (Precision)</span>
+                  <span>{t('eraserPrecision', 'ลบเฉพาะจุดสัมผัส (Precision)')}</span>
                 </button>
                 <button 
                   className={`bn-shape-item ${eraserMode === 'stroke' ? 'bn-shape-item-active' : ''}`}
                   onClick={() => { setActiveTool('eraser'); setEraserMode('stroke'); setShowEraserMenu(false); }}
                 >
                   <Eraser size={14} />
-                  <span>ลบทั้งเส้น (Stroke Eraser)</span>
+                  <span>{t('eraserStroke', 'ลบทั้งเส้น (Stroke Eraser)')}</span>
                 </button>
               </div>
             )}
@@ -541,7 +541,7 @@ export const EditorToolbar = ({
                   setShowShapeMenu(false);
                 }
               }}
-              title="วาดรูปทรงเรขาคณิต (Shapes)"
+              title={t('shape', 'วาดรูปทรงเรขาคณิต (Shapes)')}
             >
               {activeShape === 'circle' ? (
                 <div className="w-4 h-4 rounded-full border border-current" />
@@ -562,35 +562,35 @@ export const EditorToolbar = ({
                   onClick={() => { setActiveTool('shape'); setActiveShape('rectangle'); setShowShapeMenu(false); }}
                 >
                   <Square size={15} />
-                  <span>สี่เหลี่ยม</span>
+                  <span>{t('rectangle', 'สี่เหลี่ยม')}</span>
                 </button>
                 <button 
                   className={`bn-shape-item ${activeShape === 'triangle' ? 'bn-shape-item-active' : ''}`}
                   onClick={() => { setActiveTool('shape'); setActiveShape('triangle'); setShowShapeMenu(false); }}
                 >
                   <Triangle size={15} />
-                  <span>สามเหลี่ยม</span>
+                  <span>{t('triangle', 'สามเหลี่ยม')}</span>
                 </button>
                 <button 
                   className={`bn-shape-item ${activeShape === 'circle' ? 'bn-shape-item-active' : ''}`}
                   onClick={() => { setActiveTool('shape'); setActiveShape('circle'); setShowShapeMenu(false); }}
                 >
                   <div className="w-3.5 h-3.5 rounded-full border border-current" />
-                  <span>วงกลม / วงรี</span>
+                  <span>{t('circle', 'วงกลม / วงรี')}</span>
                 </button>
                 <button 
                   className={`bn-shape-item ${activeShape === 'line' ? 'bn-shape-item-active' : ''}`}
                   onClick={() => { setActiveTool('shape'); setActiveShape('line'); setShowShapeMenu(false); }}
                 >
                   <span className="font-bold text-xs">—</span>
-                  <span>เส้นตรง</span>
+                  <span>{t('line', 'เส้นตรง')}</span>
                 </button>
                 <button 
                   className={`bn-shape-item ${activeShape === 'arrow' ? 'bn-shape-item-active' : ''}`}
                   onClick={() => { setActiveTool('shape'); setActiveShape('arrow'); setShowShapeMenu(false); }}
                 >
                   <span className="font-bold text-xs">➔</span>
-                  <span>ลูกศร</span>
+                  <span>{t('arrow', 'ลูกศร')}</span>
                 </button>
               </div>
             )}
@@ -600,7 +600,7 @@ export const EditorToolbar = ({
           <button 
             className={`bn-tool-btn ${activeTool === 'lasso' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('lasso'); closeAllPopovers(); }}
-            title="เครื่องมือบ่วงบาศก์ (Lasso Tool) - ลากคลุมลายเส้น/ข้อความ/รูป เพื่อย้าย ย่อขยาย เปลี่ยนสี คัดลอก ลบ"
+            title={language === 'en' ? 'Lasso Tool - Select strokes/text/images to move, resize, recolor, duplicate, or delete' : 'เครื่องมือบ่วงบาศก์ (Lasso Tool) - ลากคลุมลายเส้น/ข้อความ/รูป เพื่อย้าย ย่อขยาย เปลี่ยนสี คัดลอก ลบ'}
           >
             <LassoSelect size={17} />
           </button>
@@ -657,7 +657,7 @@ export const EditorToolbar = ({
                   className={`bn-quick-color-btn ${isSelected ? 'bn-quick-color-active' : ''}`}
                   style={{ backgroundColor: col }}
                   onClick={() => handleSelectSlotColor(col)}
-                  title={`สีสล็อต #${idx + 1}: ${col}`}
+                  title={language === 'en' ? `Color slot #${idx + 1}: ${col}` : `สีสล็อต #${idx + 1}: ${col}`}
                 />
               );
             })}
@@ -665,7 +665,7 @@ export const EditorToolbar = ({
             {/* Custom Color (+) Button */}
             <div 
               className="relative w-5 h-5 rounded-full flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-white/20 cursor-pointer flex-shrink-0 transition-transform hover:scale-110" 
-              title="เลือกสีเพิ่มเติม (อัปเดตสล็อตสีอัตโนมัติ)"
+              title={language === 'en' ? 'Choose custom color (automatically updates slot)' : 'เลือกสีเพิ่มเติม (อัปเดตสล็อตสีอัตโนมัติ)'}
             >
               <span className="text-[11px] font-bold text-zinc-300 pointer-events-none leading-none">+</span>
               <input 
@@ -708,7 +708,7 @@ export const EditorToolbar = ({
                           e.stopPropagation();
                           handleSelectSlot(idx);
                         }}
-                        title={`สล็อต #${idx + 1}: ${val}px (แตะซ้ำเพื่อเลื่อนปรับระดับ)`}
+                        title={language === 'en' ? `Slot #${idx + 1}: ${val}px (tap again to adjust)` : `สล็อต #${idx + 1}: ${val}px (แตะซ้ำเพื่อเลื่อนปรับระดับ)`}
                       >
                         <div 
                           className="bn-width-circle" 
@@ -826,7 +826,7 @@ export const EditorToolbar = ({
           <button
             className="bn-btn-icon"
             onClick={onCaptureFullPage}
-            title="แคปภาพทั้งหน้า (Capture Page)"
+            title={language === 'en' ? 'Capture entire page (Capture Page)' : 'แคปภาพทั้งหน้า (Capture Page)'}
           >
             <Camera size={17} />
           </button>
@@ -834,7 +834,7 @@ export const EditorToolbar = ({
           <button
             className={`bn-btn-icon ${hasClipboardImage ? 'text-amber-400 font-bold' : 'text-zinc-300 hover:text-white'}`}
             onClick={onPasteClipboardImage}
-            title="วางรูปภาพจากคลิปบอร์ด / แคปหน้าจอ (Paste Image) [Ctrl+V]"
+            title={language === 'en' ? 'Paste image from clipboard / screenshot (Paste Image) [Ctrl+V]' : 'วางรูปภาพจากคลิปบอร์ด / แคปหน้าจอ (Paste Image) [Ctrl+V]'}
           >
             <ClipboardPaste size={17} />
           </button>
@@ -912,7 +912,7 @@ export const EditorToolbar = ({
               e.stopPropagation();
               setShowExportMenu(!showExportMenu);
             }}
-            title="ส่งออกเอกสารเป็น PDF คุณภาพสูง (คลิกเพื่อเลือกหน้าหรือทั้งเล่ม)"
+            title={language === 'en' ? 'Export document as high quality PDF (click to choose page or whole document)' : 'ส่งออกเอกสารเป็น PDF คุณภาพสูง (คลิกเพื่อเลือกหน้าหรือทั้งเล่ม)'}
           >
             <FileText size={14} className="text-red-200" />
             <span>PDF</span>
@@ -932,7 +932,7 @@ export const EditorToolbar = ({
                 }}
               >
                 <FileText size={14} className="text-red-400" />
-                <span>ส่งออกเฉพาะหน้านี้ (.pdf)</span>
+                <span>{language === 'en' ? 'Export current page (.pdf)' : 'ส่งออกเฉพาะหน้านี้ (.pdf)'}</span>
               </button>
               <button 
                 className="bn-shape-item text-zinc-200"
@@ -942,7 +942,7 @@ export const EditorToolbar = ({
                 }}
               >
                 <Download size={14} className="text-blue-400" />
-                <span>ส่งออกทั้งเล่ม / ตัวเลือกอื่น...</span>
+                <span>{language === 'en' ? 'Export all pages / options...' : 'ส่งออกทั้งเล่ม / ตัวเลือกอื่น...'}</span>
               </button>
             </div>
           )}

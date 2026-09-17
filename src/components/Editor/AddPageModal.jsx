@@ -10,6 +10,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { PAPER_SIZES, PAPER_TEMPLATES, getPaperSize } from '../../data/templates';
+import { useLanguage } from '../../services/i18n';
 
 export const AddPageModal = ({ 
   isOpen, 
@@ -18,6 +19,7 @@ export const AddPageModal = ({
   currentPageIndex = 0, 
   totalPages = 1 
 }) => {
+  const { t, language } = useLanguage();
   const [selectedSize, setSelectedSize] = useState('A4');
   const [orientation, setOrientation] = useState('portrait'); // 'portrait' | 'landscape'
   const [selectedTemplate, setSelectedTemplate] = useState('dotted');
@@ -51,8 +53,8 @@ export const AddPageModal = ({
               <Plus size={18} strokeWidth={2.5} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">เพิ่มหน้ากระดาษใหม่</h3>
-              <p className="text-[11px] text-zinc-400">เลือกขนาด A2/A3/A4 และรูปแบบกระดาษที่ต้องการ</p>
+              <h3 className="text-sm font-bold text-white">{t('addNewPageTitle', 'เพิ่มหน้ากระดาษใหม่')}</h3>
+              <p className="text-[11px] text-zinc-400">{t('addNewPageSub', 'เลือกขนาด A2/A3/A4 และรูปแบบกระดาษที่ต้องการ')}</p>
             </div>
           </div>
           <button 
@@ -67,7 +69,7 @@ export const AddPageModal = ({
           {/* Section 1: ขนาดหน้ากระดาษ (A2, A3, A4) */}
           <div>
             <label className="text-xs font-semibold text-zinc-300 block mb-2">
-              1. เลือกขนาดหน้ากระดาษ
+              {t('paperSizeStep', '1. เลือกขนาดหน้ากระดาษ')}
             </label>
             <div className="grid grid-cols-3 gap-2.5">
               {PAPER_SIZES.map(s => {
@@ -89,12 +91,12 @@ export const AddPageModal = ({
                         <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
                           isSelected ? 'bg-blue-500 text-white' : 'bg-zinc-700 text-zinc-300'
                         }`}>
-                          {s.badge}
+                          {language === 'en' ? (s.id === 'A4' ? 'Popular' : s.id === 'A3' ? 'Extra Wide' : 'Giant') : s.badge}
                         </span>
                       )}
                     </div>
                     <div className="text-[10px] text-zinc-400 leading-tight">
-                      {s.fullName}
+                      {language === 'en' ? (s.id === 'A4' ? 'A4 (Standard)' : s.id === 'A3' ? 'A3 (2x Large)' : s.id === 'A2' ? 'A2 (Poster/Blueprint)' : s.fullName) : s.fullName}
                     </div>
                     <div className="text-[9px] text-zinc-500 mt-1">
                       {s.width} × {s.height} px
@@ -108,7 +110,7 @@ export const AddPageModal = ({
           {/* Section 2: ทิศทางหน้ากระดาษ (แนวตั้ง / แนวนอน) */}
           <div>
             <label className="text-xs font-semibold text-zinc-300 block mb-2">
-              2. ทิศทางกระดาษ
+              {t('orientationStep', '2. ทิศทางกระดาษ')}
             </label>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -121,7 +123,7 @@ export const AddPageModal = ({
                 onClick={() => setOrientation('portrait')}
               >
                 <div className="w-3.5 h-5 border border-current rounded-sm" />
-                <span>แนวตั้ง (Portrait)</span>
+                <span>{t('portrait', 'แนวตั้ง (Portrait)')}</span>
               </button>
               <button
                 type="button"
@@ -133,7 +135,7 @@ export const AddPageModal = ({
                 onClick={() => setOrientation('landscape')}
               >
                 <div className="w-5 h-3.5 border border-current rounded-sm" />
-                <span>แนวนอน (Landscape)</span>
+                <span>{t('landscape', 'แนวนอน (Landscape)')}</span>
               </button>
             </div>
           </div>
@@ -141,7 +143,7 @@ export const AddPageModal = ({
           {/* Section 3: ลักษณะหน้ากระดาษ (ลายจุด, เส้นแคบ, เส้นกว้าง, etc.) */}
           <div>
             <label className="text-xs font-semibold text-zinc-300 block mb-2">
-              3. ลักษณะหน้ากระดาษ (ลายเส้น / พื้นผิว)
+              {t('patternStep', '3. ลักษณะหน้ากระดาษ (ลายเส้น / พื้นผิว)')}
             </label>
             <div className="grid grid-cols-2 gap-2">
               {PAPER_TEMPLATES.map(tmpl => {
@@ -188,16 +190,26 @@ export const AddPageModal = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className={`text-xs font-semibold truncate ${isSelected ? 'text-white' : 'text-zinc-200'}`}>
-                          {tmpl.name}
+                          {language === 'en' ? (tmpl.name.includes('(') ? tmpl.name.split('(')[1].replace(')', '') : tmpl.name) : tmpl.name}
                         </span>
                         {tmpl.badge && (
                           <span className="text-[8px] bg-emerald-500/20 text-emerald-300 px-1 py-0.2 rounded font-bold">
-                            {tmpl.badge}
+                            {language === 'en' ? (tmpl.id === 'narrow-ruled' ? 'Fine' : tmpl.id === 'wide-ruled' ? 'Comfort' : tmpl.badge) : tmpl.badge}
                           </span>
                         )}
                       </div>
                       <p className="text-[10px] text-zinc-400 line-clamp-2 mt-0.5 leading-tight">
-                        {tmpl.description}
+                        {language === 'en' ? (
+                          tmpl.id === 'dotted' ? 'Bullet journal guide dots for planning and sketching' :
+                          tmpl.id === 'narrow-ruled' ? 'Narrow 22px lined spacing for dense text' :
+                          tmpl.id === 'wide-ruled' ? 'Wide 38px lined spacing for headers or calligraphy' :
+                          tmpl.id === 'ruled' ? 'Standard 30px lined notebook paper' :
+                          tmpl.id === 'grid' ? '5mm grid squares for math, charts, and statistics' :
+                          tmpl.id === 'blank' ? 'Plain white unlined paper for freehand drawing' :
+                          tmpl.id === 'cornell' ? 'Cornell format with cues and summary section' :
+                          tmpl.id === 'dark-dotted' ? 'Dark contrast paper highlights neon & white ink' :
+                          tmpl.description
+                        ) : tmpl.description}
                       </p>
                     </div>
                   </button>
@@ -209,7 +221,7 @@ export const AddPageModal = ({
           {/* Section 4: ตำแหน่งที่ต้องการเพิ่ม */}
           <div>
             <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
-              4. ตำแหน่งหน้า
+              {t('positionStep', '4. ตำแหน่งหน้า')}
             </label>
             <div className="flex gap-2">
               <button
@@ -221,7 +233,7 @@ export const AddPageModal = ({
                 }`}
                 onClick={() => setInsertPosition('after')}
               >
-                ต่อจากหน้านี้ (หน้า {currentPageIndex + 1})
+                {t('insertAfterCurrent', 'ต่อจากหน้านี้ (หน้า {page})', { page: currentPageIndex + 1 })}
               </button>
               <button
                 type="button"
@@ -232,7 +244,7 @@ export const AddPageModal = ({
                 }`}
                 onClick={() => setInsertPosition('end')}
               >
-                ต่อท้ายสุด (หน้า {totalPages + 1})
+                {t('insertAtEnd', 'ต่อท้ายสุด (หน้า {page})', { page: totalPages + 1 })}
               </button>
             </div>
           </div>
@@ -241,8 +253,12 @@ export const AddPageModal = ({
         {/* Footer */}
         <div className="px-5 py-3.5 bg-zinc-950/60 border-t border-white/10 flex items-center justify-between">
           <span className="text-xs text-zinc-400">
-            {selectedSize} • {orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'} • {
-              PAPER_TEMPLATES.find(t => t.id === selectedTemplate)?.name
+            {selectedSize} • {orientation === 'portrait' ? (language === 'en' ? 'Portrait' : 'แนวตั้ง') : (language === 'en' ? 'Landscape' : 'แนวนอน')} • {
+              (() => {
+                const tmpl = PAPER_TEMPLATES.find(t => t.id === selectedTemplate);
+                if (!tmpl) return '';
+                return language === 'en' ? (tmpl.name.includes('(') ? tmpl.name.split('(')[1].replace(')', '') : tmpl.name) : tmpl.name;
+              })()
             }
           </span>
 
@@ -252,7 +268,7 @@ export const AddPageModal = ({
               className="px-3 py-1.5 rounded-xl text-xs font-medium text-zinc-300 hover:bg-zinc-800"
               onClick={onClose}
             >
-              ยกเลิก
+              {t('cancel', 'ยกเลิก')}
             </button>
             <button
               type="button"
@@ -260,7 +276,7 @@ export const AddPageModal = ({
               onClick={handleConfirm}
             >
               <Plus size={15} strokeWidth={2.5} />
-              <span>เพิ่มหน้ากระดาษ</span>
+              <span>{t('addPageBtn', 'เพิ่มหน้ากระดาษ')}</span>
             </button>
           </div>
         </div>

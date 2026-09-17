@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Crop, X, Check, RotateCcw } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
 export const ImageCropModal = ({ image, onCrop, onClose }) => {
+  const { t } = useLanguage();
   const [naturalSize, setNaturalSize] = useState({ width: 1, height: 1 });
   const [cropBox, setCropBox] = useState(null); // in display pixels: { x, y, width, height }
   const [displaySize, setDisplaySize] = useState({ width: 1, height: 1 });
@@ -158,7 +160,7 @@ export const ImageCropModal = ({ image, onCrop, onClose }) => {
         <div className="bn-modal-header flex items-center justify-between pb-3 border-b border-zinc-800">
           <div className="flex items-center gap-2">
             <Crop size={20} className="text-blue-400" />
-            <h3 className="text-base font-semibold text-white">ครอบตัดรูปภาพ (Crop Image)</h3>
+            <h3 className="text-base font-semibold text-white">{t('cropImageModalTitle', 'ครอบตัดรูปภาพ (Crop Image)')}</h3>
           </div>
           <button 
             className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
@@ -170,13 +172,13 @@ export const ImageCropModal = ({ image, onCrop, onClose }) => {
 
         {/* Toolbar Presets */}
         <div className="flex items-center justify-between py-2 px-1 border-b border-zinc-800/60 text-xs">
-          <span className="text-zinc-400">ลากเมาส์/ปากกาบนภาพเพื่อเลือกบริเวณที่ต้องการตัด</span>
+          <span className="text-zinc-400">{t('cropImageHint', 'ลากเมาส์/ปากกาบนภาพเพื่อเลือกบริเวณที่ต้องการตัด')}</span>
           <div className="flex items-center gap-1.5">
             <button 
               className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
               onClick={() => setPreset('full')}
             >
-              ทั้งภาพ
+              {t('cropPresetFull', 'ทั้งภาพ')}
             </button>
             <button 
               className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
@@ -255,14 +257,14 @@ export const ImageCropModal = ({ image, onCrop, onClose }) => {
             className="bn-btn-secondary py-2 px-4 text-sm"
             onClick={onClose}
           >
-            ยกเลิก
+            {t('cancel', 'ยกเลิก')}
           </button>
           <button 
             className="bn-btn-primary py-2 px-5 text-sm flex items-center gap-2"
             onClick={handleApplyCrop}
           >
             <Check size={16} />
-            <span>ยืนยันการครอบตัด</span>
+            <span>{t('confirmCrop', 'ยืนยันการครอบตัด')}</span>
           </button>
         </div>
       </div>

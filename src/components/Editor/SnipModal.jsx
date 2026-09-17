@@ -8,8 +8,10 @@ import {
   ClipboardPaste, 
   Maximize2 
 } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
 export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
+  const { t, language } = useLanguage();
   const [currentImage, setCurrentImage] = useState(snipImage);
   const [isCropMode, setIsCropMode] = useState(false);
   const [naturalSize, setNaturalSize] = useState({ 
@@ -343,10 +345,10 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
             </div>
             <div>
               <h3 style={{ fontSize: 14, fontWeight: 700, color: '#ffffff', margin: 0 }}>
-                ภาพที่แคปเจอร์ (Snipping Tool)
+                {t('snipModalTitle', 'ภาพที่แคปเจอร์ (Snipping Tool)')}
               </h3>
               <p style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0 0' }}>
-                {origBoxRef.current.width} × {origBoxRef.current.height} px • ตรวจสอบ ปรับขนาด หรือครอบตัดเพิ่มเติมก่อนวาง
+                {origBoxRef.current.width} × {origBoxRef.current.height} px • {t('snipModalHint', 'ตรวจสอบ ปรับขนาด หรือครอบตัดเพิ่มเติมก่อนวาง')}
               </p>
             </div>
           </div>
@@ -363,7 +365,7 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
               justifyContent: 'center'
             }}
             onClick={onClose}
-            title="ยกเลิกและปิด"
+            title={t('cancel', 'ยกเลิกและปิด')}
           >
             <X size={18} />
           </button>
@@ -382,14 +384,14 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
             fontSize: 12
           }}>
             <span style={{ color: '#94a3b8', fontSize: 11 }}>
-              ลากกรอบสี่เหลี่ยม หรือดึงมุมปรับขนาดเพื่อเลือกพื้นที่ที่ต้องการครอบตัด
+              {language === 'en' ? 'Drag frame or handles to select crop area' : 'ลากกรอบสี่เหลี่ยม หรือดึงมุมปรับขนาดเพื่อเลือกพื้นที่ที่ต้องการครอบตัด'}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button 
                 style={{ padding: '3px 8px', borderRadius: 4, background: '#334155', color: '#f1f5f9', fontSize: 11 }}
                 onClick={() => setPreset('full')}
               >
-                ทั้งภาพ
+                {t('cropPresetFull', 'ทั้งภาพ')}
               </button>
               <button 
                 style={{ padding: '3px 8px', borderRadius: 4, background: '#334155', color: '#f1f5f9', fontSize: 11 }}
@@ -493,7 +495,7 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
               style={{ padding: '8px 14px', fontSize: 12, color: '#cbd5e1' }}
               onClick={onClose}
             >
-              ยกเลิก
+              {t('cancel', 'ยกเลิก')}
             </button>
 
             {currentImage !== snipImage && (
@@ -501,10 +503,10 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
                 className="bn-btn-secondary"
                 style={{ padding: '8px 12px', fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6 }}
                 onClick={handleResetOriginal}
-                title="ย้อนกลับไปใช้ภาพแคปเจอร์แรกสุด"
+                title={language === 'en' ? 'Revert to original captured image' : 'ย้อนกลับไปใช้ภาพแคปเจอร์แรกสุด'}
               >
                 <RotateCcw size={13} />
-                <span>คืนค่าภาพเดิม</span>
+                <span>{t('resetOriginalImage', 'คืนค่าภาพเดิม')}</span>
               </button>
             )}
           </div>
@@ -517,7 +519,7 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
                   style={{ padding: '8px 12px', fontSize: 12, color: '#94a3b8' }}
                   onClick={() => setIsCropMode(false)}
                 >
-                  ออกจากการครอบตัด
+                  {t('exitCrop', 'ออกจากการครอบตัด')}
                 </button>
                 <button 
                   className="bn-btn-primary"
@@ -535,7 +537,7 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
                   onClick={handleApplySubCrop}
                 >
                   <Check size={14} />
-                  <span>ตัดตามกรอบนี้</span>
+                  <span>{t('applySubCrop', 'ตัดตามกรอบนี้')}</span>
                 </button>
               </>
             ) : (
@@ -565,7 +567,7 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
                 }}
               >
                 <Crop size={14} />
-                <span>ครอบตัดเพิ่มเติม</span>
+                <span>{t('cropMore', 'ครอบตัดเพิ่มเติม')}</span>
               </button>
             )}
 
@@ -587,7 +589,7 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
               onClick={handleConfirmPlacement}
             >
               <ClipboardPaste size={15} />
-              <span>ยืนยันและวางภาพ</span>
+              <span>{t('confirmAndPlaceImage', 'ยืนยันและวางภาพ')}</span>
             </button>
           </div>
         </div>

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { NOTEBOOK_COVERS } from '../../data/covers';
 import { getFirstPageByNotebookId } from '../../services/db';
+import { useLanguage } from '../../services/i18n';
 
 export const NotebookCard = ({ 
   notebook, 
@@ -32,6 +33,7 @@ export const NotebookCard = ({
   isSelected = false,
   onToggleSelect
 }) => {
+  const { language, t } = useLanguage();
   const [showMenu, setShowMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [firstPageThumbnail, setFirstPageThumbnail] = useState(notebook.pdfCoverSnapshot || null);
@@ -78,21 +80,34 @@ export const NotebookCard = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showMenu]);
 
-  // Thai Date formatting standard format: "1 ก.ค. 2569 เมื่อ1:07 PM"
-  const formatThaiDate = (timestamp) => {
-    if (!timestamp) return '1 ก.ค. 2569 เมื่อ1:07 PM';
+  // Bilingual Date formatting
+  const formatLocalizedDate = (timestamp) => {
+    if (!timestamp) {
+      return language === 'en' ? 'Jul 1, 2026 at 1:07 PM' : '1 ก.ค. 2569 เมื่อ1:07 PM';
+    }
     const date = new Date(timestamp);
-    const months = [
+    const thaiMonths = [
       'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
       'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
     ];
+    const enMonths = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
     const day = date.getDate();
-    const month = months[date.getMonth()];
-    const year = date.getFullYear() + 543;
     let hours = date.getHours();
     const minutes = date.getMinutes().toString().padStart(2, '0');
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
+
+    if (language === 'en') {
+      const month = enMonths[date.getMonth()];
+      const year = date.getFullYear();
+      return `${month} ${day}, ${year} at ${hours}:${minutes} ${ampm}`;
+    }
+
+    const month = thaiMonths[date.getMonth()];
+    const year = date.getFullYear() + 543;
     return `${day} ${month} ${year} เมื่อ${hours}:${minutes} ${ampm}`;
   };
 
@@ -128,7 +143,7 @@ export const NotebookCard = ({
       <div 
         className="bn-gn-book-wrapper"
         onClick={handleCardClick}
-        title={isSelectMode ? `คลิกเพื่อ${isSelected ? 'ยกเลิกเลือก' : 'เลือก'} "${notebook.name}"` : `คลิกเปิดสมุด "${notebook.name}" (${notebook.pageCount || 1} หน้า)`}
+        title={isSelectMode ? `${isSelected ? t('deselect') : t('selectNotebook')} "${notebook.name}"` : `${notebook.name} (${notebook.pageCount || 1} ${t('page')})`}
       >
         {/* Simulated White Paper Pages Edge (Studio 3D Look) */}
         <div className="bn-gn-book-paper-edge" />
@@ -153,7 +168,7 @@ export const NotebookCard = ({
                 e.stopPropagation();
                 if (onToggleSelect) onToggleSelect(notebook.id, 'notebook');
               }}
-              title={isSelected ? 'ยกเลิกการเลือก' : 'เลือกสมุดเล่มนี้'}
+              title={isSelected ? t('deselect', 'ยกเลิกการเลือก') : t('selectNotebook', 'เลือกสมุดเล่มนี้')}
             >
               {isSelected && <Check size={13} strokeWidth={3} />}
             </div>
@@ -167,7 +182,7 @@ export const NotebookCard = ({
                 e.stopPropagation();
                 if (onToggleFavorite) onToggleFavorite(notebook.id);
               }}
-              title={notebook.isFavorite ? "นำออกจากรายการโปรด" : "เพิ่มเป็นรายการโปรด"}
+              title={notebook.isFavorite ? t('removeFromFavorites', 'นำออกจากรายการโปรด') : t('addToFavorites', 'เพิ่มเป็นรายการโปรด')}
             >
               <Star 
                 size={14} 
@@ -204,7 +219,7 @@ export const NotebookCard = ({
           </div>
 
           {/* Bottom Center Circular User Avatar Badge (Studio Style) */}
-          <div className="bn-gn-book-avatar-badge" title="ผู้สร้างเอกสาร">
+          <div className="bn-gn-book-avatar-badge" title={t('author', 'ผู้สร้างเอกสาร')}>
             <div className="bn-gn-avatar-circle">
               <User size={13} className="text-white" />
               <div className="bn-gn-avatar-check">✓</div>
@@ -229,16 +244,16 @@ export const NotebookCard = ({
                 e.stopPropagation();
                 setShowMenu(!showMenu);
               }}
-              title="ตัวเลือกสมุดบันทึก"
+              title={t('notebookOptions', 'ตัวเลือกสมุดบันทึก')}
             >
               <ChevronDown size={14} />
             </button>
           )}
         </div>
 
-        {/* Date in Thai Format */}
+        {/* Date in Localized Format */}
         <div className="bn-gn-book-subtext">
-          {formatThaiDate(notebook.updatedAt || notebook.createdAt)}
+          {formatLocalizedDate(notebook.updatedAt || notebook.createdAt)}
         </div>
       </div>
 
@@ -258,7 +273,7 @@ export const NotebookCard = ({
             }}
           >
             <Edit3 size={16} />
-            <span>ตั้งชื่อใหม่</span>
+            <span>{t('renameAction', 'ตั้งชื่อใหม่')}</span>
           </button>
 
           {/* 2. Duplicate */}
@@ -270,7 +285,7 @@ export const NotebookCard = ({
             }}
           >
             <Copy size={16} />
-            <span>ทำสำเนา</span>
+            <span>{t('duplicateAction', 'ทำสำเนา')}</span>
           </button>
 
           {/* 3. Export PDF */}
@@ -282,7 +297,7 @@ export const NotebookCard = ({
             }}
           >
             <Download size={16} />
-            <span>นำออกเป็น PDF</span>
+            <span>{t('exportPdfAction', 'นำออกเป็น PDF')}</span>
           </button>
 
           {/* 4. Move */}
@@ -294,7 +309,7 @@ export const NotebookCard = ({
             }}
           >
             <FolderInput size={16} />
-            <span>ย้าย</span>
+            <span>{t('moveAction', 'ย้าย')}</span>
           </button>
 
           {/* 5. Share */}
@@ -306,7 +321,7 @@ export const NotebookCard = ({
             }}
           >
             <Share2 size={16} />
-            <span>แชร์...</span>
+            <span>{t('shareAction', 'แชร์...')}</span>
           </button>
 
           {/* 6. Copy Link */}
@@ -318,7 +333,7 @@ export const NotebookCard = ({
             }}
           >
             <Link size={16} />
-            <span>คัดลอกลิงก์</span>
+            <span>{t('copyLinkAction', 'คัดลอกลิงก์')}</span>
           </button>
 
           <div className="bn-gn-menu-divider" />
@@ -332,7 +347,7 @@ export const NotebookCard = ({
             }}
           >
             <Trash2 size={16} />
-            <span>ย้ายไปยังถังขยะ</span>
+            <span>{t('moveToTrashAction', 'ย้ายไปยังถังขยะ')}</span>
           </button>
         </div>
       )}

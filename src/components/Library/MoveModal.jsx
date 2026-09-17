@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, FolderInput, Folder, Home, Check } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
 export const MoveModal = ({ 
   isOpen, 
@@ -10,6 +11,7 @@ export const MoveModal = ({
   onClose, 
   onConfirm 
 }) => {
+  const { t, language } = useLanguage();
   // Determine if single or batch (treat any provided array as batch, even with 1 selected item)
   const isBatch = Array.isArray(items);
   const moveItems = isBatch ? items : (item ? [item] : []);
@@ -65,8 +67,10 @@ export const MoveModal = ({
   };
 
   const modalTitle = isBatch
-    ? `ย้าย ${moveItems.length} รายการที่เลือก`
-    : `ย้าย ${singleItemType === 'folder' ? 'โฟลเดอร์' : 'สมุดโน้ต'} "${singleItem?.name || ''}"`;
+    ? (language === 'en' ? `Move ${moveItems.length} selected items` : `ย้าย ${moveItems.length} รายการที่เลือก`)
+    : (language === 'en'
+        ? `Move ${singleItemType === 'folder' ? 'Folder' : 'Notebook'} "${singleItem?.name || ''}"`
+        : `ย้าย ${singleItemType === 'folder' ? 'โฟลเดอร์' : 'สมุดโน้ต'} "${singleItem?.name || ''}"`);
 
   return (
     <div className="bn-move-overlay" onClick={onClose}>
@@ -79,10 +83,10 @@ export const MoveModal = ({
             </div>
             <div>
               <h3 className="bn-move-title">{modalTitle}</h3>
-              <p className="bn-move-subtitle">เลือกโฟลเดอร์ปลายทางที่ต้องการย้ายไป</p>
+              <p className="bn-move-subtitle">{t('selectDestinationFolder', 'เลือกโฟลเดอร์ปลายทางที่ต้องการย้ายไป')}</p>
             </div>
           </div>
-          <button className="bn-move-close-btn" onClick={onClose} title="ปิด">
+          <button className="bn-move-close-btn" onClick={onClose} title={t('close', 'ปิด')}>
             <X size={18} />
           </button>
         </div>
@@ -101,12 +105,12 @@ export const MoveModal = ({
               </div>
               <div className="bn-move-item-info">
                 <div className="bn-move-item-row">
-                  <span className="bn-move-item-name">หน้าหลัก (เอกสารทั้งหมด)</span>
+                  <span className="bn-move-item-name">{t('homeAllDocs', 'หน้าหลัก (เอกสารทั้งหมด)')}</span>
                   {!isBatch && currentParentId === null && (
-                    <span className="bn-move-current-badge">ตำแหน่งปัจจุบัน</span>
+                    <span className="bn-move-current-badge">{t('currentLocation', 'ตำแหน่งปัจจุบัน')}</span>
                   )}
                 </div>
-                <span className="bn-move-item-desc">ย้ายออกมาไว้ที่ชั้นนอกสุด</span>
+                <span className="bn-move-item-desc">{t('moveToRootDesc', 'ย้ายออกมาไว้ที่ชั้นนอกสุด')}</span>
               </div>
               {selectedFolderId === null && (
                 <div className="bn-move-check-circle">
@@ -136,10 +140,10 @@ export const MoveModal = ({
                     <div className="bn-move-item-row">
                       <span className="bn-move-item-name">{f.name}</span>
                       {isCurrent && (
-                        <span className="bn-move-current-badge">ตำแหน่งปัจจุบัน</span>
+                        <span className="bn-move-current-badge">{t('currentLocation', 'ตำแหน่งปัจจุบัน')}</span>
                       )}
                     </div>
-                    <span className="bn-move-item-desc">โฟลเดอร์</span>
+                    <span className="bn-move-item-desc">{t('folder', 'โฟลเดอร์')}</span>
                   </div>
                   {isSelected && (
                     <div className="bn-move-check-circle">
@@ -159,14 +163,14 @@ export const MoveModal = ({
             className="bn-move-btn-cancel"
             onClick={onClose}
           >
-            ยกเลิก
+            {t('cancel', 'ยกเลิก')}
           </button>
           <button
             type="button"
             onClick={handleConfirm}
             className="bn-move-btn-confirm"
           >
-            ย้ายมาที่นี่
+            {t('moveHere', 'ย้ายมาที่นี่')}
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, FileText, Star, MoreVertical, Copy, Trash2 } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
 export const ThumbnailSidebar = ({
   pages,
@@ -13,6 +14,7 @@ export const ThumbnailSidebar = ({
   onInsertAfter,
   onClose
 }) => {
+  const { t, language } = useLanguage();
   const [menuOpenIndex, setMenuOpenIndex] = useState(null);
 
   const handleInsert = onInsertPageAfter || onInsertAfter;
@@ -53,9 +55,9 @@ export const ThumbnailSidebar = ({
       <div className="bn-thumbnail-sidebar-header">
         <div className="flex items-center gap-2">
           <FileText size={17} className="text-blue-500" />
-          <h3 className="bn-thumbnail-title">ภาพรวมหน้า ({pages.length})</h3>
+          <h3 className="bn-thumbnail-title">{t('pageOverview', 'ภาพรวมหน้า')} ({pages.length})</h3>
         </div>
-        <button className="bn-thumbnail-close-btn" onClick={onClose} title="ปิดแถบนำทาง">
+        <button className="bn-thumbnail-close-btn" onClick={onClose} title={t('closeSidebar', 'ปิดแถบนำทาง')}>
           <X size={18} />
         </button>
       </div>
@@ -73,7 +75,7 @@ export const ThumbnailSidebar = ({
               ref={isActive ? activeItemRef : null}
               className={`bn-thumbnail-item ${isActive ? 'bn-thumbnail-item-active' : ''}`}
               onClick={() => onSelectPage(index)}
-              title={`ข้ามไปหน้าที่ ${index + 1}`}
+              title={`${t('goToPage', 'ข้ามไปหน้าที่')} ${index + 1}`}
               style={{ position: 'relative' }}
             >
               {/* Thumbnail page preview miniature with accurate page aspect ratio */}
@@ -87,7 +89,7 @@ export const ThumbnailSidebar = ({
                 {(page.thumbnailUrl || page.pdfPageImage) ? (
                   <img 
                     src={page.thumbnailUrl || page.pdfPageImage} 
-                    alt={`หน้า ${index + 1}`} 
+                    alt={`${t('page', 'หน้า')} ${index + 1}`} 
                     className="bn-thumbnail-img"
                     loading="lazy"
                     style={{
@@ -157,7 +159,7 @@ export const ThumbnailSidebar = ({
                       onToggleFavoritePage(index);
                     }
                   }}
-                  title={page.isFavorite ? 'ยกเลิกรายการโปรดหน้านี้' : 'เพิ่มหน้านี้ในรายการโปรด'}
+                  title={page.isFavorite ? t('unstarPage', 'ยกเลิกรายการโปรดหน้านี้') : t('starPage', 'เพิ่มหน้านี้ในรายการโปรด')}
                 >
                   <Star 
                     size={13} 
@@ -176,7 +178,7 @@ export const ThumbnailSidebar = ({
                     e.stopPropagation();
                     setMenuOpenIndex(menuOpenIndex === index ? null : index);
                   }}
-                  title="จัดการหน้านี้ (ทำสำเนา, ลบ, เพิ่มหน้าต่อ)"
+                  title={language === 'en' ? 'Manage this page (duplicate, delete, insert after)' : 'จัดการหน้านี้ (ทำสำเนา, ลบ, เพิ่มหน้าต่อ)'}
                 >
                   <MoreVertical size={14} />
                 </button>
@@ -202,7 +204,7 @@ export const ThumbnailSidebar = ({
                     }}
                   >
                     <Copy size={13} className="text-blue-400" />
-                    <span>ทำสำเนาหน้านี้ (Duplicate)</span>
+                    <span>{t('duplicatePage', 'ทำสำเนาหน้านี้ (Duplicate)')}</span>
                   </button>
 
                   <button
@@ -216,7 +218,7 @@ export const ThumbnailSidebar = ({
                     }}
                   >
                     <Plus size={13} className="text-emerald-400" />
-                    <span>เพิ่มหน้าต่อจากหน้านี้</span>
+                    <span>{t('insertPageAfter', 'เพิ่มหน้าต่อจากหน้านี้')}</span>
                   </button>
 
                   {pages.length > 1 && (
@@ -231,7 +233,7 @@ export const ThumbnailSidebar = ({
                       }}
                     >
                       <Trash2 size={13} className="text-red-400" />
-                      <span>ลบหน้านี้</span>
+                      <span>{t('deletePage', 'ลบหน้านี้')}</span>
                     </button>
                   )}
                 </div>
@@ -241,9 +243,9 @@ export const ThumbnailSidebar = ({
         })}
 
         {/* Add Page Button */}
-        <button className="bn-thumbnail-add-btn" onClick={onAddPage} title="เพิ่มหน้าใหม่">
+        <button className="bn-thumbnail-add-btn" onClick={onAddPage} title={t('addPage', 'เพิ่มหน้าใหม่')}>
           <Plus size={20} />
-          <span className="text-xs font-medium">เพิ่มหน้า</span>
+          <span className="text-xs font-medium">{t('addPageShort', 'เพิ่มหน้า')}</span>
         </button>
       </div>
     </aside>

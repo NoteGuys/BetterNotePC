@@ -9,6 +9,7 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
 export const StudioSidebar = ({ 
   activeView = 'documents', 
@@ -18,32 +19,34 @@ export const StudioSidebar = ({
   currentTheme = 'dark',
   onToggleTheme
 }) => {
+  const { t } = useLanguage();
+
   const menuItems = [
     {
       id: 'documents',
-      label: 'เอกสาร',
+      label: t('sidebarDocuments', 'เอกสาร'),
       icon: Folder,
       iconColor: 'text-blue-400 fill-blue-500'
     },
     {
       id: 'favorites',
-      label: 'รายการโปรด',
+      label: t('favorites', 'รายการโปรด'),
       icon: Star,
       iconColor: 'text-zinc-400',
       badge: favoriteCount > 0 ? favoriteCount : null
     },
     {
       id: 'shared',
-      label: 'แชร์',
+      label: t('sidebarShared', 'แชร์'),
       icon: Users,
       iconColor: 'text-zinc-400'
     },
     {
       id: 'marketplace',
-      label: 'มาร์เก็ตเพลส',
+      label: t('sidebarMarketplace', 'มาร์เก็ตเพลส'),
       icon: Store,
       iconColor: 'text-zinc-400',
-      subtext: '500+ รายการสำหรับคุณ'
+      subtext: t('sidebarMarketplaceSub', '500+ รายการสำหรับคุณ')
     }
   ];
 
@@ -105,7 +108,7 @@ export const StudioSidebar = ({
             <Trash2 size={19} className={activeView === 'trash' ? 'text-white' : 'text-zinc-400'} />
           </div>
           <div className="bn-sidebar-item-text">
-            <span className="bn-sidebar-item-label">ลบทิ้ง</span>
+            <span className="bn-sidebar-item-label">{t('trash', 'ลบทิ้ง')}</span>
           </div>
           {trashCount > 0 && (
             <span className="bn-sidebar-badge bn-sidebar-badge-trash">{trashCount}</span>
@@ -117,7 +120,7 @@ export const StudioSidebar = ({
             type="button"
             className="bn-sidebar-item"
             onClick={onToggleTheme}
-            title={`สลับธีม (ปัจจุบัน: ${currentTheme === 'light' ? 'โหมดสว่าง' : 'โหมดมืด'})`}
+            title={`${t('clickToToggleTheme', 'สลับธีม')} (${t('currentTheme', 'ปัจจุบัน')}: ${currentTheme === 'light' ? t('themeLight', 'โหมดสว่าง') : t('themeDark', 'โหมดมืด')})`}
             style={{ marginTop: '4px' }}
           >
             <div className="bn-sidebar-item-icon">
@@ -129,9 +132,9 @@ export const StudioSidebar = ({
             </div>
             <div className="bn-sidebar-item-text">
               <span className="bn-sidebar-item-label">
-                {currentTheme === 'light' ? 'โหมดสว่าง' : 'โหมดมืด'}
+                {currentTheme === 'light' ? t('themeLight', 'โหมดสว่าง') : t('themeDark', 'โหมดมืด')}
               </span>
-              <span className="bn-sidebar-item-subtext">คลิกเพื่อสลับธีม</span>
+              <span className="bn-sidebar-item-subtext">{t('clickToToggleTheme', 'คลิกเพื่อสลับธีม')}</span>
             </div>
           </button>
         )}

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Home, X, FileText, ChevronDown } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
 export const DocumentTabBar = ({
   tabs = [],
@@ -8,6 +9,8 @@ export const DocumentTabBar = ({
   onCloseTab,
   onGoHome
 }) => {
+  const { t } = useLanguage();
+
   return (
     <div className="bn-document-tab-bar" role="tablist">
       {/* 1. Leftmost Home / Library Button */}
@@ -15,7 +18,7 @@ export const DocumentTabBar = ({
         type="button"
         className={`bn-tab-home-btn ${activeTabId === null ? 'bn-tab-home-btn-active' : ''}`}
         onClick={onGoHome}
-        title="คลังเอกสารทั้งหมด (Library)"
+        title={t('libraryTooltip', 'คลังเอกสารทั้งหมด (Library)')}
         aria-label="Home Library"
       >
         <Home size={17} />
@@ -36,18 +39,18 @@ export const DocumentTabBar = ({
               aria-selected={isActive}
               className={`bn-tab-item ${isActive ? 'bn-tab-item-active' : ''}`}
               onClick={() => onSelectTab(tab.id)}
-              title={`${tab.title || 'ไม่มีชื่อ'} (หน้า ${displayPage})`}
+              title={`${tab.title || t('untitled', 'ไม่มีชื่อ')} (${t('page', 'หน้า')} ${displayPage})`}
             >
               {/* Document Icon */}
               <FileText size={14} className={isActive ? 'text-blue-400' : 'text-zinc-400'} />
 
               {/* Title with Ellipsis */}
               <span className="bn-tab-title">
-                {tab.title || 'สมุดโน้ต'}
+                {tab.title || t('notebook', 'สมุดโน้ต')}
               </span>
 
               {/* Page Number Badge */}
-              <span className="bn-tab-page-badge" title={`กำลังเปิดอยู่ที่หน้า ${displayPage}`}>
+              <span className="bn-tab-page-badge" title={`${t('openedOnPage', 'กำลังเปิดอยู่ที่หน้า')} ${displayPage}`}>
                 {displayPage}
               </span>
 
@@ -64,7 +67,7 @@ export const DocumentTabBar = ({
                   e.stopPropagation();
                   onCloseTab(tab.id);
                 }}
-                title={`ปิดแท็บ "${tab.title}"`}
+                title={`${t('closeTab', 'ปิดแท็บ')} "${tab.title}"`}
                 aria-label={`Close tab ${tab.title}`}
               >
                 <X size={13} />

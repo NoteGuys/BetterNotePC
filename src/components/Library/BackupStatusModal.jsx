@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { autoBackupService } from '../../services/autoBackupService';
 import { appCacheService } from '../../services/appCacheService';
-
+import { useLanguage } from '../../services/i18n';
 
 export default function BackupStatusModal({ 
   isOpen, 
@@ -15,6 +15,7 @@ export default function BackupStatusModal({
   onTriggerSync,
   onRestoreBackup 
 }) {
+  const { t, language } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [syncingNow, setSyncingNow] = useState(false);
   const [statusDetails, setStatusDetails] = useState(null);
@@ -45,7 +46,7 @@ export default function BackupStatusModal({
 
   const handleManualBackupNow = async () => {
     setSyncingNow(true);
-    setActionNotice({ type: 'info', text: 'กำลังทำการบันทึกสำรองข้อมูลและเอกสาร PDF ลงดิสก์และ Google Drive...' });
+    setActionNotice({ type: 'info', text: t('backupNoticeBackingUp', 'กำลังทำการบันทึกสำรองข้อมูลและเอกสาร PDF ลงดิสก์และ Google Drive...') });
     try {
       if (onTriggerSync) {
         await onTriggerSync({ forcePdf: true });
@@ -54,9 +55,9 @@ export default function BackupStatusModal({
       }
       await new Promise(r => setTimeout(r, 600));
       await fetchDetails();
-      setActionNotice({ type: 'success', text: 'สำรองข้อมูลและไฟล์ PDF ครบทุกสมุดสำเร็จเรียบร้อยแล้ว! 🚀' });
+      setActionNotice({ type: 'success', text: t('backupNoticeSuccess', 'สำรองข้อมูลและไฟล์ PDF ครบทุกสมุดสำเร็จเรียบร้อยแล้ว! 🚀') });
     } catch (err) {
-      setActionNotice({ type: 'error', text: 'เกิดข้อผิดพลาดในการสำรองข้อมูล: ' + err.message });
+      setActionNotice({ type: 'error', text: t('backupNoticeError', 'เกิดข้อผิดพลาดในการสำรองข้อมูล: {error}', { error: err.message }) });
     } finally {
       setSyncingNow(false);
     }
@@ -66,9 +67,9 @@ export default function BackupStatusModal({
     if (!statusDetails?.targetDir) return;
     try {
       await autoBackupService.openBackupFolder(statusDetails.targetDir);
-      setActionNotice({ type: 'success', text: `เปิดโฟลเดอร์สำรองใน Windows Explorer แล้ว 📂` });
+      setActionNotice({ type: 'success', text: t('backupNoticeOpenedFolder', 'เปิดโฟลเดอร์สำรองใน Windows Explorer แล้ว 📂') });
     } catch (err) {
-      setActionNotice({ type: 'error', text: 'ไม่สามารถเปิดโฟลเดอร์ได้: ' + err.message });
+      setActionNotice({ type: 'error', text: t('backupNoticeOpenFolderError', 'ไม่สามารถเปิดโฟลเดอร์ได้: {error}', { error: err.message }) });
     }
   };
 
@@ -77,18 +78,18 @@ export default function BackupStatusModal({
     try {
       const res = await autoBackupService.revealBackupFile(filePath);
       if (res?.success) {
-        setActionNotice({ type: 'success', text: `เปิดและไฮไลต์ไฟล์ ${fileName || ''} ใน Windows Explorer แล้ว 📂` });
+        setActionNotice({ type: 'success', text: t('backupNoticeRevealedFile', 'เปิดและไฮไลต์ไฟล์ {name} ใน Windows Explorer แล้ว 📂', { name: fileName || '' }) });
       } else {
-        setActionNotice({ type: 'error', text: `ไม่สามารถเปิดไฟล์ได้: ${res?.error || 'ไม่พบไฟล์'}` });
+        setActionNotice({ type: 'error', text: t('backupNoticeRevealError', 'ไม่สามารถเปิดไฟล์ได้: {error}', { error: res?.error || (language === 'en' ? 'File not found' : 'ไม่พบไฟล์') }) });
       }
     } catch (err) {
-      setActionNotice({ type: 'error', text: `เกิดข้อผิดพลาดในการเปิดไฟล์: ${err.message}` });
+      setActionNotice({ type: 'error', text: t('backupNoticeRevealError', 'ไม่สามารถเปิดไฟล์ได้: {error}', { error: err.message }) });
     }
   };
 
   const handleClearCache = () => {
     appCacheService.clearAll();
-    setActionNotice({ type: 'success', text: 'ล้างแคชภาพเรนเดอร์ชั่วคราวเรียบร้อยแล้ว (คืนพื้นที่หน่วยความจำ RAM 🧹)' });
+    setActionNotice({ type: 'success', text: t('backupNoticeCacheCleared', 'ล้างแคชภาพเรนเดอร์ชั่วคราวเรียบร้อยแล้ว (คืนพื้นที่หน่วยความจำ RAM 🧹)') });
   };
 
   const files = statusDetails?.files || [];
@@ -109,11 +110,11 @@ export default function BackupStatusModal({
   const targetDir = statusDetails?.targetDir || 'H:\\My Drive\\BetterNote.AppPC';
   const isGoogleDrive = statusDetails?.isGoogleDrive ?? true;
   const lastSyncDate = statusDetails?.lastSync 
-    ? new Date(statusDetails.lastSync).toLocaleString('th-TH', { 
+    ? new Date(statusDetails.lastSync).toLocaleString(language === 'en' ? 'en-US' : 'th-TH', { 
         year: 'numeric', month: 'short', day: 'numeric', 
         hour: '2-digit', minute: '2-digit', second: '2-digit' 
       })
-    : 'ยังไม่มีข้อมูล';
+    : t('backupNoDataYet', 'ยังไม่มีข้อมูล');
 
   return (
     <div className="bn-modal-backdrop" onClick={onClose}>
@@ -129,13 +130,13 @@ export default function BackupStatusModal({
             </div>
             <div className="bn-backup-title-group">
               <h3>
-                ตรวจสอบสถานะการ Backup
+                {t('backupStatusTitle', 'ตรวจสอบสถานะการ Backup')}
                 <span className="bn-backup-agent-badge">
                   2-Agent Cloud Sync
                 </span>
               </h3>
               <p className="bn-backup-subtitle">
-                ตรวจสอบสมุดบันทึกที่ถูกสำรองแล้ว เวลาที่บันทึก และตำแหน่งโฟลเดอร์จัดเก็บ
+                {t('backupStatusSubtitle', 'ตรวจสอบสมุดบันทึกที่ถูกสำรองแล้ว เวลาที่บันทึก และตำแหน่งโฟลเดอร์จัดเก็บ')}
               </p>
             </div>
           </div>
@@ -143,7 +144,7 @@ export default function BackupStatusModal({
             type="button"
             onClick={onClose}
             className="bn-modal-close-btn"
-            title="ปิดหน้าต่าง"
+            title={t('backupCloseDialog', 'ปิดหน้าต่าง')}
           >
             <X size={18} />
           </button>
@@ -167,7 +168,7 @@ export default function BackupStatusModal({
               onClick={() => setActionNotice(null)}
               style={{ background: 'none', border: 'none', color: 'inherit', textDecoration: 'underline', cursor: 'pointer', fontSize: '11px' }}
             >
-              ปิด
+              {t('close', 'ปิด')}
             </button>
           </div>
         )}
@@ -180,7 +181,7 @@ export default function BackupStatusModal({
             <div className="bn-backup-stat-card">
               <div className="bn-backup-stat-header">
                 <span className="bn-backup-stat-label">
-                  <FolderOpen size={15} style={{ color: '#fbbf24' }} /> โฟลเดอร์ปลายทาง
+                  <FolderOpen size={15} style={{ color: '#fbbf24' }} /> {t('backupTargetFolder', 'โฟลเดอร์ปลายทาง')}
                 </span>
                 <span className={isGoogleDrive ? 'bn-backup-tag-cloud' : 'bn-backup-tag-local'}>
                   {isGoogleDrive ? 'Google Drive ☁️' : 'Local Disk 💾'}
@@ -195,7 +196,7 @@ export default function BackupStatusModal({
                 className="bn-backup-btn-open-folder"
               >
                 <ExternalLink size={13} />
-                <span>เปิดโฟลเดอร์ในเครื่อง</span>
+                <span>{t('backupOpenLocalFolder', 'เปิดโฟลเดอร์ในเครื่อง')}</span>
               </button>
             </div>
 
@@ -203,17 +204,17 @@ export default function BackupStatusModal({
             <div className="bn-backup-stat-card">
               <div className="bn-backup-stat-header">
                 <span className="bn-backup-stat-label">
-                  <Clock size={15} style={{ color: '#34d399' }} /> เวลาสำรองล่าสุด
+                  <Clock size={15} style={{ color: '#34d399' }} /> {t('backupLastSyncTime', 'เวลาสำรองล่าสุด')}
                 </span>
                 <span className="bn-backup-tag-synced">
-                  <CheckCircle2 size={12} /> ซิงค์แล้ว
+                  <CheckCircle2 size={12} /> {t('backupSynced', 'ซิงค์แล้ว')}
                 </span>
               </div>
               <div className="bn-backup-stat-value">
                 {lastSyncDate}
               </div>
               <p className="bn-backup-stat-hint">
-                ระบบทำงานอัตโนมัติในพื้นหลัง ไม่หน่วงเครื่อง ไม่กิน RAM
+                {t('backupBackgroundHint', 'ระบบทำงานอัตโนมัติในพื้นหลัง ไม่หน่วงเครื่อง ไม่กิน RAM')}
               </p>
             </div>
 
@@ -221,17 +222,19 @@ export default function BackupStatusModal({
             <div className="bn-backup-stat-card">
               <div className="bn-backup-stat-header">
                 <span className="bn-backup-stat-label">
-                  <HardDrive size={15} style={{ color: '#818cf8' }} /> ปริมาณไฟล์ที่สำรอง
+                  <HardDrive size={15} style={{ color: '#818cf8' }} /> {t('backupTotalFiles', 'ปริมาณไฟล์ที่สำรอง')}
                 </span>
                 <span className="bn-backup-tag-cloud">
                   {statusDetails?.formattedTotalSize || '0 B'}
                 </span>
               </div>
               <div className="bn-backup-stat-value">
-                {bnoteCount} สมุด (.bnote) • {pdfCount} ไฟล์ (.pdf)
+                {t('backupStatFiles', '{bnoteCount} สมุด (.bnote) • {pdfCount} ไฟล์ (.pdf)', { bnoteCount, pdfCount })}
               </div>
               <p className="bn-backup-stat-hint">
-                {notebooks.length > 0 ? `พบ ${notebooks.length} สมุดในแอพ (รวมสำรอง ${files.length} ไฟล์)` : 'พร้อมสำหรับการกู้คืนหากย้ายเครื่อง'}
+                {notebooks.length > 0 
+                  ? t('backupStatHint', 'พบ {count} สมุดในแอพ (รวมสำรอง {total} ไฟล์)', { count: notebooks.length, total: files.length })
+                  : t('backupReadyToRestore', 'พร้อมสำหรับการกู้คืนหากย้ายเครื่อง')}
               </p>
             </div>
           </div>
@@ -242,7 +245,7 @@ export default function BackupStatusModal({
               <Search size={15} className="bn-backup-search-icon" />
               <input 
                 type="text"
-                placeholder="ค้นหาชื่อไฟล์ หรือสมุดบันทึก..."
+                placeholder={t('backupSearchPlaceholder', 'ค้นหาชื่อไฟล์ หรือสมุดบันทึก...')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="bn-backup-search-input"
@@ -252,7 +255,7 @@ export default function BackupStatusModal({
                   type="button"
                   onClick={() => setSearchQuery('')}
                   className="bn-backup-search-clear"
-                  title="ล้างคำค้นหา"
+                  title={t('backupClearSearch', 'ล้างคำค้นหา')}
                 >
                   <X size={14} />
                 </button>
@@ -265,28 +268,28 @@ export default function BackupStatusModal({
                 onClick={() => setFilterType('all')}
                 className={`bn-backup-filter-btn ${filterType === 'all' ? 'bn-backup-filter-btn-active' : ''}`}
               >
-                ทั้งหมด ({files.length})
+                {t('backupFilterAll', 'ทั้งหมด ({count})', { count: files.length })}
               </button>
               <button
                 type="button"
                 onClick={() => setFilterType('bnote')}
                 className={`bn-backup-filter-btn ${filterType === 'bnote' ? 'bn-backup-filter-btn-active' : ''}`}
               >
-                สมุด (.bnote) ({bnoteCount})
+                {t('backupFilterBnote', 'สมุด (.bnote) ({count})', { count: bnoteCount })}
               </button>
               <button
                 type="button"
                 onClick={() => setFilterType('pdf')}
                 className={`bn-backup-filter-btn ${filterType === 'pdf' ? 'bn-backup-filter-btn-active' : ''}`}
               >
-                เอกสาร PDF ({pdfCount})
+                {t('backupFilterPdf', 'เอกสาร PDF ({count})', { count: pdfCount })}
               </button>
               <button
                 type="button"
                 onClick={() => setFilterType('system')}
                 className={`bn-backup-filter-btn ${filterType === 'system' ? 'bn-backup-filter-btn-active' : ''}`}
               >
-                ไฟล์ระบบ JSON ({jsonCount})
+                {t('backupFilterSystem', 'ไฟล์ระบบ JSON ({count})', { count: jsonCount })}
               </button>
             </div>
           </div>
@@ -296,24 +299,24 @@ export default function BackupStatusModal({
             {loading ? (
               <div style={{ padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#a1a1aa', gap: '10px' }}>
                 <Loader2 size={24} className="animate-spin" style={{ color: '#6366f1' }} />
-                <span style={{ fontSize: '12px' }}>กำลังตรวจสอบไฟล์สำรองข้อมูลจาก {targetDir}...</span>
+                <span style={{ fontSize: '12px' }}>{t('backupScanning', 'กำลังตรวจสอบไฟล์สำรองข้อมูลจาก {targetDir}...', { targetDir })}</span>
               </div>
             ) : filteredFiles.length === 0 ? (
               <div style={{ padding: '40px 20px', textAlign: 'center', color: '#71717a' }}>
                 <FileText size={32} style={{ margin: '0 auto 8px auto', opacity: 0.4 }} />
-                <p style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>ไม่พบไฟล์สำรองข้อมูลที่ตรงกับคำค้นหา</p>
-                <p style={{ fontSize: '11px', color: '#52525b', marginTop: '4px' }}>กดปุ่ม "สำรองข้อมูลทันที" ด้านล่างเพื่อเริ่มการสำรองข้อมูล</p>
+                <p style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>{t('backupNotFound', 'ไม่พบไฟล์สำรองข้อมูลที่ตรงกับคำค้นหา')}</p>
+                <p style={{ fontSize: '11px', color: '#52525b', marginTop: '4px' }}>{t('backupNotFoundHint', 'กดปุ่ม "สำรองข้อมูลทันที" ด้านล่างเพื่อเริ่มการสำรองข้อมูล')}</p>
               </div>
             ) : (
               <table className="bn-backup-table">
                 <thead>
                   <tr>
-                    <th>ชื่อสมุดบันทึก / ไฟล์</th>
-                    <th>ตำแหน่งจัดเก็บ (โฟลเดอร์)</th>
-                    <th>เวลาที่ Backup ล่าสุด</th>
-                    <th>ขนาดไฟล์</th>
-                    <th>สถานะ</th>
-                    <th style={{ textAlign: 'right' }}>ตำแหน่งไฟล์</th>
+                    <th>{t('backupColName', 'ชื่อสมุดบันทึก / ไฟล์')}</th>
+                    <th>{t('backupColFolder', 'ตำแหน่งจัดเก็บ (โฟลเดอร์)')}</th>
+                    <th>{t('backupColTime', 'เวลาที่ Backup ล่าสุด')}</th>
+                    <th>{t('backupColSize', 'ขนาดไฟล์')}</th>
+                    <th>{t('backupColStatus', 'สถานะ')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('backupColAction', 'ตำแหน่งไฟล์')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -362,7 +365,7 @@ export default function BackupStatusModal({
                         {/* Status Badge */}
                         <td>
                           <span className="bn-backup-status-tag-synced">
-                            <CheckCircle2 size={11} /> สำรองแล้ว ✅
+                            <CheckCircle2 size={11} /> {t('backupSyncedBadge', 'สำรองแล้ว ✅')}
                           </span>
                         </td>
 
@@ -372,10 +375,10 @@ export default function BackupStatusModal({
                             type="button"
                             onClick={() => handleRevealFile(file.fullPath, file.fileName)}
                             className="bn-backup-btn-reveal"
-                            title={`เปิดตำแหน่งไฟล์ ${file.fileName} ใน Windows Explorer`}
+                            title={t('backupRevealTooltip', 'เปิดตำแหน่งไฟล์ {name} ใน Windows Explorer', { name: file.fileName })}
                           >
                             <ExternalLink size={12} />
-                            <span>เปิดตำแหน่งไฟล์</span>
+                            <span>{t('backupRevealAction', 'เปิดตำแหน่งไฟล์')}</span>
                           </button>
                         </td>
                       </tr>
@@ -391,7 +394,7 @@ export default function BackupStatusModal({
         <div className="bn-backup-footer">
           <div className="bn-backup-footer-status">
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
-            <span>ซิงค์อัตโนมัติแบบเรียลไทม์เมื่อมีการแก้ไข</span>
+            <span>{t('backupAutoSyncNotice', 'ซิงค์อัตโนมัติแบบเรียลไทม์เมื่อมีการแก้ไข')}</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -403,7 +406,7 @@ export default function BackupStatusModal({
               className="bn-backup-btn-sync-now"
             >
               <RefreshCw size={14} className={syncingNow ? 'animate-spin' : ''} />
-              <span>{syncingNow ? 'กำลังสำรองข้อมูล...' : 'สำรองข้อมูลทันที (Backup Now)'}</span>
+              <span>{syncingNow ? t('backupNowInProgress', 'กำลังสำรองข้อมูล...') : t('backupNowBtn', 'สำรองข้อมูลทันที (Backup Now)')}</span>
             </button>
 
             {/* Restore Button */}
@@ -411,15 +414,15 @@ export default function BackupStatusModal({
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm('คุณต้องการสแกนและกู้คืนสมุดบันทึกจากโฟลเดอร์นี้ใช่หรือไม่?')) {
+                  if (window.confirm(t('backupRestoreConfirm', 'คุณต้องการสแกนและกู้คืนสมุดบันทึกจากโฟลเดอร์นี้ใช่หรือไม่?'))) {
                     onRestoreBackup(statusDetails?.targetDir);
                   }
                 }}
                 className="bn-backup-btn-restore"
-                title="กู้คืนข้อมูลจากโฟลเดอร์สำรอง"
+                title={t('backupRestoreFromFolder', 'กู้คืนจากโฟลเดอร์นี้')}
               >
                 <ArrowDownToLine size={14} />
-                <span>กู้คืนจากโฟลเดอร์นี้</span>
+                <span>{t('backupRestoreFromFolder', 'กู้คืนจากโฟลเดอร์นี้')}</span>
               </button>
             )}
 
@@ -428,10 +431,10 @@ export default function BackupStatusModal({
               type="button"
               onClick={handleClearCache}
               className="bn-backup-btn-restore"
-              title="ล้างแคชเรนเดอร์ชั่วคราวเพื่อคืนหน่วยความจำ RAM"
+              title={t('backupClearCacheTooltip', 'ล้างแคชเรนเดอร์ชั่วคราวเพื่อคืนหน่วยความจำ RAM')}
             >
               <Trash2 size={13} />
-              <span>ล้างแคช</span>
+              <span>{t('backupClearCacheBtn', 'ล้างแคช')}</span>
             </button>
 
             {/* Close Button */}
@@ -440,7 +443,7 @@ export default function BackupStatusModal({
               onClick={onClose}
               className="bn-backup-btn-close"
             >
-              ปิด
+              {t('close', 'ปิด')}
             </button>
           </div>
         </div>

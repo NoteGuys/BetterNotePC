@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { X, FileUp, FileText, CheckCircle2, AlertCircle, Loader2, Plus, Trash2 } from 'lucide-react';
 import { importPdfAsNotebook } from '../../services/pdfService';
+import { useLanguage } from '../../services/i18n';
 
 export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolderId }) => {
+  const { t } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -45,7 +47,7 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
     }
 
     if (nonPdfCount > 0 && newPdfs.length === 0) {
-      setErrorMsg('กรุณาเลือกไฟล์เอกสาร .pdf เท่านั้น');
+      setErrorMsg(t('pdfErrorInvalid', 'กรุณาเลือกไฟล์เอกสาร .pdf เท่านั้น'));
     }
   };
 
@@ -107,7 +109,7 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
       onClose();
     } catch (err) {
       console.error('Batch PDF Import error:', err);
-      setErrorMsg('เกิดข้อผิดพลาดในการนำเข้า PDF: ' + (err.message || 'ไฟล์อาจเสียหายหรือไม่รองรับ'));
+      setErrorMsg(t('pdfErrorGeneric', 'เกิดข้อผิดพลาดในการนำเข้า PDF: {error}', { error: err.message || t('pdfErrorCorrupt', 'ไฟล์อาจเสียหายหรือไม่รองรับ') }));
       setIsProcessing(false);
     }
   };
@@ -119,12 +121,12 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
       <div className="bn-modal-content" style={{ maxWidth: '580px' }} onClick={(e) => e.stopPropagation()}>
         <div className="bn-modal-header">
           <div>
-            <h2 className="bn-modal-title">นำเข้าไฟล์เอกสาร PDF</h2>
+            <h2 className="bn-modal-title">{t('pdfImportTitle', 'นำเข้าไฟล์เอกสาร PDF')}</h2>
             <p className="bn-modal-subtitle">
-              แปลงหน้า PDF เป็นสมุดบันทึก รองรับการเลือกและอัพโหลดพร้อมกันหลายไฟล์
+              {t('pdfImportSubtitle', 'แปลงหน้า PDF เป็นสมุดบันทึก รองรับการเลือกและอัพโหลดพร้อมกันหลายไฟล์')}
             </p>
           </div>
-          <button className="bn-modal-close-btn" onClick={onClose} disabled={isProcessing}>
+          <button className="bn-modal-close-btn" onClick={onClose} disabled={isProcessing} title={t('close', 'ปิด')}>
             <X size={20} />
           </button>
         </div>
@@ -152,11 +154,11 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
           >
             <div className="bn-dropzone-placeholder flex flex-col items-center">
               <FileUp size={40} className="text-blue-400 mb-2" />
-              <span className="font-semibold text-sm text-zinc-100">
-                ลากไฟล์ PDF หลายๆ ไฟล์มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์
+              <span className="font-semibold text-sm text-zinc-100 text-center">
+                {t('pdfDragDropHint', 'ลากไฟล์ PDF หลายๆ ไฟล์มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์')}
               </span>
-              <span className="text-xs text-zinc-400 mt-1">
-                รองรับการเลือกพร้อมกันหลายไฟล์ (.pdf) เรนเดอร์คมชัดระดับ Hi-DPI
+              <span className="text-xs text-zinc-400 mt-1 text-center">
+                {t('pdfDropSubhint', 'รองรับการเลือกพร้อมกันหลายไฟล์ (.pdf) เรนเดอร์คมชัดระดับ Hi-DPI')}
               </span>
             </div>
           </div>
@@ -166,7 +168,7 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
             <div className="mt-4 p-3 bg-zinc-900/60 border border-zinc-800 rounded-xl">
               <div className="flex items-center justify-between pb-2 border-b border-zinc-800/80 mb-2">
                 <span className="text-xs font-semibold text-zinc-200">
-                  เลือกแล้ว {selectedFiles.length} ไฟล์ ({totalSizeMb} MB)
+                  {t('pdfSelectedCount', 'เลือกแล้ว {count} ไฟล์ ({size} MB)', { count: selectedFiles.length, size: totalSizeMb })}
                 </span>
                 {!isProcessing && (
                   <div className="flex items-center gap-2">
@@ -176,7 +178,7 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <Plus size={13} />
-                      เพิ่มไฟล์อีก
+                      {t('pdfAddMore', 'เพิ่มไฟล์อีก')}
                     </button>
                     <span className="text-zinc-600">|</span>
                     <button
@@ -185,7 +187,7 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
                       onClick={handleClearAll}
                     >
                       <Trash2 size={13} />
-                      ล้างทั้งหมด
+                      {t('pdfClearAll', 'ล้างทั้งหมด')}
                     </button>
                   </div>
                 )}
@@ -215,7 +217,7 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
                           e.stopPropagation();
                           handleRemoveFile(idx);
                         }}
-                        title="ลบไฟล์นี้ออก"
+                        title={t('pdfRemoveFile', 'ลบไฟล์นี้ออก')}
                       >
                         <X size={14} />
                       </button>
@@ -232,10 +234,10 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
               <div className="flex items-center justify-between text-xs text-zinc-200 mb-1">
                 <span className="flex items-center gap-1.5 font-medium text-blue-400">
                   <Loader2 size={14} className="animate-spin text-blue-400" />
-                  กำลังนำเข้าไฟล์ที่ {currentImportIndex + 1} จาก {selectedFiles.length}
+                  {t('pdfImportingItem', 'กำลังนำเข้าไฟล์ที่ {current} จาก {total}', { current: currentImportIndex + 1, total: selectedFiles.length })}
                 </span>
                 <span className="font-mono text-zinc-400">
-                  หน้า {pageProgress.current} จาก {pageProgress.total}
+                  {t('pdfPageProgress', 'หน้า {current} จาก {total}', { current: pageProgress.current, total: pageProgress.total })}
                 </span>
               </div>
               <div className="text-[11px] text-zinc-400 truncate mb-2">
@@ -260,7 +262,7 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
 
         <div className="bn-modal-footer">
           <button className="bn-btn-secondary" onClick={onClose} disabled={isProcessing}>
-            ยกเลิก
+            {t('cancel', 'ยกเลิก')}
           </button>
           <button 
             className="bn-btn-primary flex items-center gap-2"
@@ -270,12 +272,16 @@ export const PdfImportModal = ({ isOpen, onClose, onImportSuccess, currentFolder
             {isProcessing ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                <span>กำลังนำเข้า {currentImportIndex + 1}/{selectedFiles.length}...</span>
+                <span>{t('pdfImportingBtn', 'กำลังนำเข้า {current}/{total}...', { current: currentImportIndex + 1, total: selectedFiles.length })}</span>
               </>
             ) : (
               <>
                 <FileText size={16} />
-                <span>เริ่มนำเข้า PDF {selectedFiles.length > 0 ? `(${selectedFiles.length} ไฟล์)` : ''}</span>
+                <span>
+                  {selectedFiles.length > 0 
+                    ? t('pdfStartImportCount', 'เริ่มนำเข้า PDF ({count} ไฟล์)', { count: selectedFiles.length })
+                    : t('pdfStartImport', 'เริ่มนำเข้า PDF')}
+                </span>
               </>
             )}
           </button>

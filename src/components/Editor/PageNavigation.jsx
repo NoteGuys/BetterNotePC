@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useLanguage } from '../../services/i18n';
 
 export const PageNavigation = ({
   currentPageIndex,
@@ -7,6 +8,7 @@ export const PageNavigation = ({
   onPrevPage,
   onNextPage
 }) => {
+  const { t } = useLanguage();
   if (!totalPageCount || totalPageCount <= 0) return null;
 
   return (
@@ -15,20 +17,20 @@ export const PageNavigation = ({
         className="bn-page-nav-btn"
         onClick={onPrevPage}
         disabled={currentPageIndex <= 0}
-        title="หน้าก่อนหน้า"
+        title={t('prevPage', 'หน้าก่อนหน้า')}
       >
         <ChevronLeft size={16} />
       </button>
 
       <span className="bn-page-nav-counter">
-        หน้า {currentPageIndex + 1} / {totalPageCount}
+        {t('pageOf', 'หน้า {current} / {total}', { current: currentPageIndex + 1, total: totalPageCount })}
       </span>
 
       <button 
         className="bn-page-nav-btn"
         onClick={onNextPage}
         disabled={currentPageIndex >= totalPageCount - 1}
-        title="หน้าถัดไป"
+        title={t('nextPage', 'หน้าถัดไป')}
       >
         <ChevronRight size={16} />
       </button>

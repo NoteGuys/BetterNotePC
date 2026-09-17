@@ -23,8 +23,10 @@ import { autoBackupService } from './services/autoBackupService';
 import { exportNotebookToPdf } from './utils/pdfExportEngine';
 import { getPaperSize } from './data/templates';
 import { getAppTheme, setAppTheme, applyThemeToDom } from './services/userPreferences';
+import { useLanguage } from './services/i18n';
 
 export function App() {
+  const { language, t } = useLanguage();
   const [folders, setFolders] = useState([]);
   const [notebooks, setNotebooks] = useState([]);
   const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -74,6 +76,12 @@ export function App() {
   useEffect(() => {
     applyThemeToDom(theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined' && document.documentElement) {
+      document.documentElement.setAttribute('lang', language);
+    }
+  }, [language]);
 
   const handleToggleTheme = () => {
     const nextTheme = theme === 'light' ? 'dark' : 'light';
@@ -426,7 +434,7 @@ export function App() {
     return (
       <div className="bn-loading-screen">
         <div className="bn-spinner"></div>
-        <p className="text-zinc-400 mt-3 text-sm">กำลังเปิด BetterNote Pro Studio...</p>
+        <p className="text-zinc-400 mt-3 text-sm">{t('loadingApp', 'กำลังเปิด BetterNote Pro Studio...')}</p>
       </div>
     );
   }

@@ -60,9 +60,20 @@ export const loadEditorPreferences = () => {
       ...(parsed.toolWidthSlots || {})
     };
 
+    let resolvedLanguage = DEFAULT_PREFERENCES.language;
+    try {
+      const savedLang = localStorage.getItem('betternote_language');
+      if (savedLang === 'en' || savedLang === 'th') {
+        resolvedLanguage = savedLang;
+      } else if (parsed.language === 'en' || parsed.language === 'th') {
+        resolvedLanguage = parsed.language;
+      }
+    } catch (_) {}
+
     return {
       ...DEFAULT_PREFERENCES,
       ...parsed,
+      language: resolvedLanguage,
       toolWidths: mergedToolWidths,
       toolWidthSlots: mergedToolWidthSlots
     };
