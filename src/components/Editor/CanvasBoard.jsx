@@ -1043,28 +1043,8 @@ export const CanvasBoard = ({
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
     if (activeTool === 'pen') {
-      // 1. SMART Scribble-to-Erase:
-      // Evaluated first so scribbling vigorously over text always erases immediately
-      const scribble = detectScribble(currentPointsRef.current, strokes, scribbleToErase);
-
-      if (scribble && scribble.isScribble && scribble.hitCount > 0) {
-        // Immediately clear hardware scratch canvas so scribble line vanishes from screen
-        const activeCanvas = activeCanvasRef.current;
-        if (activeCanvas) {
-          const dpr = getDpr();
-          const ctx = activeCanvas.getContext('2d');
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        }
-        heldShapeRef.current = null;
-        onStrokesChange(scribble.remainingStrokes);
-        showToast(t('scribbleErasedToast', 'ขยี้ลบ {count} เส้นแล้ว! (Scribble Erased) 🪄', { count: scribble.hitCount }));
-        currentPointsRef.current = [];
-        startPointRef.current = null;
-        return;
-      }
-
-      // 2. Commit Draw & Hold recognized shape
+      // 1. Commit Draw & Hold recognized shape FIRST:
+      // If user drew and held to create a geometric shape, it takes absolute precedence!
       if (heldShapeRef.current) {
         const shapePts = generateVectorShapePoints(heldShapeRef.current, penNib);
         if (shapePts && shapePts.length > 0) {
@@ -1079,6 +1059,27 @@ export const CanvasBoard = ({
           onStrokesChange([...strokes, shapeStroke]);
         }
         heldShapeRef.current = null;
+        currentPointsRef.current = [];
+        startPointRef.current = null;
+        return;
+      }
+
+      // 2. SMART Scribble-to-Erase:
+      // Evaluated when scribbleToErase is enabled (and protected against geometric shapes)
+      const scribble = scribbleToErase ? detectScribble(currentPointsRef.current, strokes, scribbleToErase) : null;
+
+      if (scribble && scribble.isScribble && scribble.hitCount > 0) {
+        // Immediately clear hardware scratch canvas so scribble line vanishes from screen
+        const activeCanvas = activeCanvasRef.current;
+        if (activeCanvas) {
+          const dpr = getDpr();
+          const ctx = activeCanvas.getContext('2d');
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        }
+        heldShapeRef.current = null;
+        onStrokesChange(scribble.remainingStrokes);
+        showToast(t('scribbleErasedToast', 'ขยี้ลบ {count} เส้นแล้ว! (Scribble Erased) 🪄', { count: scribble.hitCount }));
         currentPointsRef.current = [];
         startPointRef.current = null;
         return;

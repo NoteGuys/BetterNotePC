@@ -11,116 +11,225 @@ app.commandLine.appendSwitch('high-dpi-support', '1');
 
 let mainWindow = null;
 
-// Backup Directory Target (Priority: H:\My Drive\BetterNote.AppPC, Fallback: Documents\BetterNote.AppPC)
-function getBackupTargetDir() {
-  const gDriveRoot = 'H:\\My Drive\\BetterNote.AppPC';
-  if (fs.existsSync('H:\\My Drive') || fs.existsSync(gDriveRoot)) {
-    if (!fs.existsSync(gDriveRoot)) {
-      try { fs.mkdirSync(gDriveRoot, { recursive: true }); } catch (_) {}
+// Backup Directory Targets Discovery (Deduplicated, max 2 targets: Primary Active Target + Local Backup)
+function getAllBackupTargets(customPath = null) {
+  const targets = [];
+  const localTarget = path.resolve(process.cwd(), 'BetterNote_Backups');
+
+  // 1. Check custom path requested by user
+  if (customPath && typeof customPath === 'string' && customPath.trim()) {
+    const trimmed = customPath.trim();
+    try {
+      if (!fs.existsSync(trimmed)) fs.mkdirSync(trimmed, { recursive: true });
+      targets.push(trimmed);
+    } catch (_) {}
+  }
+
+  // 2. If no custom path, pick the FIRST valid mounted Google Drive
+  if (targets.length === 0) {
+    const gDriveCandidates = [
+      'H:\\My Drive\\BetterNote.AppPC',
+      'G:\\My Drive\\BetterNote.AppPC',
+      'I:\\My Drive\\BetterNote.AppPC',
+      'D:\\My Drive\\BetterNote.AppPC'
+    ];
+
+    for (const gPath of gDriveCandidates) {
+      const root = path.dirname(gPath);
+      if (fs.existsSync(root) || fs.existsSync(gPath)) {
+        try {
+          if (!fs.existsSync(gPath)) fs.mkdirSync(gPath, { recursive: true });
+          targets.push(gPath);
+          break; // Stop at first valid cloud drive to prevent parallel network drive thrashing!
+        } catch (_) {}
+      }
     }
-    return gDriveRoot;
   }
-  const fallbackDir = path.join(app.getPath('documents'), 'BetterNote.AppPC');
-  if (!fs.existsSync(fallbackDir)) {
-    try { fs.mkdirSync(fallbackDir, { recursive: true }); } catch (_) {}
+
+  // 3. Fallback: Documents if neither custom nor Google Drive is available
+  if (targets.length === 0) {
+    let fallbackDir;
+    try {
+      fallbackDir = path.join(app.getPath('documents'), 'BetterNote.AppPC');
+    } catch (_) {
+      fallbackDir = path.resolve(process.env.USERPROFILE || '', 'Documents', 'BetterNote.AppPC');
+    }
+    if (!fs.existsSync(fallbackDir)) {
+      try { fs.mkdirSync(fallbackDir, { recursive: true }); } catch (_) {}
+    }
+    targets.push(fallbackDir);
   }
-  return fallbackDir;
+
+  // 4. Always ensure local backup folder exists as safe offline fallback
+  if (!targets.includes(localTarget)) {
+    targets.push(localTarget);
+  }
+
+  return targets;
 }
 
-// Prune a single deleted notebook from all backup folders immediately
+function getBackupTargetDir(customPath = null) {
+  const all = getAllBackupTargets(customPath);
+  return all[0] || path.resolve(process.cwd(), 'BetterNote_Backups');
+}
+
+// Prune a single deleted notebook from all backup folders immediately upon user action
 async function pruneNotebookFromBackups(notebookName) {
   if (!notebookName) return { success: false, reason: 'empty-name' };
-  const cleanName = notebookName.replace(/[\\/:*?"<>|]/g, '_');
-  const target = getBackupTargetDir();
-  const localTarget = path.resolve(process.cwd(), 'BetterNote_Backups');
-  const targets = [target, localTarget];
-  let deletedCount = 0;
-
-  for (const t of targets) {
-    try {
-      const bnoteFile = path.join(t, 'Editable_Notes', `${cleanName}.bnote`);
-      const pdfFile = path.join(t, 'PDF_Documents', `${cleanName}.pdf`);
-
-      if (fs.existsSync(bnoteFile)) {
-        await fs.promises.unlink(bnoteFile);
-        deletedCount++;
-      }
-      if (fs.existsSync(pdfFile)) {
-        await fs.promises.unlink(pdfFile);
-        deletedCount++;
-      }
-    } catch (err) {
-      console.warn(`Could not prune notebook ${notebookName} from ${t}:`, err.message);
-    }
-  }
-
-  return { success: true, notebookName, deletedCount };
+  return await pruneNotebooksBatchFromBackups([notebookName]);
 }
 
-// Native Auto-Backup Writer: Direct disk write without blocking the Main Process event loop
-// Includes intelligent deleted notebook pruning to prevent orphaned files in backups
-async function writeBackupData(data) {
-  if (!data) return { success: false, reason: 'no-data' };
-
-  const target = getBackupTargetDir();
-  const localTarget = path.resolve(process.cwd(), 'BetterNote_Backups');
-  const targets = [target, localTarget];
-
-  if (data?.customBackupPath && typeof data.customBackupPath === 'string' && data.customBackupPath.trim()) {
-    const customTrimmed = data.customBackupPath.trim();
-    if (!targets.includes(customTrimmed)) {
-      targets.unshift(customTrimmed);
-    }
+// Prune multiple deleted notebooks from all backup folders in a single efficient, safe pass
+async function pruneNotebooksBatchFromBackups(notebookNames) {
+  if (!Array.isArray(notebookNames) || notebookNames.length === 0) {
+    return { success: true, count: 0 };
   }
+  const cleanNamesSet = new Set(notebookNames.map(n => (n || '').replace(/[\\/:*?"<>|]/g, '_')).filter(Boolean));
+  if (cleanNamesSet.size === 0) return { success: true, count: 0 };
 
-  const savedPaths = [];
-  const prunedPaths = [];
-
-  // Build active notebook filename set for accurate disk pruning
-  const activeFileBases = new Set();
-  if (data.notebooks && Array.isArray(data.notebooks)) {
-    for (const nb of data.notebooks) {
-      const clean = (nb.name || 'Untitled').replace(/[\\/:*?"<>|]/g, '_');
-      activeFileBases.add(clean);
-    }
-  }
+  const targets = getAllBackupTargets();
+  let deletedFiles = 0;
 
   for (const t of targets) {
     try {
-      const pdfDir = path.join(t, 'PDF_Documents');
       const editDir = path.join(t, 'Editable_Notes');
-      const fullDir = path.join(t, 'Full_System');
+      const pdfDir = path.join(t, 'PDF_Documents');
+      const fullBackupFile = path.join(t, 'Full_System', 'BetterNote_Latest_Backup.json');
 
-      await fs.promises.mkdir(pdfDir, { recursive: true });
-      await fs.promises.mkdir(editDir, { recursive: true });
-      await fs.promises.mkdir(fullDir, { recursive: true });
+      for (const cleanName of cleanNamesSet) {
+        const bnoteFile = path.join(editDir, `${cleanName}.bnote`);
+        const pdfFile = path.join(pdfDir, `${cleanName}.pdf`);
 
-      // Yield to Windows message pump
-      await new Promise(r => setImmediate(r));
+        try {
+          if (fs.existsSync(bnoteFile)) {
+            await fs.promises.unlink(bnoteFile);
+            deletedFiles++;
+          }
+        } catch (_) {}
 
-      // 1. Full System Backup JSON (compact serialization, async write)
-      if (data.fullBackup) {
-        const fullBackupFile = path.join(fullDir, 'BetterNote_Latest_Backup.json');
-        await fs.promises.writeFile(fullBackupFile, JSON.stringify(data.fullBackup), 'utf-8');
-        savedPaths.push(fullBackupFile);
+        try {
+          if (fs.existsSync(pdfFile)) {
+            await fs.promises.unlink(pdfFile);
+            deletedFiles++;
+          }
+        } catch (_) {}
       }
 
-      // 2. Individual Notebooks (.bnote & .pdf)
-      if (data.notebooks && Array.isArray(data.notebooks)) {
-        for (const nb of data.notebooks) {
-          // Yield between writing notebooks to prevent freezing OS message pump
-          await new Promise(r => setImmediate(r));
+      // Update Full_System/BetterNote_Latest_Backup.json in ONE pass per target
+      if (fs.existsSync(fullBackupFile)) {
+        try {
+          const raw = await fs.promises.readFile(fullBackupFile, 'utf-8');
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.notebooks)) {
+            parsed.notebooks = parsed.notebooks.filter(nb => {
+              const nbClean = (nb.name || '').replace(/[\\/:*?"<>|]/g, '_');
+              return !cleanNamesSet.has(nbClean);
+            });
+            await fs.promises.writeFile(fullBackupFile, JSON.stringify(parsed), 'utf-8');
+          }
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.warn(`Could not prune batch notebooks from ${t}:`, err.message);
+    }
+  }
 
-          const cleanName = (nb.name || 'Untitled').replace(/[\\/:*?"<>|]/g, '_');
+  return { success: true, count: cleanNamesSet.size, deletedFiles };
+}
 
-          // Editable note file (.bnote)
-          const bnoteFile = path.join(editDir, `${cleanName}.bnote`);
-          await fs.promises.writeFile(bnoteFile, JSON.stringify(nb), 'utf-8');
-          savedPaths.push(bnoteFile);
+// Mutex lock for backup writes to prevent parallel collision & Windows network drive freezes
+let isWritingBackup = false;
 
-          // PDF Document file
-          if (nb.pdfBase64 && typeof nb.pdfBase64 === 'string') {
-            const pdfClean = nb.pdfBase64
+// Native Auto-Backup Writer: Direct disk write without blocking the Main Process event loop
+// SAFE NON-DESTRUCTIVE BACKUP: Never deletes existing backup files based on client state!
+async function writeBackupData(data) {
+  if (!data) return { success: false, reason: 'no-data' };
+  if (isWritingBackup) {
+    return { success: false, reason: 'already-writing' };
+  }
+  isWritingBackup = true;
+
+  try {
+    const targets = getAllBackupTargets(data?.customBackupPath);
+    const target = targets[0] || getBackupTargetDir(data?.customBackupPath);
+    const savedPaths = [];
+
+    // Helper: strip bulky binary base64 from note object before writing JSON
+    const sanitizeNotebookForJson = (nb) => {
+      if (!nb) return nb;
+      const { pdfBase64, ...cleanNb } = nb;
+      return cleanNb;
+    };
+
+    for (const t of targets) {
+      try {
+        const pdfDir = path.join(t, 'PDF_Documents');
+        const editDir = path.join(t, 'Editable_Notes');
+        const fullDir = path.join(t, 'Full_System');
+
+        await fs.promises.mkdir(pdfDir, { recursive: true });
+        await fs.promises.mkdir(editDir, { recursive: true });
+        await fs.promises.mkdir(fullDir, { recursive: true });
+
+        // Yield to Windows message pump
+        await new Promise(r => setImmediate(r));
+
+        // 1. Full System Backup JSON (clean, compact serialization WITHOUT base64 blobs)
+        if (data.fullBackup) {
+          const fullBackupFile = path.join(fullDir, 'BetterNote_Latest_Backup.json');
+          
+          const cleanFullBackup = {
+            ...data.fullBackup,
+            notebooks: (data.fullBackup.notebooks || []).map(sanitizeNotebookForJson)
+          };
+
+          let fullDataToWrite = cleanFullBackup;
+          try {
+            const existingRaw = await fs.promises.readFile(fullBackupFile, 'utf-8').catch(() => null);
+            if (existingRaw) {
+              const existingParsed = JSON.parse(existingRaw);
+              if (existingParsed && Array.isArray(existingParsed.notebooks)) {
+                const incomingNames = new Set((cleanFullBackup.notebooks || []).map(nb => (nb.name || '').replace(/[\\/:*?"<>|]/g, '_')));
+                const incomingIds = new Set((cleanFullBackup.notebooks || []).map(nb => nb.id));
+                const preserved = existingParsed.notebooks.filter(nb => {
+                  const nbName = (nb.name || '').replace(/[\\/:*?"<>|]/g, '_');
+                  return !incomingIds.has(nb.id) && !incomingNames.has(nbName);
+                });
+                if (preserved.length > 0) {
+                  fullDataToWrite = {
+                    ...cleanFullBackup,
+                    folders: Array.from(new Map([...(existingParsed.folders || []), ...(cleanFullBackup.folders || [])].map(f => [f.id, f])).values()),
+                    notebooks: [...(cleanFullBackup.notebooks || []), ...preserved]
+                  };
+                }
+              }
+            }
+          } catch (_) {}
+
+          await fs.promises.writeFile(fullBackupFile, JSON.stringify(fullDataToWrite), 'utf-8');
+          savedPaths.push(fullBackupFile);
+        }
+
+        // 2. Individual Notebooks (.bnote) - clean JSON without bloated base64
+        if (data.notebooks && Array.isArray(data.notebooks)) {
+          for (const nb of data.notebooks) {
+            await new Promise(r => setImmediate(r));
+            const cleanName = (nb.name || 'Untitled').replace(/[\\/:*?"<>|]/g, '_');
+            const cleanNb = sanitizeNotebookForJson(nb);
+
+            const bnoteFile = path.join(editDir, `${cleanName}.bnote`);
+            await fs.promises.writeFile(bnoteFile, JSON.stringify(cleanNb), 'utf-8');
+            savedPaths.push(bnoteFile);
+          }
+        }
+
+        // 3. Write PDF documents (from separate updatedPdfs array or notebook.pdfBase64)
+        const pdfItems = data.updatedPdfs || (data.notebooks || []).filter(nb => !!nb.pdfBase64);
+        for (const item of pdfItems) {
+          const rawBase64 = item.pdfBase64;
+          const cleanName = (item.name || 'Untitled').replace(/[\\/:*?"<>|]/g, '_');
+          if (rawBase64 && typeof rawBase64 === 'string') {
+            const pdfClean = rawBase64
               .replace(/^data:application\/pdf.*?;base64,/, '')
               .replace(/^data:[^;]+;base64,/, '')
               .trim();
@@ -131,62 +240,30 @@ async function writeBackupData(data) {
             }
           }
         }
+
+        // 4. Write Backup Manifest (Prevents duplicate backups and tracks sync state)
+        const manifest = {
+          lastSync: Date.now(),
+          backupTarget: t,
+          activeNotebooksCount: (data.notebooks && data.notebooks.length) || 0,
+          savedCount: savedPaths.length
+        };
+        await fs.promises.writeFile(path.join(fullDir, 'backup_manifest.json'), JSON.stringify(manifest), 'utf-8');
+
+      } catch (err) {
+        console.warn(`Could not write backup to ${t}:`, err.message);
       }
-
-      // 3. Prune Orphaned / Deleted Notebooks from Backup
-      // Scan editDir and pdfDir, remove files that no longer exist in data.notebooks
-      if (activeFileBases.size > 0) {
-        try {
-          const existingBnotes = await fs.promises.readdir(editDir);
-          for (const f of existingBnotes) {
-            if (f.endsWith('.bnote')) {
-              const baseName = f.slice(0, -6);
-              if (!activeFileBases.has(baseName)) {
-                const targetFile = path.join(editDir, f);
-                await fs.promises.unlink(targetFile);
-                prunedPaths.push(targetFile);
-              }
-            }
-          }
-
-          const existingPdfs = await fs.promises.readdir(pdfDir);
-          for (const f of existingPdfs) {
-            if (f.endsWith('.pdf')) {
-              const baseName = f.slice(0, -4);
-              if (!activeFileBases.has(baseName)) {
-                const targetFile = path.join(pdfDir, f);
-                await fs.promises.unlink(targetFile);
-                prunedPaths.push(targetFile);
-              }
-            }
-          }
-        } catch (pruneErr) {
-          console.warn(`Prune check notice for ${t}:`, pruneErr.message);
-        }
-      }
-
-      // 4. Write Backup Manifest (Prevents duplicate backups and tracks sync state)
-      const manifest = {
-        lastSync: Date.now(),
-        backupTarget: t,
-        activeNotebooksCount: activeFileBases.size,
-        prunedCount: prunedPaths.length,
-        activeFiles: Array.from(activeFileBases)
-      };
-      await fs.promises.writeFile(path.join(fullDir, 'backup_manifest.json'), JSON.stringify(manifest), 'utf-8');
-
-    } catch (err) {
-      console.warn(`Could not write backup to ${t}:`, err.message);
     }
-  }
 
-  return { 
-    success: true, 
-    savedCount: savedPaths.length, 
-    prunedCount: prunedPaths.length, 
-    target, 
-    timestamp: Date.now() 
-  };
+    return { 
+      success: true, 
+      savedCount: savedPaths.length, 
+      target, 
+      timestamp: Date.now() 
+    };
+  } finally {
+    isWritingBackup = false;
+  }
 }
 
 // Smart Cloud Sync & Auto-Restore Reader: Scan and load backups from Google Drive or local folders
@@ -197,6 +274,12 @@ async function scanAndLoadBackups(customPath = null) {
   }
   candidates.push('H:\\My Drive\\BetterNote.AppPC');
   candidates.push('G:\\My Drive\\BetterNote.AppPC');
+  candidates.push('I:\\My Drive\\BetterNote.AppPC');
+  candidates.push('D:\\My Drive\\BetterNote.AppPC');
+  try {
+    candidates.push(path.join(app.getPath('documents'), 'BetterNote.AppPC'));
+  } catch (_) {}
+  candidates.push(path.resolve(process.env.USERPROFILE || '', 'Documents', 'BetterNote.AppPC'));
   candidates.push(path.resolve(process.env.USERPROFILE || '', 'BetterNote_Backups'));
   candidates.push(path.resolve(process.cwd(), 'BetterNote_Backups'));
 
@@ -205,56 +288,64 @@ async function scanAndLoadBackups(customPath = null) {
       const stat = await fs.promises.stat(dir).catch(() => null);
       if (!stat || !stat.isDirectory()) continue;
 
+      const notebooksMap = new Map();
+      let folders = [];
+
       // 1. Try Full_System/BetterNote_Latest_Backup.json
       const fullSystemFile = path.join(dir, 'Full_System', 'BetterNote_Latest_Backup.json');
       const hasFull = await fs.promises.stat(fullSystemFile).catch(() => null);
       if (hasFull && hasFull.isFile()) {
-        const raw = await fs.promises.readFile(fullSystemFile, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.notebooks) && parsed.notebooks.length > 0) {
-          return {
-            success: true,
-            folder: dir,
-            source: 'full_system',
-            count: parsed.notebooks.length,
-            data: parsed
-          };
-        }
+        try {
+          const raw = await fs.promises.readFile(fullSystemFile, 'utf-8');
+          const parsed = JSON.parse(raw);
+          if (parsed) {
+            if (Array.isArray(parsed.folders)) folders = parsed.folders;
+            if (Array.isArray(parsed.notebooks)) {
+              for (const nb of parsed.notebooks) {
+                const key = nb.id || nb.name;
+                if (key) notebooksMap.set(key, nb);
+              }
+            }
+          }
+        } catch (_) {}
       }
 
-      // 2. Try Editable_Notes/*.bnote
+      // 2. Also scan Editable_Notes/*.bnote (to seamlessly include all individual notebooks)
       const editDir = path.join(dir, 'Editable_Notes');
       const hasEdit = await fs.promises.stat(editDir).catch(() => null);
       if (hasEdit && hasEdit.isDirectory()) {
-        const files = await fs.promises.readdir(editDir);
-        const bnoteFiles = files.filter(f => f.endsWith('.bnote'));
-        if (bnoteFiles.length > 0) {
-          const notebooks = [];
+        try {
+          const files = await fs.promises.readdir(editDir);
+          const bnoteFiles = files.filter(f => f.endsWith('.bnote'));
           for (const bf of bnoteFiles) {
             try {
               const rawNote = await fs.promises.readFile(path.join(editDir, bf), 'utf-8');
               const parsedNote = JSON.parse(rawNote);
               if (parsedNote && (parsedNote.id || parsedNote.name)) {
-                notebooks.push(parsedNote);
+                const key = parsedNote.id || parsedNote.name;
+                if (!notebooksMap.has(key)) {
+                  notebooksMap.set(key, parsedNote);
+                }
               }
             } catch (_) {}
           }
-          if (notebooks.length > 0) {
-            return {
-              success: true,
-              folder: dir,
-              source: 'bnote_files',
-              count: notebooks.length,
-              data: {
-                version: 1,
-                appName: 'BetterNote',
-                exportDate: new Date().toISOString(),
-                folders: [],
-                notebooks
-              }
-            };
+        } catch (_) {}
+      }
+
+      if (notebooksMap.size > 0) {
+        return {
+          success: true,
+          folder: dir,
+          source: 'merged_backup',
+          count: notebooksMap.size,
+          data: {
+            version: 1,
+            appName: 'BetterNote',
+            exportDate: new Date().toISOString(),
+            folders,
+            notebooks: Array.from(notebooksMap.values())
           }
-        }
+        };
       }
     } catch (_) {}
   }
@@ -278,6 +369,12 @@ async function getBackupStatusDetails(customPath = null) {
   }
   candidates.push('H:\\My Drive\\BetterNote.AppPC');
   candidates.push('G:\\My Drive\\BetterNote.AppPC');
+  candidates.push('I:\\My Drive\\BetterNote.AppPC');
+  candidates.push('D:\\My Drive\\BetterNote.AppPC');
+  try {
+    candidates.push(path.join(app.getPath('documents'), 'BetterNote.AppPC'));
+  } catch (_) {}
+  candidates.push(path.resolve(process.env.USERPROFILE || '', 'Documents', 'BetterNote.AppPC'));
   candidates.push(path.resolve(process.env.USERPROFILE || '', 'BetterNote_Backups'));
   candidates.push(path.resolve(process.cwd(), 'BetterNote_Backups'));
 
@@ -293,14 +390,20 @@ async function getBackupStatusDetails(customPath = null) {
   }
 
   if (!targetDir) {
-    targetDir = candidates[0];
+    targetDir = getBackupTargetDir(customPath);
   }
 
   const isGoogleDrive = targetDir.toLowerCase().includes('drive') || targetDir.startsWith('H:') || targetDir.startsWith('h:') || targetDir.startsWith('G:') || targetDir.startsWith('g:');
 
+  let docsDir = 'BetterNote.AppPC';
+  try {
+    docsDir = app ? path.join(app.getPath('documents'), 'BetterNote.AppPC') : path.resolve(process.env.USERPROFILE || '', 'Documents', 'BetterNote.AppPC');
+  } catch (_) {}
+
   const details = {
     success: true,
     targetDir,
+    documentsDir: docsDir,
     isGoogleDrive,
     exists: false,
     lastSync: null,
@@ -466,6 +569,11 @@ function createWindow() {
     return await pruneNotebookFromBackups(notebookName);
   });
 
+  // Handle batch pruning of multiple deleted notebooks from backups
+  ipcMain.handle('prune-backup-notebooks-batch', async (event, notebookNames) => {
+    return await pruneNotebooksBatchFromBackups(notebookNames);
+  });
+
   // Handle scanning and restoring from Google Drive or local backup folder
   ipcMain.handle('scan-backup-folder', async (event, customPath) => {
     return await scanAndLoadBackups(customPath);
@@ -528,6 +636,75 @@ function createWindow() {
       console.error('Folder selection error:', err);
       return null;
     }
+  });
+
+  // Handle opening external URLs in default system web browser
+  ipcMain.handle('open-external', async (event, url) => {
+    try {
+      if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+        await shell.openExternal(url);
+        return { success: true };
+      }
+      return { success: false, error: 'Invalid URL scheme' };
+    } catch (err) {
+      console.error('open-external error:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Handle opening Google Sign-In popup window
+  ipcMain.handle('open-google-signin', async () => {
+    return new Promise((resolve) => {
+      try {
+        let authWindow = new BrowserWindow({
+          width: 540,
+          height: 680,
+          title: 'Sign in - Google Accounts',
+          autoHideMenuBar: true,
+          parent: mainWindow,
+          modal: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true
+          }
+        });
+
+        const targetUrl = 'https://accounts.google.com/AccountChooser?service=wise&continue=https%3A%2F%2Fdrive.google.com%2F';
+        authWindow.loadURL(targetUrl);
+
+        let finished = false;
+
+        const checkNavigation = (navUrl) => {
+          if (finished || !navUrl) return;
+          try {
+            const u = new URL(navUrl);
+            // Must actually land on drive.google.com hostname (not accounts.google.com which has drive.google.com in query param!)
+            if (u.hostname === 'drive.google.com' || u.hostname.endsWith('.drive.google.com')) {
+              finished = true;
+              setTimeout(() => {
+                if (authWindow && !authWindow.isDestroyed()) {
+                  authWindow.close();
+                }
+                resolve({ success: true, loggedIn: true });
+              }, 1000);
+            }
+          } catch (_) {}
+        };
+
+        authWindow.webContents.on('did-navigate', (event, url) => checkNavigation(url));
+        authWindow.webContents.on('did-redirect-navigation', (event, url) => checkNavigation(url));
+
+        authWindow.on('closed', () => {
+          authWindow = null;
+          if (!finished) {
+            resolve({ success: false, reason: 'closed_by_user' });
+          }
+        });
+      } catch (err) {
+        console.error('open-google-signin error:', err);
+        resolve({ success: false, error: err.message });
+      }
+    });
   });
 
   // Handle reading image from Windows / system clipboard (for Long-Press Paste, External Copy, Win+Shift+S, Explorer)

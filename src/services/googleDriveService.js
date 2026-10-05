@@ -1,5 +1,6 @@
 // Google Drive Service for BetterNote Cloud Backup & Sync
 import { getAllFolders, getAllNotebooks, getPagesByNotebookId, saveFolder, saveNotebook, savePage, getSetting, saveSetting } from './db';
+import { DEFAULT_GOOGLE_CLIENT_ID } from '../config/googleConfig';
 
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
@@ -12,8 +13,9 @@ class GoogleDriveService {
     this.isInitialized = false;
   }
 
-  async init(clientId) {
-    if (!clientId) return false;
+  async init(clientId = null) {
+    const idToUse = clientId || DEFAULT_GOOGLE_CLIENT_ID;
+    if (!idToUse) return false;
 
     return new Promise((resolve) => {
       if (typeof window === 'undefined' || !window.google) {
@@ -24,7 +26,7 @@ class GoogleDriveService {
 
       try {
         this.tokenClient = window.google.accounts.oauth2.initTokenClient({
-          client_id: clientId,
+          client_id: idToUse,
           scope: SCOPES,
           callback: async (resp) => {
             if (resp.error) {

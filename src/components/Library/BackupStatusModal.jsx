@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, ShieldCheck, HardDrive, RefreshCw, FolderOpen, ExternalLink, 
   CheckCircle2, Clock, FileText, Search, AlertCircle, 
-  ArrowDownToLine, Loader2, BookOpen, FileCheck, Trash2 
+  ArrowDownToLine, Loader2, BookOpen, FileCheck, Trash2,
+  HelpCircle, FolderSync 
 } from 'lucide-react';
 import { autoBackupService } from '../../services/autoBackupService';
 import { appCacheService } from '../../services/appCacheService';
 import { useLanguage } from '../../services/i18n';
+import { saveSetting } from '../../services/db';
 
 export default function BackupStatusModal({ 
   isOpen, 
@@ -22,11 +24,13 @@ export default function BackupStatusModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all'); // 'all', 'bnote', 'pdf', 'system'
   const [actionNotice, setActionNotice] = useState(null);
+  const [showFolderHelp, setShowFolderHelp] = useState(false);
+  const [showMigrationHelp, setShowMigrationHelp] = useState(false);
 
-  const fetchDetails = async () => {
+  const fetchDetails = async (customPath = null) => {
     setLoading(true);
     try {
-      const details = await autoBackupService.getBackupStatusDetails();
+      const details = await autoBackupService.getBackupStatusDetails(customPath);
       setStatusDetails(details);
     } catch (err) {
       console.warn('Failed to load backup status:', err);
@@ -39,19 +43,58 @@ export default function BackupStatusModal({
     if (isOpen) {
       fetchDetails();
       setActionNotice(null);
+      setShowFolderHelp(false);
+      setShowMigrationHelp(false);
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
+  const handleChangeFolder = async () => {
+    try {
+      if (typeof window !== 'undefined' && window.electronAPI?.selectFolder) {
+        const newPath = await window.electronAPI.selectFolder();
+        if (newPath) {
+          await saveSetting('local_backup_path', newPath);
+          if (typeof window.localStorage !== 'undefined') {
+            window.localStorage.setItem('local_backup_path', newPath);
+          }
+          setActionNotice({ 
+            type: 'success', 
+            text: `${t('backupFolderChanged', '✓ เปลี่ยนโฟลเดอร์สำรองข้อมูลเรียบร้อยแล้ว')}: ${newPath}` 
+          });
+          await fetchDetails(newPath);
+        }
+      } else {
+        const current = statusDetails?.targetDir || '';
+        const chosen = prompt(t('backupPathPlaceholder', 'ระบุตำแหน่งโฟลเดอร์สำรองข้อมูล:'), current);
+        if (chosen && chosen.trim()) {
+          const trimmed = chosen.trim();
+          await saveSetting('local_backup_path', trimmed);
+          if (typeof window.localStorage !== 'undefined') {
+            window.localStorage.setItem('local_backup_path', trimmed);
+          }
+          setActionNotice({ 
+            type: 'success', 
+            text: `${t('backupFolderChanged', '✓ เปลี่ยนโฟลเดอร์สำรองข้อมูลเรียบร้อยแล้ว')}: ${trimmed}` 
+          });
+          await fetchDetails(trimmed);
+        }
+      }
+    } catch (err) {
+      console.warn('Change backup folder error:', err);
+    }
+  };
+
   const handleManualBackupNow = async () => {
+    if (syncingNow) return;
     setSyncingNow(true);
     setActionNotice({ type: 'info', text: t('backupNoticeBackingUp', 'กำลังทำการบันทึกสำรองข้อมูลและเอกสาร PDF ลงดิสก์และ Google Drive...') });
     try {
       if (onTriggerSync) {
-        await onTriggerSync({ forcePdf: true });
+        await onTriggerSync({ forcePdf: false });
       } else {
-        await autoBackupService.runAutoBackup({ forcePdf: true });
+        await autoBackupService.runAutoBackup({ forcePdf: false });
       }
       await new Promise(r => setTimeout(r, 600));
       await fetchDetails();
@@ -59,7 +102,7 @@ export default function BackupStatusModal({
     } catch (err) {
       setActionNotice({ type: 'error', text: t('backupNoticeError', 'เกิดข้อผิดพลาดในการสำรองข้อมูล: {error}', { error: err.message }) });
     } finally {
-      setSyncingNow(false);
+      setTimeout(() => setSyncingNow(false), 1200);
     }
   };
 
@@ -80,7 +123,7 @@ export default function BackupStatusModal({
       if (res?.success) {
         setActionNotice({ type: 'success', text: t('backupNoticeRevealedFile', 'เปิดและไฮไลต์ไฟล์ {name} ใน Windows Explorer แล้ว 📂', { name: fileName || '' }) });
       } else {
-        setActionNotice({ type: 'error', text: t('backupNoticeRevealError', 'ไม่สามารถเปิดไฟล์ได้: {error}', { error: res?.error || (language === 'en' ? 'File not found' : 'ไม่พบไฟล์') }) });
+        setActionNotice({ type: 'error', text: t('backupNoticeRevealError', 'ไม่สามารถเปิดไฟล์ได้: {error}', { error: res?.error || t('notFound', 'ไม่พบไฟล์') }) });
       }
     } catch (err) {
       setActionNotice({ type: 'error', text: t('backupNoticeRevealError', 'ไม่สามารถเปิดไฟล์ได้: {error}', { error: err.message }) });
@@ -107,10 +150,12 @@ export default function BackupStatusModal({
   const bnoteCount = files.filter(f => f.fileName.endsWith('.bnote')).length;
   const pdfCount = files.filter(f => f.fileName.endsWith('.pdf')).length;
   const jsonCount = files.filter(f => f.fileName.endsWith('.json')).length;
-  const targetDir = statusDetails?.targetDir || 'H:\\My Drive\\BetterNote.AppPC';
-  const isGoogleDrive = statusDetails?.isGoogleDrive ?? true;
+  const targetDir = statusDetails?.targetDir || t('backupScanning', 'กำลังค้นหาตำแหน่งโฟลเดอร์สำรองข้อมูล...');
+  const isGoogleDrive = statusDetails?.isGoogleDrive ?? false;
+  const localeMap = { en: 'en-US', th: 'th-TH', zh: 'zh-CN', ru: 'ru-RU' };
+  const currentLocale = localeMap[language] || 'en-US';
   const lastSyncDate = statusDetails?.lastSync 
-    ? new Date(statusDetails.lastSync).toLocaleString(language === 'en' ? 'en-US' : 'th-TH', { 
+    ? new Date(statusDetails.lastSync).toLocaleString(currentLocale, { 
         year: 'numeric', month: 'short', day: 'numeric', 
         hour: '2-digit', minute: '2-digit', second: '2-digit' 
       })
@@ -180,9 +225,27 @@ export default function BackupStatusModal({
             {/* Card 1: Backup Folder */}
             <div className="bn-backup-stat-card">
               <div className="bn-backup-stat-header">
-                <span className="bn-backup-stat-label">
-                  <FolderOpen size={15} style={{ color: '#fbbf24' }} /> {t('backupTargetFolder', 'โฟลเดอร์ปลายทาง')}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="bn-backup-stat-label">
+                    <FolderOpen size={15} style={{ color: '#fbbf24' }} /> {t('backupTargetFolder', 'โฟลเดอร์ปลายทาง')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowFolderHelp(!showFolderHelp)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: '2px',
+                      cursor: 'pointer',
+                      color: '#94a3b8',
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}
+                    title={t('backupTargetFolderHelpTitle', 'โฟลเดอร์สำรองข้อมูล')}
+                  >
+                    <HelpCircle size={14} className="hover:text-blue-400 transition" />
+                  </button>
+                </div>
                 <span className={isGoogleDrive ? 'bn-backup-tag-cloud' : 'bn-backup-tag-local'}>
                   {isGoogleDrive ? 'Google Drive ☁️' : 'Local Disk 💾'}
                 </span>
@@ -190,14 +253,28 @@ export default function BackupStatusModal({
               <div className="bn-backup-path-box" title={targetDir}>
                 {targetDir}
               </div>
-              <button
-                type="button"
-                onClick={handleOpenFolder}
-                className="bn-backup-btn-open-folder"
-              >
-                <ExternalLink size={13} />
-                <span>{t('backupOpenLocalFolder', 'เปิดโฟลเดอร์ในเครื่อง')}</span>
-              </button>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={handleChangeFolder}
+                  className="bn-backup-btn-open-folder"
+                  style={{ flex: 1, background: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.35)', color: '#93c5fd' }}
+                  title={t('backupChangeFolder', 'เปลี่ยนโฟลเดอร์')}
+                >
+                  <FolderSync size={13} />
+                  <span>{t('backupChangeFolder', 'เปลี่ยนโฟลเดอร์')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenFolder}
+                  className="bn-backup-btn-open-folder"
+                  style={{ flex: 1 }}
+                  title={t('backupOpenLocalFolder', 'เปิดโฟลเดอร์ในเครื่อง')}
+                >
+                  <ExternalLink size={13} />
+                  <span>{t('backupOpenLocalFolder', 'เปิดโฟลเดอร์')}</span>
+                </button>
+              </div>
             </div>
 
             {/* Card 2: Last Backup Time */}
@@ -426,6 +503,17 @@ export default function BackupStatusModal({
               </button>
             )}
 
+            {/* New PC Migration Help Button (?) */}
+            <button
+              type="button"
+              onClick={() => setShowMigrationHelp(true)}
+              className="bn-backup-btn-restore"
+              style={{ padding: '0 10px' }}
+              title={t('migrationHelpTitle', 'ขั้นตอนการกู้คืนข้อมูลเมื่อย้ายเครื่องใหม่')}
+            >
+              <HelpCircle size={15} style={{ color: '#60a5fa' }} />
+            </button>
+
             {/* Clear Cache Button */}
             <button
               type="button"
@@ -447,6 +535,161 @@ export default function BackupStatusModal({
             </button>
           </div>
         </div>
+
+        {/* New PC Migration Help Dialog Modal */}
+        {showMigrationHelp && (
+          <div 
+            className="bn-modal-backdrop" 
+            style={{ zIndex: 1100, background: 'rgba(0,0,0,0.75)' }}
+            onClick={(e) => { e.stopPropagation(); setShowMigrationHelp(false); }}
+          >
+            <div 
+              style={{
+                width: '100%',
+                maxWidth: '540px',
+                background: '#0f172a',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                borderRadius: '14px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+                padding: '22px',
+                color: '#f8fafc'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}>
+                    <FolderSync size={18} />
+                  </div>
+                  <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#93c5fd', margin: 0 }}>
+                    {t('migrationHelpTitle', 'ขั้นตอนการกู้คืนข้อมูลเมื่อย้ายเครื่องใหม่ (New PC Migration Guide)')}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMigrationHelp(false)}
+                  style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Steps */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {/* Step 1 */}
+                <div style={{ padding: '12px', background: 'rgba(30, 41, 59, 0.7)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#38bdf8', marginBottom: '3px' }}>
+                    {t('migrationHelpStep1Title', '1. เครื่องเดิม (Old PC)')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                    {t('migrationHelpStep1Desc', 'ตรวจสอบให้แน่ใจว่าได้เลือกโฟลเดอร์สำรองข้อมูลไว้ใน Google Drive for Desktop หรือก๊อปปี้โฟลเดอร์ BetterNote.AppPC ลงแฟลชไดรฟ์ (USB)')}
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div style={{ padding: '12px', background: 'rgba(30, 41, 59, 0.7)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#34d399', marginBottom: '3px' }}>
+                    {t('migrationHelpStep2Title', '2. เครื่องใหม่ (New PC)')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                    {t('migrationHelpStep2Desc', 'ติดตั้ง BetterNote จาก Microsoft Store เปิดหน้าการตั้งค่า (Settings) แล้วกดปุ่ม "เลือกโฟลเดอร์..." เพื่อระบุโฟลเดอร์ Google Drive หรือโฟลเดอร์สำรองข้อมูลนั้น')}
+                  </div>
+                </div>
+
+                {/* Step 3 */}
+                <div style={{ padding: '12px', background: 'rgba(30, 41, 59, 0.7)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#c084fc', marginBottom: '3px' }}>
+                    {t('migrationHelpStep3Title', '3. กดกู้คืน (Restore)')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                    {t('migrationHelpStep3Desc', 'กดปุ่ม "ดึงและกู้คืนสมุดโน้ตทั้งหมด" ระบบจะสแกนและนำเข้าสมุดบันทึก หน้ากระดาษ ลายเส้น และรูปภาพทั้งหมดกลับคืนสู่เครื่องใหม่ให้ทันที!')}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowMigrationHelp(false)}
+                  style={{
+                    padding: '8px 20px',
+                    borderRadius: '8px',
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {t('migrationHelpGotIt', 'เข้าใจแล้ว')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Target Folder Help Dialog Modal */}
+        {showFolderHelp && (
+          <div 
+            className="bn-modal-backdrop" 
+            style={{ zIndex: 1100, background: 'rgba(0,0,0,0.75)' }}
+            onClick={(e) => { e.stopPropagation(); setShowFolderHelp(false); }}
+          >
+            <div 
+              style={{
+                width: '100%',
+                maxWidth: '480px',
+                background: '#0f172a',
+                border: '1px solid rgba(251, 191, 36, 0.4)',
+                borderRadius: '14px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+                padding: '20px',
+                color: '#f8fafc'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FolderOpen size={18} style={{ color: '#fbbf24' }} />
+                  <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#fef08a', margin: 0 }}>
+                    {t('backupTargetFolderHelpTitle', 'โฟลเดอร์สำรองข้อมูล (Target Backup Folder)')}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowFolderHelp(false)}
+                  style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <p style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6', margin: 0 }}>
+                {t('backupTargetFolderHelpDesc', 'โฟลเดอร์บนเครื่องคอมพิวเตอร์ที่ BetterNote จะส่งออกสำเนาสมุดบันทึก (.bnote) และเอกสาร PDF ทุกครั้งที่มีการเขียนหรือปิดแอปพลิเคชัน หากโฟลเดอร์นี้อยู่ใน Google Drive หรือ OneDrive ไฟล์ทั้งหมดจะถูกซิงค์ขึ้นระบบคลาวด์ให้อัตโนมัติ')}
+              </p>
+
+              <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowFolderHelp(false)}
+                  style={{
+                    padding: '7px 18px',
+                    borderRadius: '8px',
+                    background: '#d97706',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {t('migrationHelpGotIt', 'เข้าใจแล้ว')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

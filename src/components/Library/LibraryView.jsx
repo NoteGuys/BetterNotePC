@@ -42,6 +42,7 @@ import BackupStatusModal from './BackupStatusModal';
 import { getAllFavoritePages, savePage } from '../../services/db';
 import { importBnoteFile } from '../../services/fileSystemService';
 import { useLanguage } from '../../services/i18n';
+import { autoBackupService } from '../../services/autoBackupService';
 
 export const LibraryView = ({
   folders = [],
@@ -62,6 +63,7 @@ export const LibraryView = ({
   onImportPdfSuccess,
   onImportBnoteSuccess,
   onOpenDriveModal,
+  onOpenUpdateModal,
   isDriveConnected,
   isSyncing,
   currentTheme,
@@ -97,34 +99,48 @@ export const LibraryView = ({
   const [selectedItemIds, setSelectedItemIds] = useState(new Set());
   const [batchMoveItems, setBatchMoveItems] = useState(null);
 
-  // Cloud Backup Auto-Detection on Empty Library (for seamless new machine migration)
+  // Cloud Backup Auto-Detection (for seamless new machine migration and cloud sync)
   const [cloudBackupDetected, setCloudBackupDetected] = useState(null);
   const [isAutoRestoring, setIsAutoRestoring] = useState(false);
 
   React.useEffect(() => {
     let isCancelled = false;
-    async function checkCloudBackupsOnEmpty() {
-      if (notebooks.length === 0) {
-        try {
-          const { autoBackupService } = await import('../../services/autoBackupService');
-          const scan = await autoBackupService.scanAvailableBackups();
-          if (!isCancelled && scan && scan.success && scan.count > 0) {
+    async function checkCloudBackups() {
+      try {
+        const { autoBackupService } = await import('../../services/autoBackupService');
+        const scan = await autoBackupService.scanAvailableBackups();
+        if (!isCancelled && scan && scan.success && scan.count > 0 && scan.data?.notebooks) {
+          const cloudNotebooks = scan.data.notebooks;
+          // Check if cloud backup has any notebook not present locally
+          const hasUnsynced = cloudNotebooks.some(cloudNb => {
+            const cleanCloudName = (cloudNb.name || '').trim();
+            return !notebooks.some(localNb => 
+              localNb.id === cloudNb.id || (cleanCloudName && (localNb.name || '').trim() === cleanCloudName)
+            );
+          });
+          if (hasUnsynced) {
             setCloudBackupDetected(scan);
+          } else {
+            setCloudBackupDetected(null);
           }
-        } catch (_) {}
-      } else if (notebooks.length > 0) {
-        setCloudBackupDetected(null);
-      }
+        } else if (!isCancelled) {
+          setCloudBackupDetected(null);
+        }
+      } catch (_) {}
     }
-    checkCloudBackupsOnEmpty();
-    return () => { isCancelled = true; };
-  }, [notebooks.length]);
+    const timer = setTimeout(checkCloudBackups, 800);
+    return () => { 
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [notebooks]);
 
-  const handleExecuteCloudRestore = async () => {
+  const handleExecuteCloudRestore = async (folderPath = null) => {
     setIsAutoRestoring(true);
     try {
       const { autoBackupService } = await import('../../services/autoBackupService');
-      const res = await autoBackupService.restoreFromCloudBackup(cloudBackupDetected?.folder);
+      const targetFolder = (typeof folderPath === 'string' && folderPath.trim()) ? folderPath.trim() : cloudBackupDetected?.folder;
+      const res = await autoBackupService.restoreFromCloudBackup(targetFolder);
       if (res.success) {
         setCloudBackupDetected(null);
         window.location.reload();
@@ -426,7 +442,11 @@ export const LibraryView = ({
   };
 
   const handleSoftDeleteNotebook = (notebookId) => {
+    const target = notebooks.find(nb => nb.id === notebookId);
     handleUpdateNotebook(notebookId, { isDeleted: true, deletedAt: Date.now() });
+    if (target?.name) {
+      autoBackupService.pruneDeletedNotebook(target.name);
+    }
     showToast(t('toastMovedNotebookToTrash', 'ย้ายสมุดไปยังถังขยะแล้ว 🗑️'));
   };
 
@@ -710,26 +730,19 @@ export const LibraryView = ({
               <kbd className="hidden md:inline text-[10px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 ml-1">Ctrl+K</kbd>
             </button>
 
-            {/* Google Drive Auto-Sync Status Pill & Backup Inspection Trigger */}
-            <div 
-              className="bn-gn-cloud-pill cursor-pointer hover:border-emerald-500/50 transition-colors"
-              onClick={() => setIsBackupStatusModalOpen(true)}
-              title={t('libraryDriveTooltip', 'Google Drive: H:\\My Drive\\BetterNote.AppPC (คลิกเพื่อตรวจสอบสถานะ Backup & รายการไฟล์)')}
-            >
-              <span className={`bn-pulse-dot ${isSyncing ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-              <Cloud size={14} className={isSyncing ? 'text-amber-400 animate-pulse' : 'text-emerald-400'} />
-              <span className="text-[11px] font-medium hidden md:inline text-zinc-300">
-                {isSyncing ? t('libraryDriveSyncing', 'กำลังซิงค์...') : t('libraryDriveStatusBtn', 'Drive')}
-              </span>
-            </div>
-
-            {/* Direct Backup Status Inspector Button */}
+            {/* Unified Cloud Sync & Backup Protection Pill */}
             <button
-              className="bn-gn-icon-btn text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30 transition-colors"
+              type="button"
+              className={`bn-gn-cloud-sync-pill ${isSyncing ? 'is-syncing' : 'is-synced'}`}
               onClick={() => setIsBackupStatusModalOpen(true)}
-              title={t('libraryBackupBtnTooltip', 'ตรวจสอบสถานะ Backup (ดูไฟล์ไหนถูกสำรองแล้ว เวลาเท่าไร ที่ไหน)')}
+              title={t('libraryDriveMergedTooltip', 'Google Drive & Backup Protection (Click to check backup status & files)')}
             >
-              <ShieldCheck size={18} />
+              <span className={`bn-sync-indicator-dot ${isSyncing ? 'dot-amber' : 'dot-emerald'}`} />
+              <Cloud size={14} className={`bn-sync-cloud-icon ${isSyncing ? 'animate-pulse text-amber-400' : 'text-emerald-400'}`} />
+              <span className="bn-sync-pill-label">
+                {isSyncing ? t('libraryDriveMergedSyncing', 'Syncing...') : t('libraryDriveMergedSynced', 'Drive Sync')}
+              </span>
+              <ShieldCheck size={13} className={`bn-sync-shield-icon ${isSyncing ? 'text-amber-400/80' : 'text-emerald-400/90'}`} />
             </button>
 
             {/* Settings Button - Opens Full SettingsModal */}
@@ -1677,7 +1690,6 @@ export const LibraryView = ({
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         isDriveConnected={isDriveConnected}
-        driveUserEmail="H:\My Drive\BetterNote.AppPC"
         isSyncing={isSyncing}
         currentTheme={currentTheme}
         onSelectTheme={onSelectTheme}
@@ -1685,6 +1697,7 @@ export const LibraryView = ({
         onExportBackup={onExportBackup}
         onImportBackup={onImportBackup}
         onOpenDriveModal={onOpenDriveModal}
+        onOpenUpdateModal={onOpenUpdateModal}
       />
 
       {/* Backup Inspection & Status Modal */}

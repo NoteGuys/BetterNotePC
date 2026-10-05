@@ -32,6 +32,10 @@ export const NoteEditor = ({
     pagesRef.current = pages;
   }, [pages]);
   const [currentPageIndex, setCurrentPageIndex] = useState(initialPageIndex);
+  const currentPageIndexRef = useRef(initialPageIndex);
+  useEffect(() => {
+    currentPageIndexRef.current = currentPageIndex;
+  }, [currentPageIndex]);
   const initialPageRef = useRef(initialPageIndex);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -474,12 +478,10 @@ export const NoteEditor = ({
       setCurrentPageIndex(startIdx);
 
       if (loadedPages[startIdx]) {
-        setHistoryStack([{ 
-          strokes: loadedPages[startIdx].strokes || [], 
-          textElements: loadedPages[startIdx].textElements || [],
-          imageElements: loadedPages[startIdx].imageElements || []
-        }]);
-        setHistoryPointer(0);
+        setHistoryStack([]);
+        setHistoryPointer(-1);
+        historyStackRef.current = [];
+        historyPointerRef.current = -1;
       }
     } catch (err) {
       console.error('Failed to load notebook pages:', err);
@@ -500,6 +502,12 @@ export const NoteEditor = ({
     const targetPage = prevPages[targetPageIndex];
     if (!targetPage) return;
 
+    const beforeState = {
+      strokes: targetPage.strokes || [],
+      textElements: targetPage.textElements || [],
+      imageElements: targetPage.imageElements || []
+    };
+
     const updatedPage = {
       ...targetPage,
       ...(updates.strokes !== undefined ? { strokes: updates.strokes } : {}),
@@ -518,14 +526,24 @@ export const NoteEditor = ({
     if (targetPageIndex !== currentPageIndex) {
       setCurrentPageIndex(targetPageIndex);
     }
-    const curStack = historyStackRef.current;
-    const curPointer = historyPointerRef.current;
-    const nextHistory = (curStack && curPointer >= 0) ? curStack.slice(0, curPointer + 1) : [];
-    nextHistory.push({
+
+    const afterState = {
       strokes: updatedPage.strokes || [],
       textElements: updatedPage.textElements || [],
       imageElements: updatedPage.imageElements || []
+    };
+
+    const curStack = historyStackRef.current;
+    const curPointer = historyPointerRef.current;
+    const nextHistory = (curStack && curPointer >= 0) ? curStack.slice(0, curPointer + 1) : [];
+
+    nextHistory.push({
+      pageIndex: targetPageIndex,
+      pageId: updatedPage.id,
+      before: beforeState,
+      after: afterState
     });
+
     setHistoryStack(nextHistory);
     setHistoryPointer(nextHistory.length - 1);
     historyStackRef.current = nextHistory;
@@ -662,11 +680,11 @@ export const NoteEditor = ({
   const handleDuplicateCurrentNotebook = async () => {
     try {
       const cloned = await duplicateNotebook(notebook.id);
-      alert(language === 'en' ? `Duplicated successfully! Created new notebook: "${cloned.name}"` : `ทำสำเนาสำเร็จ! สร้างสมุดเล่มใหม่: "${cloned.name}"`);
+      alert(`${t('duplicateSuccess', 'ทำสำเนาสำเร็จ!')} "${cloned.name}"`);
       if (onNotebookUpdated) onNotebookUpdated(cloned);
     } catch (err) {
       console.error(err);
-      alert(language === 'en' ? `Could not duplicate: ${err.message}` : `ไม่สามารถทำสำเนาได้: ${err.message}`);
+      alert(`${t('cannotDuplicate', 'ไม่สามารถทำสำเนาได้')}: ${err.message}`);
     }
   };
 
@@ -675,76 +693,169 @@ export const NoteEditor = ({
     if (!currentPage) return;
     try {
       await exportSinglePageToPdf(notebook, currentPage, currentPageIndex);
-      alert(language === 'en' ? `Exported page ${currentPageIndex + 1} to PDF successfully!` : `ส่งออกหน้า ${currentPageIndex + 1} เป็น PDF เรียบร้อยแล้ว!`);
+      alert(t('exportPdfSuccess', 'ส่งออกเอกสารเป็น PDF เรียบร้อยแล้ว! 📄'));
     } catch (err) {
       console.error(err);
-      alert(language === 'en' ? `Error exporting PDF: ${err.message}` : `เกิดข้อผิดพลาดในการส่งออก PDF: ${err.message}`);
+      alert(`${t('exportPdfError', 'เกิดข้อผิดพลาดในการส่งออก PDF')}: ${err.message}`);
     }
   };
 
-  // Undo / Redo
-  const canUndo = historyPointer > 0;
+  // Programmatic scroll state lock to prevent IntersectionObserver fighting
+  const isProgrammaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef(null);
+  const observerRef = useRef(null);
+
+  // Scoped scroll to page inside stage - strictly prevents window/ancestor layout scrolling
+  const scrollToPageInStage = useCallback((pageIndex, behavior = 'smooth') => {
+    if (scrollDirection !== 'vertical') return;
+    const stageEl = stageRef.current;
+    if (!stageEl) return;
+    const targetEl = document.getElementById(`vertical-page-${pageIndex}`);
+    if (!targetEl) return;
+
+    isProgrammaticScrollRef.current = true;
+    if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
+    programmaticScrollTimerRef.current = setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+    }, behavior === 'smooth' ? 900 : 350);
+
+    const stageRect = stageEl.getBoundingClientRect();
+    const targetRect = targetEl.getBoundingClientRect();
+    const delta = targetRect.top - stageRect.top;
+    const targetScrollTop = stageEl.scrollTop + delta - 20;
+
+    if (behavior === 'auto') {
+      stageEl.scrollTop = Math.max(0, targetScrollTop);
+    } else {
+      try {
+        stageEl.scrollTo({
+          top: Math.max(0, targetScrollTop),
+          behavior: 'smooth'
+        });
+      } catch {
+        stageEl.scrollTop = Math.max(0, targetScrollTop);
+      }
+    }
+  }, [scrollDirection]);
+
+  // Switch Page & Jump / Smooth Scroll to target page in vertical continuous mode
+  const handleSelectPage = useCallback((index) => {
+    const allPages = pagesRef.current;
+    if (index >= 0 && index < allPages.length) {
+      const prevIndex = currentPageIndexRef.current;
+      const isDistantJump = Math.abs(index - prevIndex) > 1;
+
+      // Immediately lock programmatic scroll to prevent IntersectionObserver storms during jump
+      isProgrammaticScrollRef.current = true;
+      if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
+      programmaticScrollTimerRef.current = setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+      }, isDistantJump ? 400 : 900);
+
+      setCurrentPageIndex(index);
+      currentPageIndexRef.current = index;
+
+      if (scrollDirection === 'vertical') {
+        if (isDistantJump) {
+          // Distant jumps (e.g. page 1 to 40) jump instantly without unmounting/mounting 40 intermediate canvases!
+          requestAnimationFrame(() => {
+            scrollToPageInStage(index, 'auto');
+          });
+        } else {
+          scrollToPageInStage(index, 'smooth');
+        }
+      } else {
+        if (stageRef.current) {
+          stageRef.current.scrollTop = 0;
+          stageRef.current.scrollLeft = 0;
+        }
+      }
+    }
+  }, [scrollDirection, scrollToPageInStage]);
+
+  // Page-aware Undo / Redo
+  const canUndo = historyPointer >= 0;
   const canRedo = historyPointer < historyStack.length - 1;
 
   const handleUndo = useCallback(async () => {
     const curPointer = historyPointerRef.current;
     const curStack = historyStackRef.current;
-    if (curPointer <= 0 || !curStack || curStack.length <= 1) return;
+    if (curPointer < 0 || !curStack || curStack.length === 0) return;
+
+    const entry = curStack[curPointer];
+    if (!entry) return;
 
     const newPointer = curPointer - 1;
-    const state = curStack[newPointer];
-    if (!state) return;
-
     setHistoryPointer(newPointer);
     historyPointerRef.current = newPointer;
 
     const prevPages = pagesRef.current;
-    const targetPage = prevPages[currentPageIndex];
+    const targetIdx = (entry.pageIndex !== undefined && entry.pageIndex >= 0 && entry.pageIndex < prevPages.length)
+      ? entry.pageIndex
+      : currentPageIndexRef.current;
+    const targetPage = prevPages[targetIdx];
     if (!targetPage) return;
+
+    const restoreState = entry.before || { strokes: [], textElements: [], imageElements: [] };
 
     const updatedPage = {
       ...targetPage,
-      strokes: state.strokes || [],
-      textElements: state.textElements || [],
-      imageElements: state.imageElements || targetPage.imageElements || [],
+      strokes: restoreState.strokes || [],
+      textElements: restoreState.textElements || [],
+      imageElements: restoreState.imageElements || [],
       updatedAt: Date.now()
     };
-    const nextPages = prevPages.map((p, idx) => idx === currentPageIndex ? updatedPage : p);
+    const nextPages = prevPages.map((p, idx) => idx === targetIdx ? updatedPage : p);
     pagesRef.current = nextPages;
     setPages(nextPages);
 
     await savePage(updatedPage);
-  }, [currentPageIndex]);
+
+    // If undone edit was on another page, navigate to that page so the user sees it undo there!
+    if (targetIdx !== currentPageIndexRef.current) {
+      handleSelectPage(targetIdx);
+    }
+  }, [handleSelectPage]);
 
   const handleRedo = useCallback(async () => {
     const curPointer = historyPointerRef.current;
     const curStack = historyStackRef.current;
-    if (curPointer < 0 || !curStack || curPointer >= curStack.length - 1) return;
+    if (!curStack || curPointer >= curStack.length - 1) return;
 
     const newPointer = curPointer + 1;
-    const state = curStack[newPointer];
-    if (!state) return;
+    const entry = curStack[newPointer];
+    if (!entry) return;
 
     setHistoryPointer(newPointer);
     historyPointerRef.current = newPointer;
 
     const prevPages = pagesRef.current;
-    const targetPage = prevPages[currentPageIndex];
+    const targetIdx = (entry.pageIndex !== undefined && entry.pageIndex >= 0 && entry.pageIndex < prevPages.length)
+      ? entry.pageIndex
+      : currentPageIndexRef.current;
+    const targetPage = prevPages[targetIdx];
     if (!targetPage) return;
+
+    const restoreState = entry.after || { strokes: [], textElements: [], imageElements: [] };
 
     const updatedPage = {
       ...targetPage,
-      strokes: state.strokes || [],
-      textElements: state.textElements || [],
-      imageElements: state.imageElements || targetPage.imageElements || [],
+      strokes: restoreState.strokes || [],
+      textElements: restoreState.textElements || [],
+      imageElements: restoreState.imageElements || [],
       updatedAt: Date.now()
     };
-    const nextPages = prevPages.map((p, idx) => idx === currentPageIndex ? updatedPage : p);
+    const nextPages = prevPages.map((p, idx) => idx === targetIdx ? updatedPage : p);
     pagesRef.current = nextPages;
     setPages(nextPages);
 
     await savePage(updatedPage);
-  }, [currentPageIndex]);
+
+    // If redone edit was on another page, navigate to that page so the user sees it redo there!
+    if (targetIdx !== currentPageIndexRef.current) {
+      handleSelectPage(targetIdx);
+    }
+  }, [handleSelectPage]);
 
   // Keyboard shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+V)
   useEffect(() => {
@@ -779,65 +890,7 @@ export const NoteEditor = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('paste', handleWindowPaste);
     };
-  }, [canUndo, canRedo, historyPointer, historyStack, currentPageIndex, pages, clipboardImage]);
-
-  // Programmatic scroll state lock to prevent IntersectionObserver fighting
-  const isProgrammaticScrollRef = useRef(false);
-  const programmaticScrollTimerRef = useRef(null);
-  const observerRef = useRef(null);
-
-  // Scoped scroll to page inside stage - strictly prevents window/ancestor layout scrolling
-  const scrollToPageInStage = useCallback((pageIndex, behavior = 'smooth') => {
-    if (scrollDirection !== 'vertical') return;
-    const stageEl = stageRef.current;
-    if (!stageEl) return;
-    const targetEl = document.getElementById(`vertical-page-${pageIndex}`);
-    if (!targetEl) return;
-
-    isProgrammaticScrollRef.current = true;
-    if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
-    programmaticScrollTimerRef.current = setTimeout(() => {
-      isProgrammaticScrollRef.current = false;
-    }, behavior === 'smooth' ? 900 : 120);
-
-    const stageRect = stageEl.getBoundingClientRect();
-    const targetRect = targetEl.getBoundingClientRect();
-    const delta = targetRect.top - stageRect.top;
-    const targetScrollTop = stageEl.scrollTop + delta - 20;
-
-    try {
-      stageEl.scrollTo({
-        top: Math.max(0, targetScrollTop),
-        behavior
-      });
-    } catch {
-      stageEl.scrollTop = Math.max(0, targetScrollTop);
-    }
-  }, [scrollDirection]);
-
-  // Switch Page & Smooth Scroll to target page in vertical continuous mode
-  const handleSelectPage = (index) => {
-    if (index >= 0 && index < pages.length) {
-      setCurrentPageIndex(index);
-      const targetPage = pages[index];
-      setHistoryStack([{ 
-        strokes: targetPage?.strokes || [], 
-        textElements: targetPage?.textElements || [],
-        imageElements: targetPage?.imageElements || [] 
-      }]);
-      setHistoryPointer(0);
-
-      // In continuous vertical scroll mode, smoothly warp to the chosen page!
-      if (scrollDirection === 'vertical') {
-        scrollToPageInStage(index, 'smooth');
-      } else {
-        if (stageRef.current) {
-          stageRef.current.scrollTop = 0;
-          stageRef.current.scrollLeft = 0;
-        }
-      }
-    }
-  };
+  }, [canUndo, canRedo, historyPointer, historyStack, currentPageIndex, pages, clipboardImage, handleUndo, handleRedo]);
 
   // Initial auto-scroll to requested page (e.g. when opening from Favorites view or tabs)
   const hasInitialNavigatedRef = useRef(false);
@@ -851,12 +904,6 @@ export const NoteEditor = ({
       }, 100);
     }
   }, [isLoading, pages.length, scrollToPageInStage]);
-
-  // Track latest currentPageIndex in ref for stable IntersectionObserver
-  const currentPageIndexRef = useRef(currentPageIndex);
-  useEffect(() => {
-    currentPageIndexRef.current = currentPageIndex;
-  }, [currentPageIndex]);
 
   // Sync active page indicator with scroll position in continuous vertical mode
   useEffect(() => {
@@ -1074,11 +1121,11 @@ export const NoteEditor = ({
   const handleDeletePage = async (targetIndex = currentPageIndex) => {
     const currentPagesList = pagesRef.current;
     if (currentPagesList.length <= 1) {
-      alert(language === 'en' ? 'Cannot delete the only remaining page of the notebook' : 'ไม่สามารถลบหน้าสุดท้ายของสมุดได้');
+      alert(t('cannotDeleteOnlyPage', 'ไม่สามารถลบหน้าสุดท้ายของสมุดได้'));
       return;
     }
 
-    if (!confirm(language === 'en' ? `Are you sure you want to delete page ${targetIndex + 1}?` : `คุณต้องการลบหน้า ${targetIndex + 1} ใช่หรือไม่?`)) {
+    if (!confirm(t('confirmDeletePageNum', `คุณต้องการลบหน้า ${targetIndex + 1} ใช่หรือไม่?`, { page: targetIndex + 1 }))) {
       return;
     }
 
@@ -1153,7 +1200,7 @@ export const NoteEditor = ({
     return (
       <div className="bn-loading-screen">
         <div className="bn-spinner"></div>
-        <p className="text-zinc-400 mt-3 text-sm">{language === 'en' ? 'Opening notebook...' : 'กำลังเปิดสมุดบันทึก...'}</p>
+        <p className="text-zinc-400 mt-3 text-sm">{t('loadingApp', 'กำลังเปิดสมุดบันทึก...')}</p>
       </div>
     );
   }

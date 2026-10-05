@@ -19,7 +19,7 @@ export const DEFAULT_TOOL_WIDTH_SLOTS = {
 
 export const DEFAULT_PREFERENCES = {
   theme: 'dark', // 'dark' | 'light'
-  language: 'th', // 'th' | 'en'
+  language: 'en', // 'en' | 'th' | 'zh' | 'ru'
   activeTool: 'pen',
   activeColor: '#2563eb', // Royal Blue
   activeWidth: 3.5,
@@ -63,9 +63,10 @@ export const loadEditorPreferences = () => {
     let resolvedLanguage = DEFAULT_PREFERENCES.language;
     try {
       const savedLang = localStorage.getItem('betternote_language');
-      if (savedLang === 'en' || savedLang === 'th') {
+      const validLangs = ['en', 'th', 'zh', 'ru'];
+      if (validLangs.includes(savedLang)) {
         resolvedLanguage = savedLang;
-      } else if (parsed.language === 'en' || parsed.language === 'th') {
+      } else if (validLangs.includes(parsed.language)) {
         resolvedLanguage = parsed.language;
       }
     } catch (_) {}

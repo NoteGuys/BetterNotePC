@@ -16,35 +16,108 @@ import {
   Save,
   Check,
   Trash2,
-  Globe
+  Globe,
+  HelpCircle,
+  Sparkles,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { PAPER_SIZES } from '../../data/templates';
 import { getSetting, saveSetting } from '../../services/db';
 import { appCacheService } from '../../services/appCacheService';
 import { useLanguage } from '../../services/i18n';
+import { 
+  CURRENT_APP_VERSION, 
+  checkForStoreUpdate, 
+  openMicrosoftStore,
+  STORE_URL,
+  STORE_WEB_URL
+} from '../../services/updateService';
 
 
 export const SettingsModal = ({
   isOpen,
   onClose,
   isDriveConnected = true,
-  driveUserEmail = 'H:\\My Drive\\BetterNote.AppPC',
+  driveUserEmail = '',
   isSyncing = false,
   currentTheme = 'dark',
   onSelectTheme,
   onTriggerAutoSync,
   onExportBackup,
   onImportBackup,
-  onOpenDriveModal
+  onOpenDriveModal,
+  onOpenUpdateModal
 }) => {
   const { language, setLanguage, t } = useLanguage();
-  const [activeTab, setActiveTab] = useState('drive'); // 'drive', 'backup', 'defaults', 'theme', 'language'
+  const [activeTab, setActiveTab] = useState('drive'); // 'drive', 'backup', 'defaults', 'theme', 'updates'
   const fileInputRef = useRef(null);
-  const [backupPath, setBackupPath] = useState(driveUserEmail || 'H:\\My Drive\\BetterNote.AppPC');
+  const [backupPath, setBackupPath] = useState(
+    (typeof window !== 'undefined' && window.localStorage?.getItem('local_backup_path')) || driveUserEmail || ''
+  );
+  const [docsPresetPath, setDocsPresetPath] = useState('');
   const [pathSavedToast, setPathSavedToast] = useState(false);
   const [isRestoringCloud, setIsRestoringCloud] = useState(false);
   const [restoreMessage, setRestoreMessage] = useState(null);
   const [cacheClearedToast, setCacheClearedToast] = useState(false);
+  const [showFolderHelp, setShowFolderHelp] = useState(false);
+  const [showMigrationHelp, setShowMigrationHelp] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [checkingUpdateMsg, setCheckingUpdateMsg] = useState(null);
+
+  const handleManualCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    setCheckingUpdateMsg(t('updateChecking', 'กำลังตรวจสอบการอัปเดตจาก Microsoft Store...'));
+    try {
+      const res = await checkForStoreUpdate({ force: true });
+      if (res?.hasUpdate) {
+        setCheckingUpdateMsg(null);
+        if (onOpenUpdateModal) {
+          onOpenUpdateModal(res);
+        }
+      } else {
+        setCheckingUpdateMsg(t('updateIsLatest', `BetterNote ของคุณเป็นเวอร์ชันล่าสุดแล้ว (v${CURRENT_APP_VERSION})`, { version: CURRENT_APP_VERSION }));
+        setTimeout(() => setCheckingUpdateMsg(null), 4000);
+      }
+    } catch (err) {
+      setCheckingUpdateMsg(t('updateConnectError', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์อัปเดตได้'));
+      setTimeout(() => setCheckingUpdateMsg(null), 3000);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handlePreviewUpdateModal = () => {
+    if (onOpenUpdateModal) {
+      const localeMap = { en: 'en-US', th: 'th-TH', zh: 'zh-CN', ru: 'ru-RU' };
+      const currentLocale = localeMap[language] || 'en-US';
+      onOpenUpdateModal({
+        hasUpdate: true,
+        isMock: true,
+        currentVersion: CURRENT_APP_VERSION,
+        latestVersion: '1.2.2',
+        releaseDateRaw: new Date().toISOString(),
+        releaseDate: new Date().toLocaleDateString(currentLocale, { year: 'numeric', month: 'long', day: 'numeric' }),
+        title: `BetterNote Pro Studio Update v1.2.2`,
+        storeUrl: STORE_URL,
+        storeWebUrl: STORE_WEB_URL,
+        bugFixKeys: ['updateFix1', 'updateFix2', 'updateFix3', 'updateFix4'],
+        featureKeys: ['updateFeat1', 'updateFeat2', 'updateFeat3', 'updateFeat4'],
+        bugFixes: [
+          t('updateFix1'),
+          t('updateFix2'),
+          t('updateFix3'),
+          t('updateFix4')
+        ],
+        features: [
+          t('updateFeat1'),
+          t('updateFeat2'),
+          t('updateFeat3'),
+          t('updateFeat4')
+        ]
+      });
+    }
+  };
 
   const handleClearCache = () => {
     appCacheService.clearAll();
@@ -56,22 +129,22 @@ export const SettingsModal = ({
   const handleRestoreFromFolder = async () => {
     if (isRestoringCloud) return;
     setIsRestoringCloud(true);
-    setRestoreMessage(language === 'en' ? 'Scanning and restoring notebooks from Google Drive / Local folder...' : 'กำลังค้นหาและดึงข้อมูลจากโฟลเดอร์ Google Drive / Local...');
+    setRestoreMessage(t('gdriveRestoringMsg', 'Scanning and restoring notebooks from Google Drive / Local folder...'));
     try {
       const { autoBackupService } = await import('../../services/autoBackupService');
       const res = await autoBackupService.restoreFromCloudBackup(backupPath);
       if (res.success) {
-        setRestoreMessage(language === 'en' ? `✓ Success! Restored ${res.count} notebooks.` : `✓ สำเร็จ! กู้คืนสมุดโน้ต ${res.count} เล่มเรียบร้อยแล้ว`);
+        setRestoreMessage(t('gdriveRestoreSuccess', `✓ Success! Restored ${res.count} notebooks.`, { count: res.count }));
         setTimeout(() => {
           if (onClose) onClose();
           window.location.reload();
         }, 1500);
       } else {
-        setRestoreMessage(language === 'en' ? 'No backup files found in this folder. Please verify the folder location.' : 'ไม่พบไฟล์สำรองในโฟลเดอร์นี้ กรุณาตรวจสอบตำแหน่งโฟลเดอร์');
+        setRestoreMessage(t('backupNotFound', 'No backup files found in this folder. Please verify the folder location.'));
         setTimeout(() => setRestoreMessage(null), 4000);
       }
     } catch (err) {
-      setRestoreMessage(language === 'en' ? `Error: ${err.message}` : `เกิดข้อผิดพลาด: ${err.message}`);
+      setRestoreMessage(`${t('error', 'Error')}: ${err.message}`);
       setTimeout(() => setRestoreMessage(null), 4000);
     } finally {
       setIsRestoringCloud(false);
@@ -81,11 +154,29 @@ export const SettingsModal = ({
   useEffect(() => {
     async function loadBackupPath() {
       try {
+        let currentVal = null;
         const val = await getSetting('local_backup_path');
-        if (val) {
-          setBackupPath(val);
+        if (val && typeof val === 'string' && val.trim()) {
+          currentVal = val.trim();
         } else if (typeof window !== 'undefined' && window.localStorage?.getItem('local_backup_path')) {
-          setBackupPath(window.localStorage.getItem('local_backup_path'));
+          currentVal = window.localStorage.getItem('local_backup_path');
+        }
+
+        try {
+          const { autoBackupService } = await import('../../services/autoBackupService');
+          const details = await autoBackupService.getBackupStatusDetails(currentVal);
+          if (details?.documentsDir) {
+            setDocsPresetPath(details.documentsDir);
+          }
+          if (!currentVal && details?.targetDir) {
+            currentVal = details.targetDir;
+          }
+        } catch (_) {}
+
+        if (currentVal) {
+          setBackupPath(currentVal);
+        } else if (driveUserEmail) {
+          setBackupPath(driveUserEmail);
         }
       } catch (err) {
         console.warn(err);
@@ -93,8 +184,10 @@ export const SettingsModal = ({
     }
     if (isOpen) {
       loadBackupPath();
+      setShowFolderHelp(false);
+      setShowMigrationHelp(false);
     }
-  }, [isOpen]);
+  }, [isOpen, driveUserEmail]);
 
   const handleSaveBackupPath = async (newPath) => {
     const target = (newPath || backupPath || '').trim();
@@ -112,7 +205,7 @@ export const SettingsModal = ({
       }
     } catch (err) {
       console.error(err);
-      alert('บันทึกโฟลเดอร์ไม่สำเร็จ: ' + err.message);
+      alert(t('saveFolderFailed', 'บันทึกโฟลเดอร์ไม่สำเร็จ: ') + err.message);
     }
   };
 
@@ -131,7 +224,7 @@ export const SettingsModal = ({
     }
 
     // 2. Prompt fallback
-    const chosen = prompt('กำหนดตำแหน่งโฟลเดอร์ในเครื่องที่ต้องการสำรองข้อมูล (เช่น H:\\My Drive\\BetterNote.AppPC หรือ C:\\Users\\...):', backupPath);
+    const chosen = prompt(t('setLocalBackupFolderPrompt', 'กำหนดตำแหน่งโฟลเดอร์ในเครื่องที่ต้องการสำรองข้อมูล (เช่น H:\\My Drive\\BetterNote.AppPC หรือ C:\\Users\\...):'), backupPath);
     if (chosen && chosen.trim()) {
       handleSaveBackupPath(chosen.trim());
     }
@@ -212,16 +305,16 @@ export const SettingsModal = ({
             ) : (
               <Moon size={16} className={activeTab === 'theme' ? 'text-blue-400' : 'text-zinc-400'} />
             )}
-            <span>{t('themeTab', 'ธีมหน้าจอ (Theme)')}</span>
+            <span>{t('themeTab', 'ธีม และ ภาษา')}</span>
           </button>
 
           <button
             type="button"
-            className={`bn-settings-tab-item ${activeTab === 'language' ? 'bn-settings-tab-item-active' : ''}`}
-            onClick={() => setActiveTab('language')}
+            className={`bn-settings-tab-item ${activeTab === 'updates' ? 'bn-settings-tab-item-active' : ''}`}
+            onClick={() => setActiveTab('updates')}
           >
-            <Globe size={16} className={activeTab === 'language' ? 'text-emerald-400' : 'text-zinc-400'} />
-            <span>{t('languageTab', 'ภาษา (Language)')}</span>
+            <Sparkles size={16} className={activeTab === 'updates' ? 'text-purple-400' : 'text-zinc-400'} />
+            <span>{t('updateTab', 'อัปเดต & เวอร์ชัน')}</span>
           </button>
         </div>
 
@@ -272,8 +365,10 @@ export const SettingsModal = ({
                         onClose();
                         onOpenDriveModal();
                       }}
+                      title={t('gdriveModalTitle', 'เชื่อมต่อ Google Drive & Cloud Sync')}
                     >
-                      OAuth / Cloud API
+                      <Cloud size={15} className="text-blue-400" />
+                      <span>{t('gdriveConnectButtonLabel', 'เชื่อมต่อ Google Drive (Sign in)')}</span>
                     </button>
                   )}
                 </div>
@@ -290,7 +385,25 @@ export const SettingsModal = ({
                   </div>
                   <div className="bn-settings-card-text">
                     <div className="bn-settings-card-title-row">
-                      <h4 className="bn-settings-card-h4">{t('localBackupDirTitle', 'ตำแหน่งโฟลเดอร์สำรองข้อมูลภายในเครื่อง')}</h4>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <h4 className="bn-settings-card-h4">{t('localBackupDirTitle', 'ตำแหน่งโฟลเดอร์สำรองข้อมูลภายในเครื่อง')}</h4>
+                        <button
+                          type="button"
+                          onClick={() => setShowFolderHelp(true)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: '2px',
+                            cursor: 'pointer',
+                            color: '#94a3b8',
+                            display: 'flex',
+                            alignItems: 'center'
+                          }}
+                          title={t('backupTargetFolderHelpTitle', 'โฟลเดอร์สำรองข้อมูล')}
+                        >
+                          <HelpCircle size={14} className="hover:text-blue-400 transition" />
+                        </button>
+                      </div>
                       {pathSavedToast && (
                         <span className="bn-settings-status-tag" style={{ background: 'rgba(16, 185, 129, 0.25)', color: '#34d399' }}>
                           {t('pathSavedSuccess', '✓ บันทึกสำเร็จ')}
@@ -312,7 +425,7 @@ export const SettingsModal = ({
                       className="bn-folder-path-input"
                       value={backupPath}
                       onChange={(e) => setBackupPath(e.target.value)}
-                      placeholder={t('backupPathPlaceholder', 'เช่น H:\\My Drive\\BetterNote.AppPC หรือ C:\\Users\\...')}
+                      placeholder={t('backupPathPlaceholder', 'เช่น H:\\My Drive\\BetterNote.AppPC หรือ G:\\My Drive\\...')}
                       style={{
                         width: '100%',
                         padding: '9px 12px 9px 36px',
@@ -358,25 +471,25 @@ export const SettingsModal = ({
                       type="button"
                       className="bn-preset-chip"
                       onClick={() => handleSaveBackupPath('H:\\My Drive\\BetterNote.AppPC')}
-                      title="Google Drive Desktop App Directory"
+                      title="Google Drive Desktop App Directory (H:)"
                     >
-                      ☁️ H:\My Drive\BetterNote.AppPC (Google Drive)
+                      ☁️ H:\My Drive\BetterNote.AppPC
                     </button>
                     <button
                       type="button"
                       className="bn-preset-chip"
-                      onClick={() => handleSaveBackupPath('C:\\Users\\ADMIN\\Documents\\BetterNote.AppPC')}
+                      onClick={() => handleSaveBackupPath('G:\\My Drive\\BetterNote.AppPC')}
+                      title="Google Drive Desktop App Directory (G:)"
+                    >
+                      ☁️ G:\My Drive\BetterNote.AppPC
+                    </button>
+                    <button
+                      type="button"
+                      className="bn-preset-chip"
+                      onClick={() => handleSaveBackupPath(docsPresetPath || 'Documents\\BetterNote.AppPC')}
                       title="Documents Folder"
                     >
-                      📁 Documents\BetterNote.AppPC
-                    </button>
-                    <button
-                      type="button"
-                      className="bn-preset-chip"
-                      onClick={() => handleSaveBackupPath('C:\\Users\\ADMIN\\Desktop\\BetterNote_Storage')}
-                      title="Desktop Folder"
-                    >
-                      💻 Desktop\BetterNote_Storage
+                      📁 {docsPresetPath ? (docsPresetPath.includes('\\Documents\\') ? docsPresetPath.substring(docsPresetPath.lastIndexOf('Documents')) : docsPresetPath) : 'Documents\\BetterNote.AppPC'}
                     </button>
                   </div>
                 </div>
@@ -388,6 +501,22 @@ export const SettingsModal = ({
                       <div style={{ fontSize: '13px', fontWeight: 700, color: '#93c5fd', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <FolderSync size={16} />
                         <span>{t('migrationTitle', 'กู้คืนข้อมูลเมื่อย้ายเครื่องใหม่ (New PC Migration)')}</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowMigrationHelp(true)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: '2px',
+                            cursor: 'pointer',
+                            color: '#93c5fd',
+                            display: 'flex',
+                            alignItems: 'center'
+                          }}
+                          title={t('migrationHelpTitle', 'ขั้นตอนการกู้คืนข้อมูลเมื่อย้ายเครื่องใหม่')}
+                        >
+                          <HelpCircle size={14} className="hover:text-white transition" />
+                        </button>
                       </div>
                       <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '3px' }}>
                         {t('migrationDesc', 'เมื่อติดตั้ง BetterNote บนเครื่องใหม่ หรือเชื่อม Google Drive เข้ามา สามารถกดปุ่มนี้เพื่อดึงสมุดโน้ตทั้งหมดกลับเข้าแอปทันที')}
@@ -527,9 +656,7 @@ export const SettingsModal = ({
                     <div key={s.id} className="bn-new-paper-card">
                       <span style={{ fontSize: '13px', fontWeight: 700, color: '#ffffff', display: 'block' }}>{s.name}</span>
                       <span style={{ fontSize: '10px', color: '#a1a1aa' }}>
-                        {language === 'en' 
-                          ? (s.id === 'A4' ? 'A4 (Standard)' : s.id === 'A3' ? 'A3 (2x Large)' : 'A2 (Poster/Blueprint)') 
-                          : s.fullName}
+                        {t('paper_size_' + s.id, s.fullName)}
                       </span>
                       <span style={{ fontSize: '9px', color: '#71717a', display: 'block', marginTop: '2px' }}>{s.width} × {s.height} px</span>
                     </div>
@@ -544,32 +671,32 @@ export const SettingsModal = ({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
-                      • {language === 'en' ? 'Dotted (25px)' : 'ลายจุด (Dotted 25px)'}
+                      • {t('template_dotted', 'Dotted (25px)')}
                     </span>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>Bullet Journal & Planner</span>
                   </div>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
-                      • {language === 'en' ? 'Narrow Ruled (22px)' : 'เส้นแคบ (Narrow Ruled 22px)'}
+                      • {t('template_narrow_ruled', 'Narrow Ruled (22px)')}
                     </span>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {language === 'en' ? 'Detailed handwriting' : 'จดข้อความละเอียด'}
+                      {t('template_desc_narrow_ruled', 'Detailed handwriting')}
                     </span>
                   </div>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
-                      • {language === 'en' ? 'Wide Ruled (38px)' : 'เส้นกว้าง (Wide Ruled 38px)'}
+                      • {t('template_wide_ruled', 'Wide Ruled (38px)')}
                     </span>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {language === 'en' ? 'Large text & summaries' : 'เขียนตัวใหญ่และสรุป'}
+                      {t('template_desc_wide_ruled', 'Large text & summaries')}
                     </span>
                   </div>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
-                      • {language === 'en' ? 'Grid (25px)' : 'ตารางกริด (Grid 25px)'}
+                      • {t('template_grid', 'Grid (25px)')}
                     </span>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {language === 'en' ? 'Math & graphs' : 'คณิตศาสตร์ & กราฟ'}
+                      {t('template_desc_grid', 'Math & graphs')}
                     </span>
                   </div>
                 </div>
@@ -645,6 +772,24 @@ export const SettingsModal = ({
                   {t('languageChoice')}
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  {/* English Card */}
+                  <div
+                    className={`bn-new-paper-card ${language === 'en' ? 'bn-new-paper-card-active' : ''}`}
+                    style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                    onClick={() => setLanguage('en')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '18px' }}>🇬🇧</span>
+                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langEnglish')}</span>
+                      </div>
+                      {language === 'en' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                      {t('langEnglishDesc')}
+                    </span>
+                  </div>
+
                   {/* Thai Card */}
                   <div
                     className={`bn-new-paper-card ${language === 'th' ? 'bn-new-paper-card-active' : ''}`}
@@ -663,21 +808,39 @@ export const SettingsModal = ({
                     </span>
                   </div>
 
-                  {/* English Card */}
+                  {/* Simplified Chinese Card */}
                   <div
-                    className={`bn-new-paper-card ${language === 'en' ? 'bn-new-paper-card-active' : ''}`}
+                    className={`bn-new-paper-card ${language === 'zh' ? 'bn-new-paper-card-active' : ''}`}
                     style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
-                    onClick={() => setLanguage('en')}
+                    onClick={() => setLanguage('zh')}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '18px' }}>🇬🇧</span>
-                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langEnglish')}</span>
+                        <span style={{ fontSize: '18px' }}>🇨🇳</span>
+                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langChinese')}</span>
                       </div>
-                      {language === 'en' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                      {language === 'zh' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
                     </div>
                     <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {t('langEnglishDesc')}
+                      {t('langChineseDesc')}
+                    </span>
+                  </div>
+
+                  {/* Russian Card */}
+                  <div
+                    className={`bn-new-paper-card ${language === 'ru' ? 'bn-new-paper-card-active' : ''}`}
+                    style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                    onClick={() => setLanguage('ru')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '18px' }}>🇷🇺</span>
+                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langRussian')}</span>
+                      </div>
+                      {language === 'ru' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                      {t('langRussianDesc')}
                     </span>
                   </div>
                 </div>
@@ -685,52 +848,125 @@ export const SettingsModal = ({
             </>
           )}
 
-          {/* Tab 5: ภาษา (Language) */}
-          {activeTab === 'language' && (
-            <>
-              <div>
-                <label style={{ fontSize: '12.5px', fontWeight: 600, display: 'block', marginBottom: '10px' }}>
-                  {t('languageChoice')}
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  {/* Thai Card */}
-                  <div
-                    className={`bn-new-paper-card ${language === 'th' ? 'bn-new-paper-card-active' : ''}`}
-                    style={{ padding: '16px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' }}
-                    onClick={() => setLanguage('th')}
+          {/* Tab 5: Updates & Version Info */}
+          {activeTab === 'updates' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* App Version Info Card */}
+              <div className="bn-settings-card">
+                <div className="bn-settings-card-header">
+                  <div 
+                    className="bn-settings-icon-circle"
+                    style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc' }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '22px' }}>🇹🇭</span>
-                        <span style={{ fontWeight: 700, fontSize: '14px' }}>{t('langThai')}</span>
-                      </div>
-                      {language === 'th' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                    <Sparkles size={24} />
+                  </div>
+                  <div className="bn-settings-card-text">
+                    <div className="bn-settings-card-title-row">
+                      <h4 className="bn-settings-card-title">
+                        BetterNote Pro Studio
+                      </h4>
+                      <span className="bn-settings-badge-connected" style={{ background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', borderColor: 'rgba(168, 85, 247, 0.4)' }}>
+                        Microsoft Store Edition
+                      </span>
                     </div>
-                    <span style={{ fontSize: '12px', color: '#a1a1aa', lineHeight: 1.4 }}>
-                      {t('langThaiDesc')}
-                    </span>
+                    <p className="bn-settings-card-desc">
+                      {t('updateSectionTitle', 'เวอร์ชันและการอัปเดต')} • Version {CURRENT_APP_VERSION} (Build 2026.09)
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#cbd5e1' }}>
+                    <CheckCircle2 size={16} style={{ color: '#34d399' }} />
+                    <span>{t('updateDailyCheckNotice', 'ระบบจะแจ้งเตือนการอัปเดตใหม่จาก Microsoft Store อัตโนมัติวันละ 1 ครั้งเมื่อเปิดเข้าใช้งาน')}</span>
                   </div>
 
-                  {/* English Card */}
-                  <div
-                    className={`bn-new-paper-card ${language === 'en' ? 'bn-new-paper-card-active' : ''}`}
-                    style={{ padding: '16px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' }}
-                    onClick={() => setLanguage('en')}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '22px' }}>🇬🇧</span>
-                        <span style={{ fontWeight: 700, fontSize: '14px' }}>{t('langEnglish')}</span>
-                      </div>
-                      {language === 'en' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
+                  {checkingUpdateMsg && (
+                    <div style={{
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(59, 130, 246, 0.1)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      color: '#93c5fd',
+                      fontSize: '12.5px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <span>{checkingUpdateMsg}</span>
                     </div>
-                    <span style={{ fontSize: '12px', color: '#a1a1aa', lineHeight: 1.4 }}>
-                      {t('langEnglishDesc')}
-                    </span>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={handleManualCheckUpdate}
+                      disabled={isCheckingUpdate}
+                      className="bn-settings-btn-alt"
+                      style={{
+                        background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                        borderColor: '#3b82f6',
+                        color: '#ffffff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: isCheckingUpdate ? 'wait' : 'pointer'
+                      }}
+                    >
+                      <RefreshCw size={14} className={isCheckingUpdate ? 'animate-spin' : ''} />
+                      <span>{isCheckingUpdate ? t('updateChecking', 'กำลังตรวจสอบ...') : t('updateCheckNow', 'ตรวจสอบการอัปเดตตอนนี้')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handlePreviewUpdateModal}
+                      className="bn-settings-btn-alt"
+                      style={{
+                        background: 'rgba(168, 85, 247, 0.15)',
+                        borderColor: 'rgba(168, 85, 247, 0.35)',
+                        color: '#d8b4fe',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <Sparkles size={14} />
+                      <span>{t('updatePreviewDialog', 'Preview Update Dialog')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => openMicrosoftStore()}
+                      className="bn-settings-btn-alt"
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        borderColor: 'rgba(255, 255, 255, 0.12)',
+                        color: '#cbd5e1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <ExternalLink size={14} />
+                      <span>{t('updateOnMicrosoftStore', 'Update on Microsoft Store')}</span>
+                    </button>
                   </div>
                 </div>
               </div>
-            </>
+
+              {/* What's New in Current Version */}
+              <div className="bn-settings-card">
+                <h5 style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc', margin: '0 0 10px 0' }}>
+                  {t('updateFeaturesTitle', 'What\'s New & Improvements')}
+                </h5>
+                <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                  <li>{t('updateChangelog1')}</li>
+                  <li>{t('updateChangelog2')}</li>
+                  <li>{t('updateChangelog3')}</li>
+                  <li>{t('updateChangelog4')}</li>
+                </ul>
+              </div>
+            </div>
           )}
         </div>
 
@@ -745,6 +981,161 @@ export const SettingsModal = ({
             {t('done', 'เรียบร้อย')}
           </button>
         </div>
+
+        {/* New PC Migration Help Dialog Modal */}
+        {showMigrationHelp && (
+          <div 
+            className="bn-modal-backdrop" 
+            style={{ zIndex: 1100, background: 'rgba(0,0,0,0.75)' }}
+            onClick={(e) => { e.stopPropagation(); setShowMigrationHelp(false); }}
+          >
+            <div 
+              style={{
+                width: '100%',
+                maxWidth: '560px',
+                background: '#0f172a',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                borderRadius: '16px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+                padding: '22px',
+                color: '#f8fafc'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}>
+                    <FolderSync size={18} />
+                  </div>
+                  <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#93c5fd', margin: 0 }}>
+                    {t('migrationHelpTitle', 'ขั้นตอนการกู้คืนข้อมูลเมื่อย้ายเครื่องใหม่ (New PC Migration Guide)')}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMigrationHelp(false)}
+                  style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Steps */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {/* Step 1 */}
+                <div style={{ padding: '12px', background: 'rgba(30, 41, 59, 0.7)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#38bdf8', marginBottom: '3px' }}>
+                    {t('migrationHelpStep1Title', '1. เครื่องเดิม (Old PC)')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                    {t('migrationHelpStep1Desc', 'ตรวจสอบให้แน่ใจว่าได้เลือกโฟลเดอร์สำรองข้อมูลไว้ใน Google Drive for Desktop หรือก๊อปปี้โฟลเดอร์ BetterNote.AppPC ลงแฟลชไดรฟ์ (USB)')}
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div style={{ padding: '12px', background: 'rgba(30, 41, 59, 0.7)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#34d399', marginBottom: '3px' }}>
+                    {t('migrationHelpStep2Title', '2. เครื่องใหม่ (New PC)')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                    {t('migrationHelpStep2Desc', 'ติดตั้ง BetterNote จาก Microsoft Store เปิดหน้าการตั้งค่า (Settings) แล้วกดปุ่ม "เลือกโฟลเดอร์..." เพื่อระบุโฟลเดอร์ Google Drive หรือโฟลเดอร์สำรองข้อมูลนั้น')}
+                  </div>
+                </div>
+
+                {/* Step 3 */}
+                <div style={{ padding: '12px', background: 'rgba(30, 41, 59, 0.7)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#c084fc', marginBottom: '3px' }}>
+                    {t('migrationHelpStep3Title', '3. กดกู้คืน (Restore)')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                    {t('migrationHelpStep3Desc', 'กดปุ่ม "ดึงและกู้คืนสมุดโน้ตทั้งหมด" ระบบจะสแกนและนำเข้าสมุดบันทึก หน้ากระดาษ ลายเส้น และรูปภาพทั้งหมดกลับคืนสู่เครื่องใหม่ให้ทันที!')}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowMigrationHelp(false)}
+                  style={{
+                    padding: '8px 20px',
+                    borderRadius: '8px',
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {t('migrationHelpGotIt', 'เข้าใจแล้ว')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Target Folder Help Dialog Modal */}
+        {showFolderHelp && (
+          <div 
+            className="bn-modal-backdrop" 
+            style={{ zIndex: 1100, background: 'rgba(0,0,0,0.75)' }}
+            onClick={(e) => { e.stopPropagation(); setShowFolderHelp(false); }}
+          >
+            <div 
+              style={{
+                width: '100%',
+                maxWidth: '480px',
+                background: '#0f172a',
+                border: '1px solid rgba(251, 191, 36, 0.4)',
+                borderRadius: '14px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+                padding: '20px',
+                color: '#f8fafc'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FolderOpen size={18} style={{ color: '#fbbf24' }} />
+                  <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#fef08a', margin: 0 }}>
+                    {t('backupTargetFolderHelpTitle', 'โฟลเดอร์สำรองข้อมูล (Target Backup Folder)')}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowFolderHelp(false)}
+                  style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <p style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6', margin: 0 }}>
+                {t('backupTargetFolderHelpDesc', 'โฟลเดอร์บนเครื่องคอมพิวเตอร์ที่ BetterNote จะส่งออกสำเนาสมุดบันทึก (.bnote) และเอกสาร PDF ทุกครั้งที่มีการเขียนหรือปิดแอปพลิเคชัน หากโฟลเดอร์นี้อยู่ใน Google Drive หรือ OneDrive ไฟล์ทั้งหมดจะถูกซิงค์ขึ้นระบบคลาวด์ให้อัตโนมัติ')}
+              </p>
+
+              <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowFolderHelp(false)}
+                  style={{
+                    padding: '7px 18px',
+                    borderRadius: '8px',
+                    background: '#d97706',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {t('migrationHelpGotIt', 'เข้าใจแล้ว')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

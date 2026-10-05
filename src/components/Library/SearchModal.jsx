@@ -53,7 +53,7 @@ export const SearchModal = ({
     .slice(0, 6);
 
   const getFolderPath = (folderId) => {
-    if (!folderId) return language === 'en' ? 'Documents (Home)' : 'เอกสาร (หน้าหลัก)';
+    if (!folderId) return t('homeAllDocs', 'หน้าหลัก (เอกสารทั้งหมด)');
     const chain = [];
     let curId = folderId;
     while (curId) {
@@ -107,7 +107,7 @@ export const SearchModal = ({
               <div style={{ padding: '40px 20px', textAlign: 'center', color: '#71717a' }}>
                 <Search size={36} style={{ margin: '0 auto 10px auto', opacity: 0.35 }} />
                 <p style={{ fontSize: '14px', fontWeight: 600, color: '#d4d4d8', margin: 0 }}>
-                  {language === 'en' ? `No documents found matching "${query}"` : `ไม่พบเอกสารที่ตรงกับ "${query}"`}
+                  {t('searchNotFoundTitle', 'ไม่พบเอกสารที่ตรงกับการค้นหา')}{query ? `: "${query}"` : ''}
                 </p>
                 <p style={{ fontSize: '12px', color: '#71717a', margin: '4px 0 0 0' }}>
                   {t('searchNotFoundDesc', 'ลองค้นหาด้วยคำอื่น หรือชื่อโฟลเดอร์')}

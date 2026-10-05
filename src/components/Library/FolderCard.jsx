@@ -52,16 +52,36 @@ export const FolderCard = ({
   const currentIconId = folder.icon || 'apple';
   const IconComp = getFolderIconComponent(currentIconId);
 
-  // Bilingual Date formatting
+  // Multilingual Date formatting
   const formatLocalizedDate = (timestamp) => {
     if (!timestamp) {
-      return language === 'en' ? 'Jun 30, 2026 at 9:23 AM' : '30 มิ.ย. 2569 เมื่อ9:23 AM';
+      if (language === 'zh') return '2026年6月30日 09:23';
+      if (language === 'ru') return '30 июн. 2026 г., 09:23';
+      if (language === 'th') return '30 มิ.ย. 2569 เมื่อ9:23 AM';
+      return 'Jun 30, 2026 at 9:23 AM';
     }
     const date = new Date(timestamp);
-    const thaiMonths = [
-      'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
-    ];
+    if (language === 'zh') {
+      return date.toLocaleString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    if (language === 'ru') {
+      return date.toLocaleString('ru-RU', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    if (language === 'th') {
+      const thaiMonths = [
+        'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+        'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+      ];
+      const day = date.getDate();
+      let hours = date.getHours();
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12 || 12;
+      const month = thaiMonths[date.getMonth()];
+      const year = date.getFullYear() + 543; // Buddhist Era
+      return `${day} ${month} ${year} เมื่อ${hours}:${minutes} ${ampm}`;
+    }
+
     const enMonths = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
@@ -71,16 +91,9 @@ export const FolderCard = ({
     const minutes = date.getMinutes().toString().padStart(2, '0');
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
-
-    if (language === 'en') {
-      const month = enMonths[date.getMonth()];
-      const year = date.getFullYear();
-      return `${month} ${day}, ${year} at ${hours}:${minutes} ${ampm}`;
-    }
-
-    const month = thaiMonths[date.getMonth()];
-    const year = date.getFullYear() + 543; // Buddhist Era
-    return `${day} ${month} ${year} เมื่อ${hours}:${minutes} ${ampm}`;
+    const month = enMonths[date.getMonth()];
+    const year = date.getFullYear();
+    return `${month} ${day}, ${year} at ${hours}:${minutes} ${ampm}`;
   };
 
   const handleDragOver = (e) => {

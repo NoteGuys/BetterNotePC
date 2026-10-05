@@ -9,16 +9,24 @@ import { PAPER_TEMPLATES } from '../data/templates.js';
  */
 export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', width = 1200, height = 1600) => {
   const canvas = document.createElement('canvas');
-  canvas.width = page.pageWidth || width;
-  canvas.height = page.pageHeight || height;
+  canvas.width = Math.max(100, Number(page.pageWidth) || width || 1200);
+  canvas.height = Math.max(100, Number(page.pageHeight) || height || 1600);
   const ctx = canvas.getContext('2d');
 
-  // 1. Draw PDF page background or Paper template
+  // 1. Draw PDF page background or Paper template (with timeout safety to prevent hanging promises)
   if (page.pdfPageImage) {
     await new Promise((resolve) => {
       const img = new Image();
+      const timer = setTimeout(resolve, 3000);
       img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        clearTimeout(timer);
+        try {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        } catch (_) {}
+        resolve();
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
         resolve();
       };
       img.src = page.pdfPageImage;
@@ -28,18 +36,25 @@ export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', widt
     renderPaperBackground(ctx, canvas.width, canvas.height, tmpl);
   }
 
-  // Helper to draw image elements on canvas
+  // Helper to draw image elements on canvas (with timeout safety)
   const drawImages = async (imgs) => {
     if (!imgs || imgs.length === 0) return;
     for (const imgEl of imgs) {
       if (imgEl.src) {
         await new Promise((resolve) => {
           const img = new Image();
+          const timer = setTimeout(resolve, 3000);
           img.onload = () => {
-            ctx.drawImage(img, imgEl.x, imgEl.y, imgEl.width, imgEl.height);
+            clearTimeout(timer);
+            try {
+              ctx.drawImage(img, imgEl.x, imgEl.y, imgEl.width, imgEl.height);
+            } catch (_) {}
             resolve();
           };
-          img.onerror = () => resolve();
+          img.onerror = () => {
+            clearTimeout(timer);
+            resolve();
+          };
           img.src = imgEl.src;
         });
       }
@@ -181,7 +196,7 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
 
   for (let i = 0; i < pages.length; i++) {
     // Cooperative yield between pages to ensure zero UI frame drops
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await new Promise(resolve => setTimeout(resolve, 30));
 
     if (onProgress) {
       onProgress(i + 1, pages.length);
@@ -194,8 +209,14 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
       pdf.addPage([dim.pdfW, dim.pdfH], dim.orientation);
     }
 
-    const imgData = await renderPageToCanvasDataUrl(page, notebook.templateId || 'ruled');
-    pdf.addImage(imgData, 'JPEG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
+    try {
+      const imgData = await renderPageToCanvasDataUrl(page, notebook.templateId || 'ruled');
+      if (imgData) {
+        pdf.addImage(imgData, 'JPEG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
+      }
+    } catch (pageErr) {
+      console.warn(`Could not render page ${i + 1} to PDF:`, pageErr.message);
+    }
   }
 
   // Standardize Base64 Data URL (e.g. data:application/pdf;base64,JVBERi0xLjc...)

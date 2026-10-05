@@ -3,7 +3,7 @@ import { ChevronRight, Home, Folder } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
 
 export const Breadcrumb = ({ currentFolder, folderChain, onNavigate }) => {
-  const { language } = useLanguage();
+  const { t } = useLanguage();
   return (
     <nav className="bn-breadcrumb">
       <button 
@@ -11,7 +11,7 @@ export const Breadcrumb = ({ currentFolder, folderChain, onNavigate }) => {
         onClick={() => onNavigate(null)}
       >
         <Home size={16} />
-        <span>{language === 'en' ? 'Documents' : 'คลังเอกสาร (Documents)'}</span>
+        <span>{t('sidebarDocuments', 'เอกสาร')}</span>
       </button>
 
       {folderChain.map((folder, index) => {

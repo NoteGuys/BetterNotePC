@@ -72,39 +72,67 @@ export const exportFullBackup = async () => {
 };
 
 /**
- * Import full BetterNote database from a local file
+ * Restore full BetterNote database from a parsed backup data object
  */
-export const importFullBackup = async (file) => {
-  const text = await file.text();
-  const data = JSON.parse(text);
-
-  if (!data.notebooks) {
+export const restoreFullBackup = async (data) => {
+  if (!data || !data.notebooks) {
     throw new Error('รูปแบบไฟล์ไม่ถูกต้อง ไม่พบข้อมูลสมุดโน้ต');
   }
 
   // Restore folders
   if (data.folders && Array.isArray(data.folders)) {
     for (const f of data.folders) {
-      await saveFolder(f);
-    }
-  }
-
-  // Restore notebooks & pages
-  for (const nb of data.notebooks) {
-    const { pages, ...notebookMeta } = nb;
-    await saveNotebook(notebookMeta);
-
-    if (pages && Array.isArray(pages)) {
-      for (const p of pages) {
-        await savePage(p);
+      if (f && f.id) {
+        await saveFolder(f);
       }
     }
   }
 
+  let restoredCount = 0;
+  // Restore notebooks & pages
+  for (const nb of data.notebooks) {
+    if (!nb || (!nb.id && !nb.name)) continue;
+    const { pages, ...notebookMeta } = nb;
+    await saveNotebook(notebookMeta);
+
+    if (pages && Array.isArray(pages) && pages.length > 0) {
+      for (const p of pages) {
+        if (p && p.id) {
+          await savePage(p);
+        }
+      }
+    } else {
+      // Ensure at least 1 page exists if pages array wasn't bundled
+      const existingPages = await getPagesByNotebookId(notebookMeta.id);
+      if (!existingPages || existingPages.length === 0) {
+        await savePage({
+          id: `${notebookMeta.id}_page_0`,
+          notebookId: notebookMeta.id,
+          pageIndex: 0,
+          strokes: [],
+          drawings: [],
+          textBlocks: [],
+          images: [],
+          templateId: notebookMeta.templateId || 'blank'
+        });
+      }
+    }
+    restoredCount++;
+  }
+
   return {
     foldersCount: data.folders?.length || 0,
-    notebooksCount: data.notebooks.length
+    notebooksCount: restoredCount
   };
+};
+
+/**
+ * Import full BetterNote database from a local file
+ */
+export const importFullBackup = async (file) => {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  return await restoreFullBackup(data);
 };
 
 /**

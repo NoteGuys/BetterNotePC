@@ -105,6 +105,16 @@ export const deleteFolder = async (folderId) => {
   });
 };
 
+export const batchDeleteFolders = async (folderIds = []) => {
+  if (!Array.isArray(folderIds) || folderIds.length === 0) return;
+  const store = await getStore('folders', 'readwrite');
+  return new Promise((resolve, reject) => {
+    folderIds.forEach(id => store.delete(id));
+    store.transaction.oncomplete = () => resolve();
+    store.transaction.onerror = () => reject(store.transaction.error);
+  });
+};
+
 // ==================== NOTEBOOKS ====================
 export const getNotebooks = async (folderId = null) => {
   const store = await getStore('notebooks', 'readonly');
@@ -171,6 +181,30 @@ export const deleteNotebook = async (notebookId) => {
     };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const batchDeleteNotebooks = async (notebookIds = []) => {
+  if (!Array.isArray(notebookIds) || notebookIds.length === 0) return;
+  const db = await openDB();
+  const tx = db.transaction(['notebooks', 'pages'], 'readwrite');
+  const notebookStore = tx.objectStore('notebooks');
+  const pageStore = tx.objectStore('pages');
+  const pageIndex = pageStore.index('notebookId');
+
+  return new Promise((resolve, reject) => {
+    notebookIds.forEach(id => {
+      notebookStore.delete(id);
+      const req = pageIndex.getAllKeys(id);
+      req.onsuccess = () => {
+        const keys = req.result || [];
+        keys.forEach(k => pageStore.delete(k));
+      };
+    });
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
   });
 };
 

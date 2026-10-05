@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Book, Folder, Check, FileUp, Sparkles, FileCode2 } from 'lucide-react';
 import { NOTEBOOK_COVERS } from '../../data/covers';
 import { PAPER_TEMPLATES, PAPER_SIZES, getPaperSize } from '../../data/templates';
+import { PaperPreviewThumbnail } from '../Common/PaperPreviewThumbnail';
 import { useLanguage } from '../../services/i18n';
 
 const FOLDER_COLORS = [
@@ -186,9 +187,7 @@ export const NewItemModal = ({
                     {t('paperSizeLabel', 'ขนาดหน้ากระดาษ (Paper Size)')}
                   </label>
                   <span style={{ fontSize: '11px', color: '#60a5fa' }}>
-                    {language === 'en' 
-                      ? (selectedSize === 'A4' ? 'A4 (Standard)' : selectedSize === 'A3' ? 'A3 (2x Large)' : selectedSize === 'A2' ? 'A2 (Poster/Blueprint)' : selectedSize)
-                      : (PAPER_SIZES.find(s => s.id === selectedSize)?.fullName || selectedSize)}
+                    {t(`paper_size_${selectedSize}`, selectedSize)}
                   </span>
                 </div>
                 <div className="bn-new-paper-grid">
@@ -211,7 +210,7 @@ export const NewItemModal = ({
                               padding: '2px 5px', 
                               borderRadius: '4px' 
                             }}>
-                              {language === 'en' ? (s.id === 'A4' ? 'Popular' : s.id === 'A3' ? 'Extra Wide' : 'Giant') : s.badge}
+                              {t('template_badge_' + (s.id === 'A4' ? 'popular' : s.id === 'A3' ? 'extra_wide' : 'giant'), s.badge)}
                             </span>
                           )}
                         </div>
@@ -264,22 +263,27 @@ export const NewItemModal = ({
                       <div className="bn-template-radio">
                         {selectedTemplate === tmpl.id && <div className="bn-template-radio-inner"></div>}
                       </div>
+                      <PaperPreviewThumbnail templateId={tmpl.id} width={30} height={40} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: '12.5px', color: '#f4f4f5' }}>
-                          {language === 'en' ? (tmpl.name.includes('(') ? tmpl.name.split('(')[1].replace(')', '') : tmpl.name) : tmpl.name}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                          <span style={{ fontWeight: 600, fontSize: '12.5px', color: '#f4f4f5' }}>
+                            {t('template_' + tmpl.id.replace(/-/g, '_'), tmpl.name)}
+                          </span>
+                          {tmpl.badge && (
+                            <span style={{ 
+                              fontSize: '8px', 
+                              background: 'rgba(16, 185, 129, 0.2)', 
+                              color: '#34d399', 
+                              padding: '1px 5px', 
+                              borderRadius: '3px', 
+                              fontWeight: 700 
+                            }}>
+                              {t('template_badge_' + (tmpl.id === 'narrow-ruled' ? 'fine' : tmpl.id === 'wide-ruled' ? 'comfort' : tmpl.id === 'A3' ? 'extra_wide' : tmpl.id === 'A2' ? 'giant' : 'popular'), tmpl.badge)}
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                          {language === 'en' ? (
-                            tmpl.id === 'dotted' ? 'Bullet journal guide dots for planning and sketching' :
-                            tmpl.id === 'narrow-ruled' ? 'Narrow 22px lined spacing for dense text' :
-                            tmpl.id === 'wide-ruled' ? 'Wide 38px lined spacing for headers or calligraphy' :
-                            tmpl.id === 'ruled' ? 'Standard 30px lined notebook paper' :
-                            tmpl.id === 'grid' ? '5mm grid squares for math, charts, and statistics' :
-                            tmpl.id === 'blank' ? 'Plain white unlined paper for freehand drawing' :
-                            tmpl.id === 'cornell' ? 'Cornell format with cues and summary section' :
-                            tmpl.id === 'dark-dotted' ? 'Dark contrast paper highlights neon & white ink' :
-                            tmpl.description
-                          ) : tmpl.description}
+                          {t('template_desc_' + tmpl.id.replace(/-/g, '_'), tmpl.description)}
                         </div>
                       </div>
                     </div>

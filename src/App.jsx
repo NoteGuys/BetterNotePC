@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
 import { GoogleDriveModal } from './components/Common/GoogleDriveModal';
+import { UpdateNotificationModal } from './components/Common/UpdateNotificationModal';
 import { LibraryView } from './components/Library/LibraryView';
 import { NoteEditor } from './components/Editor/NoteEditor';
 import { 
@@ -20,6 +21,7 @@ import {
 } from './services/db';
 import { exportFullBackup, importFullBackup, importBnoteFile } from './services/fileSystemService';
 import { autoBackupService } from './services/autoBackupService';
+import { checkForStoreUpdate } from './services/updateService';
 import { exportNotebookToPdf } from './utils/pdfExportEngine';
 import { getPaperSize } from './data/templates';
 import { getAppTheme, setAppTheme, applyThemeToDom } from './services/userPreferences';
@@ -33,6 +35,32 @@ export function App() {
   const [activeNotebookId, setActiveNotebookId] = useState(null);
   const [activeNotebookPageIndex, setActiveNotebookPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Automatic Daily Microsoft Store Update Check
+  const [updateModalData, setUpdateModalData] = useState(null);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const runStartupUpdateCheck = async () => {
+      // Delay slightly (1500ms) so startup database loading settles smoothly
+      await new Promise(r => setTimeout(r, 1500));
+      if (!isMounted) return;
+
+      try {
+        const updateResult = await checkForStoreUpdate();
+        if (isMounted && updateResult?.hasUpdate) {
+          setUpdateModalData(updateResult);
+          setIsUpdateModalOpen(true);
+        }
+      } catch (err) {
+        console.warn('Startup update check notice:', err);
+      }
+    };
+
+    runStartupUpdateCheck();
+    return () => { isMounted = false; };
+  }, []);
 
   // Multi-Document Tabs (Max 5 Stacked) & Last Opened Page per notebook
   const [openTabs, setOpenTabs] = useState(() => {
@@ -314,6 +342,9 @@ export function App() {
   const handleDeleteNotebook = async (notebookId) => {
     const target = notebooks.find(nb => nb.id === notebookId);
     await deleteNotebook(notebookId);
+    if (target?.name) {
+      autoBackupService.pruneDeletedNotebook(target.name);
+    }
     setNotebooks(prev => prev.filter(nb => nb.id !== notebookId));
 
     // Remove from openTabs if currently open
@@ -495,6 +526,10 @@ export function App() {
             onTriggerAutoSync={(opts) => autoBackupService.runAutoBackup(opts)}
             onExportBackup={handleExportBackup}
             onImportBackup={handleImportBackup}
+            onOpenUpdateModal={(data) => {
+              setUpdateModalData(data);
+              setIsUpdateModalOpen(true);
+            }}
           />
         )}
       </div>
@@ -504,6 +539,13 @@ export function App() {
         isOpen={isDriveModalOpen}
         onClose={() => setIsDriveModalOpen(false)}
         onSyncComplete={loadData}
+      />
+
+      {/* Microsoft Store Update Notification Modal */}
+      <UpdateNotificationModal 
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        updateData={updateModalData}
       />
     </div>
   );

@@ -5,11 +5,10 @@ import {
   FileText, 
   Check, 
   Maximize2, 
-  Columns, 
-  Layout, 
   Sparkles
 } from 'lucide-react';
 import { PAPER_SIZES, PAPER_TEMPLATES, getPaperSize } from '../../data/templates';
+import { PaperPreviewThumbnail } from '../Common/PaperPreviewThumbnail';
 import { useLanguage } from '../../services/i18n';
 
 export const AddPageModal = ({ 
@@ -40,68 +39,97 @@ export const AddPageModal = ({
     onClose();
   };
 
+  const selectedTemplateObj = PAPER_TEMPLATES.find(tmpl => tmpl.id === selectedTemplate) || PAPER_TEMPLATES[0];
+
   return (
     <div className="bn-modal-backdrop" onClick={onClose}>
       <div 
-        className="bn-modal-card max-w-lg w-full bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl overflow-hidden" 
+        className="bn-modal-content"
+        style={{ 
+          maxWidth: '560px', 
+          width: '100%', 
+          maxHeight: '88vh',
+          display: 'flex',
+          flexDirection: 'column',
+          background: '#18181b',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          borderRadius: '16px',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bn-modal-header px-5 py-4 border-b border-white/10 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center">
-              <Plus size={18} strokeWidth={2.5} />
+        <div className="bn-modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ 
+              width: '36px', 
+              height: '36px', 
+              borderRadius: '10px', 
+              background: 'rgba(59, 130, 246, 0.15)', 
+              color: '#60a5fa', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center' 
+            }}>
+              <Plus size={20} strokeWidth={2.5} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">{t('addNewPageTitle', 'เพิ่มหน้ากระดาษใหม่')}</h3>
-              <p className="text-[11px] text-zinc-400">{t('addNewPageSub', 'เลือกขนาด A2/A3/A4 และรูปแบบกระดาษที่ต้องการ')}</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#ffffff', margin: 0, lineHeight: 1.2 }}>
+                {t('addNewPageTitle', 'เพิ่มหน้ากระดาษใหม่')}
+              </h3>
+              <p style={{ fontSize: '11px', color: '#a1a1aa', margin: '3px 0 0 0' }}>
+                {t('addNewPageSub', 'เลือกขนาด A2/A3/A4 และรูปแบบกระดาษที่ต้องการ')}
+              </p>
             </div>
           </div>
           <button 
-            className="bn-btn-icon text-zinc-400 hover:text-white"
+            type="button"
+            className="bn-modal-close-btn"
             onClick={onClose}
+            title={t('close', 'ปิด')}
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="p-5 space-y-5 max-h-[75vh] overflow-y-auto">
+        {/* Body */}
+        <div className="bn-modal-body" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
           {/* Section 1: ขนาดหน้ากระดาษ (A2, A3, A4) */}
           <div>
-            <label className="text-xs font-semibold text-zinc-300 block mb-2">
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '8px' }}>
               {t('paperSizeStep', '1. เลือกขนาดหน้ากระดาษ')}
             </label>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="bn-new-paper-grid">
               {PAPER_SIZES.map(s => {
                 const isSelected = selectedSize === s.id;
                 return (
-                  <button
+                  <div
                     key={s.id}
-                    type="button"
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      isSelected 
-                        ? 'bg-blue-600/15 border-blue-500 ring-1 ring-blue-500 text-white' 
-                        : 'bg-zinc-800/60 border-zinc-700 hover:bg-zinc-800 text-zinc-300'
-                    }`}
+                    className={`bn-new-paper-card ${isSelected ? 'bn-new-paper-card-active' : ''}`}
                     onClick={() => setSelectedSize(s.id)}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-base font-bold text-white">{s.name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontWeight: 700, fontSize: '13px', color: isSelected ? '#ffffff' : '#f4f4f5' }}>{s.name}</span>
                       {s.badge && (
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
-                          isSelected ? 'bg-blue-500 text-white' : 'bg-zinc-700 text-zinc-300'
-                        }`}>
-                          {language === 'en' ? (s.id === 'A4' ? 'Popular' : s.id === 'A3' ? 'Extra Wide' : 'Giant') : s.badge}
+                        <span style={{ 
+                          fontSize: '9px', 
+                          fontWeight: 700, 
+                          background: isSelected ? '#3b82f6' : 'rgba(255, 255, 255, 0.1)', 
+                          color: isSelected ? '#ffffff' : '#a1a1aa', 
+                          padding: '2px 5px', 
+                          borderRadius: '4px' 
+                        }}>
+                          {t('template_badge_' + (s.id === 'A4' ? 'popular' : s.id === 'A3' ? 'extra_wide' : 'giant'), s.badge)}
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-zinc-400 leading-tight">
-                      {language === 'en' ? (s.id === 'A4' ? 'A4 (Standard)' : s.id === 'A3' ? 'A3 (2x Large)' : s.id === 'A2' ? 'A2 (Poster/Blueprint)' : s.fullName) : s.fullName}
+                    <div style={{ fontSize: '10px', color: '#a1a1aa', marginTop: '3px' }}>
+                      {t('paper_size_' + s.id, s.fullName)}
                     </div>
-                    <div className="text-[9px] text-zinc-500 mt-1">
+                    <div style={{ fontSize: '9px', color: '#71717a', marginTop: '2px' }}>
                       {s.width} × {s.height} px
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -109,110 +137,99 @@ export const AddPageModal = ({
 
           {/* Section 2: ทิศทางหน้ากระดาษ (แนวตั้ง / แนวนอน) */}
           <div>
-            <label className="text-xs font-semibold text-zinc-300 block mb-2">
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '8px' }}>
               {t('orientationStep', '2. ทิศทางกระดาษ')}
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="bn-new-orient-row">
               <button
                 type="button"
-                className={`py-2 px-3 rounded-xl border flex items-center justify-center gap-2 text-xs font-medium transition-all ${
-                  orientation === 'portrait'
-                    ? 'bg-blue-600/20 border-blue-500 text-white font-semibold'
-                    : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                }`}
+                className={`bn-new-orient-btn ${orientation === 'portrait' ? 'bn-new-orient-btn-active' : ''}`}
                 onClick={() => setOrientation('portrait')}
               >
-                <div className="w-3.5 h-5 border border-current rounded-sm" />
+                <div style={{ width: '12px', height: '16px', border: '1.5px solid currentColor', borderRadius: '2px' }} />
                 <span>{t('portrait', 'แนวตั้ง (Portrait)')}</span>
               </button>
               <button
                 type="button"
-                className={`py-2 px-3 rounded-xl border flex items-center justify-center gap-2 text-xs font-medium transition-all ${
-                  orientation === 'landscape'
-                    ? 'bg-blue-600/20 border-blue-500 text-white font-semibold'
-                    : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                }`}
+                className={`bn-new-orient-btn ${orientation === 'landscape' ? 'bn-new-orient-btn-active' : ''}`}
                 onClick={() => setOrientation('landscape')}
               >
-                <div className="w-5 h-3.5 border border-current rounded-sm" />
+                <div style={{ width: '16px', height: '12px', border: '1.5px solid currentColor', borderRadius: '2px' }} />
                 <span>{t('landscape', 'แนวนอน (Landscape)')}</span>
               </button>
             </div>
           </div>
 
-          {/* Section 3: ลักษณะหน้ากระดาษ (ลายจุด, เส้นแคบ, เส้นกว้าง, etc.) */}
+          {/* Section 3: ลักษณะหน้ากระดาษ พร้อมภาพตัวอย่าง (Paper Template) */}
           <div>
-            <label className="text-xs font-semibold text-zinc-300 block mb-2">
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '8px' }}>
               {t('patternStep', '3. ลักษณะหน้ากระดาษ (ลายเส้น / พื้นผิว)')}
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(2, 1fr)', 
+              gap: '8px', 
+              maxHeight: '210px', 
+              overflowY: 'auto',
+              paddingRight: '4px'
+            }}>
               {PAPER_TEMPLATES.map(tmpl => {
                 const isSelected = selectedTemplate === tmpl.id;
                 return (
-                  <button
+                  <div
                     key={tmpl.id}
-                    type="button"
-                    className={`p-2.5 rounded-xl border text-left transition-all flex items-start gap-2.5 ${
-                      isSelected
-                        ? 'bg-blue-600/15 border-blue-500 ring-1 ring-blue-500'
-                        : 'bg-zinc-800/60 border-zinc-700/80 hover:bg-zinc-800'
-                    }`}
+                    className={`bn-template-card ${isSelected ? 'bn-template-card-selected' : ''}`}
                     onClick={() => setSelectedTemplate(tmpl.id)}
+                    style={{ 
+                      padding: '8px 10px', 
+                      gap: '10px', 
+                      alignItems: 'center',
+                      borderRadius: '10px'
+                    }}
                   >
                     {/* Visual paper preview miniature */}
-                    <div 
-                      className="w-8 h-10 rounded border border-zinc-600 flex-shrink-0 relative overflow-hidden flex flex-col justify-center px-1"
-                      style={{ backgroundColor: tmpl.bg || '#ffffff' }}
-                    >
-                      {tmpl.type === 'ruled' && (
-                        <div className="space-y-1">
-                          <div className="h-px bg-zinc-300 w-full" />
-                          <div className="h-px bg-zinc-300 w-full" />
-                          <div className="h-px bg-zinc-300 w-full" />
-                        </div>
-                      )}
-                      {tmpl.type === 'grid' && (
-                        <div className="w-full h-full grid grid-cols-3 grid-rows-4 gap-0.5 opacity-60">
-                          {Array.from({ length: 12 }).map((_, i) => (
-                            <div key={i} className="border border-zinc-400" />
-                          ))}
-                        </div>
-                      )}
-                      {tmpl.type === 'dotted' && (
-                        <div className="w-full h-full flex flex-wrap gap-1 items-center justify-center p-0.5">
-                          {Array.from({ length: 6 }).map((_, i) => (
-                            <div key={i} className="w-0.5 h-0.5 rounded-full bg-zinc-400" />
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <PaperPreviewThumbnail templateId={tmpl.id} width={30} height={40} />
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs font-semibold truncate ${isSelected ? 'text-white' : 'text-zinc-200'}`}>
-                          {language === 'en' ? (tmpl.name.includes('(') ? tmpl.name.split('(')[1].replace(')', '') : tmpl.name) : tmpl.name}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+                        <span style={{ 
+                          fontSize: '12px', 
+                          fontWeight: 600, 
+                          color: isSelected ? '#ffffff' : '#f4f4f5', 
+                          overflow: 'hidden', 
+                          textOverflow: 'ellipsis', 
+                          whiteSpace: 'nowrap' 
+                        }}>
+                          {t('template_' + tmpl.id.replace(/-/g, '_'), tmpl.name)}
                         </span>
                         {tmpl.badge && (
-                          <span className="text-[8px] bg-emerald-500/20 text-emerald-300 px-1 py-0.2 rounded font-bold">
-                            {language === 'en' ? (tmpl.id === 'narrow-ruled' ? 'Fine' : tmpl.id === 'wide-ruled' ? 'Comfort' : tmpl.badge) : tmpl.badge}
+                          <span style={{ 
+                            fontSize: '8px', 
+                            background: 'rgba(16, 185, 129, 0.2)', 
+                            color: '#34d399', 
+                            padding: '1px 5px', 
+                            borderRadius: '3px', 
+                            fontWeight: 700,
+                            flexShrink: 0
+                          }}>
+                            {t('template_badge_' + (tmpl.id === 'narrow-ruled' ? 'fine' : tmpl.id === 'wide-ruled' ? 'comfort' : tmpl.id === 'A3' ? 'extra_wide' : tmpl.id === 'A2' ? 'giant' : 'popular'), tmpl.badge)}
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-zinc-400 line-clamp-2 mt-0.5 leading-tight">
-                        {language === 'en' ? (
-                          tmpl.id === 'dotted' ? 'Bullet journal guide dots for planning and sketching' :
-                          tmpl.id === 'narrow-ruled' ? 'Narrow 22px lined spacing for dense text' :
-                          tmpl.id === 'wide-ruled' ? 'Wide 38px lined spacing for headers or calligraphy' :
-                          tmpl.id === 'ruled' ? 'Standard 30px lined notebook paper' :
-                          tmpl.id === 'grid' ? '5mm grid squares for math, charts, and statistics' :
-                          tmpl.id === 'blank' ? 'Plain white unlined paper for freehand drawing' :
-                          tmpl.id === 'cornell' ? 'Cornell format with cues and summary section' :
-                          tmpl.id === 'dark-dotted' ? 'Dark contrast paper highlights neon & white ink' :
-                          tmpl.description
-                        ) : tmpl.description}
+                      <p style={{ 
+                        fontSize: '10px', 
+                        color: '#a1a1aa', 
+                        margin: '2px 0 0 0', 
+                        lineHeight: 1.25, 
+                        display: '-webkit-box', 
+                        WebkitLineClamp: 2, 
+                        WebkitBoxOrient: 'vertical', 
+                        overflow: 'hidden' 
+                      }}>
+                        {t('template_desc_' + tmpl.id.replace(/-/g, '_'), tmpl.description)}
                       </p>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -220,59 +237,54 @@ export const AddPageModal = ({
 
           {/* Section 4: ตำแหน่งที่ต้องการเพิ่ม */}
           <div>
-            <label className="text-xs font-semibold text-zinc-300 block mb-1.5">
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '8px' }}>
               {t('positionStep', '4. ตำแหน่งหน้า')}
             </label>
-            <div className="flex gap-2">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <button
                 type="button"
-                className={`flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium ${
-                  insertPosition === 'after'
-                    ? 'bg-blue-600/20 border-blue-500 text-white font-semibold'
-                    : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                }`}
+                className={`bn-new-orient-btn ${insertPosition === 'after' ? 'bn-new-orient-btn-active' : ''}`}
                 onClick={() => setInsertPosition('after')}
               >
-                {t('insertAfterCurrent', 'ต่อจากหน้านี้ (หน้า {page})', { page: currentPageIndex + 1 })}
+                <span>{t('insertAfterCurrent', 'ต่อจากหน้านี้ (หน้า {page})', { page: currentPageIndex + 1 })}</span>
               </button>
               <button
                 type="button"
-                className={`flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium ${
-                  insertPosition === 'end'
-                    ? 'bg-blue-600/20 border-blue-500 text-white font-semibold'
-                    : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                }`}
+                className={`bn-new-orient-btn ${insertPosition === 'end' ? 'bn-new-orient-btn-active' : ''}`}
                 onClick={() => setInsertPosition('end')}
               >
-                {t('insertAtEnd', 'ต่อท้ายสุด (หน้า {page})', { page: totalPages + 1 })}
+                <span>{t('insertAtEnd', 'ต่อท้ายสุด (หน้า {page})', { page: totalPages + 1 })}</span>
               </button>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3.5 bg-zinc-950/60 border-t border-white/10 flex items-center justify-between">
-          <span className="text-xs text-zinc-400">
-            {selectedSize} • {orientation === 'portrait' ? (language === 'en' ? 'Portrait' : 'แนวตั้ง') : (language === 'en' ? 'Landscape' : 'แนวนอน')} • {
-              (() => {
-                const tmpl = PAPER_TEMPLATES.find(t => t.id === selectedTemplate);
-                if (!tmpl) return '';
-                return language === 'en' ? (tmpl.name.includes('(') ? tmpl.name.split('(')[1].replace(')', '') : tmpl.name) : tmpl.name;
-              })()
+        <div className="bn-modal-footer" style={{ 
+          padding: '12px 20px', 
+          background: 'rgba(0, 0, 0, 0.25)', 
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          justifyContent: 'space-between'
+        }}>
+          <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+            {selectedSize} • {orientation === 'portrait' ? t('portrait', 'แนวตั้ง') : t('landscape', 'แนวนอน')} • {
+              t('template_' + selectedTemplateObj.id.replace(/-/g, '_'), selectedTemplateObj.name)
             }
           </span>
 
-          <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               type="button"
-              className="px-3 py-1.5 rounded-xl text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+              className="bn-btn-secondary"
+              style={{ padding: '6px 14px', fontSize: '12px', borderRadius: '8px' }}
               onClick={onClose}
             >
               {t('cancel', 'ยกเลิก')}
             </button>
             <button
               type="button"
-              className="bn-btn-primary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5"
+              className="bn-btn-primary"
+              style={{ padding: '6px 16px', fontSize: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleConfirm}
             >
               <Plus size={15} strokeWidth={2.5} />

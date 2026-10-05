@@ -384,7 +384,7 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
             fontSize: 12
           }}>
             <span style={{ color: '#94a3b8', fontSize: 11 }}>
-              {language === 'en' ? 'Drag frame or handles to select crop area' : 'ลากกรอบสี่เหลี่ยม หรือดึงมุมปรับขนาดเพื่อเลือกพื้นที่ที่ต้องการครอบตัด'}
+              {t('cropHelpText', 'ลากกรอบสี่เหลี่ยม หรือดึงมุมปรับขนาดเพื่อเลือกพื้นที่ที่ต้องการครอบตัด')}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button 
@@ -503,7 +503,7 @@ export const SnipModal = ({ snipImage, onConfirm, onClose }) => {
                 className="bn-btn-secondary"
                 style={{ padding: '8px 12px', fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6 }}
                 onClick={handleResetOriginal}
-                title={language === 'en' ? 'Revert to original captured image' : 'ย้อนกลับไปใช้ภาพแคปเจอร์แรกสุด'}
+                title={t('resetOriginalTooltip', 'ย้อนกลับไปใช้ภาพแคปเจอร์แรกสุด')}
               >
                 <RotateCcw size={13} />
                 <span>{t('resetOriginalImage', 'คืนค่าภาพเดิม')}</span>

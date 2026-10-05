@@ -1,4 +1,4 @@
-// Automated Google Drive & Local Disk Backup Service for BetterNote (Non-blocking & Ultra-fast)
+// Automated Google Drive & Local Disk Backup Service for BetterNote (Non-blocking & Zero-lag PDF + .bnote)
 import { getAllFolders, getAllNotebooks, getPagesByNotebookId, saveSetting, getSetting } from './db.js';
 import { generateNotebookPdfBase64 } from '../utils/pdfExportEngine.js';
 
@@ -8,7 +8,29 @@ class AutoBackupService {
     this.isSyncing = false;
     this.lastSyncTime = null;
     this.lastPdfBackupMap = new Map();
+    // Load differential PDF backup timestamps from localStorage to prevent re-rendering on app startup
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('betternote_last_pdf_backup_map');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object') {
+            this.lastPdfBackupMap = new Map(Object.entries(parsed));
+          }
+        }
+      }
+    } catch (_) {}
     this.listeners = new Set();
+  }
+
+  // Persist differential PDF timestamps
+  _persistPdfMap() {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const obj = Object.fromEntries(this.lastPdfBackupMap);
+        window.localStorage.setItem('betternote_last_pdf_backup_map', JSON.stringify(obj));
+      }
+    } catch (_) {}
   }
 
   // Subscribe to sync status updates
@@ -32,22 +54,32 @@ class AutoBackupService {
 
     const forcePdf = !!options?.forcePdf;
 
-    let customBackupPath = 'H:\\My Drive\\BetterNote.AppPC';
+    let customBackupPath = null;
     try {
       const stored = await getSetting('local_backup_path');
-      if (stored && typeof stored === 'string') {
-        customBackupPath = stored;
+      if (stored && typeof stored === 'string' && stored.trim()) {
+        customBackupPath = stored.trim();
       } else if (typeof window !== 'undefined' && window.localStorage) {
         const lsVal = window.localStorage.getItem('local_backup_path');
-        if (lsVal) customBackupPath = lsVal;
+        if (lsVal && lsVal.trim()) customBackupPath = lsVal.trim();
       }
     } catch (_) {}
 
-    this.notify({ syncing: true, message: `กำลังบันทึกสำรอง (${customBackupPath})...` });
+    this.notify({ syncing: true, message: customBackupPath ? `กำลังบันทึกสำรอง (${customBackupPath})...` : 'กำลังบันทึกสำรองข้อมูล...' });
 
     try {
-      const folders = await getAllFolders();
-      const notebooks = await getAllNotebooks();
+      const allFolders = await getAllFolders();
+      const allNotebooks = await getAllNotebooks();
+
+      // Exclude trashed / soft-deleted notebooks and folders from cloud backups
+      const folders = allFolders.filter(f => !f.isDeleted);
+      const notebooks = allNotebooks.filter(nb => !nb.isDeleted);
+
+      if (notebooks.length === 0 && folders.length === 0) {
+        // Never overwrite backups with empty state
+        this.notify({ syncing: false });
+        return;
+      }
 
       // Check if any notebook or folder has been updated since last sync (unless forcePdf is requested)
       const latestNotebookUpdate = Math.max(0, ...notebooks.map(n => n.updatedAt || 0));
@@ -69,10 +101,12 @@ class AutoBackupService {
         notebooks: []
       };
 
-      // Non-blocking loop: save JSON structures and generate valid PDF for modified notebooks
+      const updatedPdfs = [];
+
+      // Non-blocking differential loop: save JSON structures and generate PDF backups
       for (const nb of notebooks) {
-        // Generous yield to browser event loop between notebooks to keep UI 100% responsive
-        await new Promise(resolve => setTimeout(resolve, 20));
+        // Generous cooperative yield to browser event loop between notebooks to keep UI 100% responsive
+        await new Promise(resolve => setTimeout(resolve, 30));
 
         const pages = await getPagesByNotebookId(nb.id);
         const notebookBundle = {
@@ -80,9 +114,11 @@ class AutoBackupService {
           pages
         };
 
-        // Differential PDF Backup: only generate when notebook was modified or forced
-        const lastPdfTime = this.lastPdfBackupMap.get(nb.id) || 0;
-        const nbUpdatedTime = nb.updatedAt || 0;
+        fullBackup.notebooks.push(notebookBundle);
+
+        // Differential PDF backup: only generate when notebook was actually modified or newly backed up
+        const lastPdfTime = Number(this.lastPdfBackupMap.get(nb.id)) || 0;
+        const nbUpdatedTime = Number(nb.updatedAt) || 0;
         const needsPdf = forcePdf || !lastPdfTime || nbUpdatedTime > lastPdfTime;
 
         if (needsPdf && pages && pages.length > 0) {
@@ -91,23 +127,32 @@ class AutoBackupService {
               syncing: true, 
               message: `กำลังบันทึก PDF สำรอง (${nb.name || 'สมุดบันทึก'})...` 
             });
+            // Yield before heavy canvas PDF rendering to prevent UI thread lock
+            await new Promise(resolve => setTimeout(resolve, 40));
+
             const pdfBase64 = await generateNotebookPdfBase64(nb, pages);
             if (pdfBase64) {
-              notebookBundle.pdfBase64 = pdfBase64;
+              updatedPdfs.push({
+                name: nb.name,
+                pdfBase64
+              });
               this.lastPdfBackupMap.set(nb.id, nbUpdatedTime || Date.now());
             }
           } catch (pdfErr) {
             console.warn(`PDF backup notice for ${nb.name}:`, pdfErr.message);
           }
+          // Cooperative yield after processing each notebook
+          await new Promise(resolve => setTimeout(resolve, 30));
         }
-
-        fullBackup.notebooks.push(notebookBundle);
       }
+
+      this._persistPdfMap();
 
       const backupPayload = {
         customBackupPath,
         fullBackup,
-        notebooks: fullBackup.notebooks
+        notebooks: fullBackup.notebooks,
+        updatedPdfs
       };
 
       // If running inside Electron Native App, write directly via Node IPC
@@ -184,14 +229,40 @@ class AutoBackupService {
   /**
    * Immediately prune deleted notebook files from backups
    */
-  async pruneDeletedNotebook(notebookName) {
+  async pruneDeletedNotebook(notebookName, notebookId = null) {
     if (!notebookName) return;
+    if (notebookId) {
+      this.lastPdfBackupMap.delete(notebookId);
+      this._persistPdfMap();
+    }
     try {
       if (typeof window !== 'undefined' && window.electronAPI?.pruneBackupNotebook) {
         await window.electronAPI.pruneBackupNotebook(notebookName);
       }
     } catch (err) {
       console.warn('Prune backup notice:', err.message);
+    }
+  }
+
+  /**
+   * Batch prune multiple deleted notebooks from backups in one safe operation
+   */
+  async pruneDeletedNotebooks(notebookNames, notebookIds = []) {
+    if (!Array.isArray(notebookNames) || notebookNames.length === 0) return;
+    if (Array.isArray(notebookIds) && notebookIds.length > 0) {
+      notebookIds.forEach(id => this.lastPdfBackupMap.delete(id));
+      this._persistPdfMap();
+    }
+    try {
+      if (typeof window !== 'undefined' && window.electronAPI?.pruneBackupNotebooksBatch) {
+        await window.electronAPI.pruneBackupNotebooksBatch(notebookNames);
+      } else if (typeof window !== 'undefined' && window.electronAPI?.pruneBackupNotebook) {
+        for (const name of notebookNames) {
+          await window.electronAPI.pruneBackupNotebook(name);
+        }
+      }
+    } catch (err) {
+      console.warn('Batch prune backup notice:', err.message);
     }
   }
 
@@ -246,9 +317,22 @@ class AutoBackupService {
    * Fetch comprehensive backup manifest, file details, timestamps, and destination folder
    */
   async getBackupStatusDetails(customPath = null) {
+    let pathToCheck = customPath;
+    if (!pathToCheck) {
+      try {
+        const stored = await getSetting('local_backup_path');
+        if (stored && typeof stored === 'string' && stored.trim()) {
+          pathToCheck = stored.trim();
+        } else if (typeof window !== 'undefined' && window.localStorage) {
+          const lsVal = window.localStorage.getItem('local_backup_path');
+          if (lsVal && lsVal.trim()) pathToCheck = lsVal.trim();
+        }
+      } catch (_) {}
+    }
+
     try {
       if (typeof window !== 'undefined' && window.electronAPI?.getBackupStatusDetails) {
-        return await window.electronAPI.getBackupStatusDetails(customPath);
+        return await window.electronAPI.getBackupStatusDetails(pathToCheck);
       }
     } catch (err) {
       console.warn('Get backup status details error:', err.message);
@@ -256,8 +340,8 @@ class AutoBackupService {
     // Web fallback for browser environment
     return {
       success: true,
-      targetDir: 'H:\\My Drive\\BetterNote.AppPC',
-      isGoogleDrive: true,
+      targetDir: pathToCheck || 'BetterNote_Backups',
+      isGoogleDrive: false,
       exists: true,
       lastSync: this.lastSyncTime || Date.now() - 60000,
       manifest: { lastSync: this.lastSyncTime || Date.now() - 60000, activeNotebooksCount: 1 },

@@ -18,6 +18,9 @@ Antigravity IDE/
 Launch Antigravity (Port 9000).bat
 inject_master_auto_accept.cjs
 *ปิดแม่กุญแจ*.bat
+antigravity-auto-accept-submit-ext/
+register_ext.ps1
+test_uia_scan.ps1
 
 # Environment & OS
 .DS_Store

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--suppress XmlUnusedNamespaceDeclaration -->
+<Package
+   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+  <!-- use single quotes to avoid double quotes escaping in the publisher value  -->
+  <Identity Name="JustStone.3453441DD0CC3"
+    ProcessorArchitecture="x64"
+    Publisher='CN=01BEC724-2F5E-47FF-BC4E-71824A714A56'
+    Version="1.2.0.0" />
+  <Properties>
+    <DisplayName>BetterNotePC</DisplayName>
+    <PublisherDisplayName>JustStone</PublisherDisplayName>
+    <Description>Ultra-responsive digital handwriting, PDF annotation, and stylus notebook for Windows and Surface PC</Description>
+    <Logo>assets\StoreLogo.png</Logo>
+  </Properties>
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.14316.0" MaxVersionTested="10.0.14316.0" />
+  </Dependencies>
+  <Capabilities>
+  <rescap:Capability Name="runFullTrust"/>
+</Capabilities>
+  <Applications>
+    <Application Id="BetterNotePC" Executable="app\BetterNotePC.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+       BackgroundColor="#18181b"
+       DisplayName="BetterNotePC"
+       Square150x150Logo="assets\Square150x150Logo.png"
+       Square44x44Logo="assets\Square44x44Logo.png"
+       Description="Ultra-responsive digital handwriting, PDF annotation, and stylus notebook for Windows and Surface PC">
+        
+        <uap:DefaultTile Wide310x150Logo="assets\Wide310x150Logo.png" Square310x310Logo="assets\LargeTile.png" Square71x71Logo="assets\SmallTile.png" />
+        <uap:SplashScreen Image="assets\SplashScreen.png" />
+      </uap:VisualElements>
+      
+    </Application>
+  </Applications>
+</Package>

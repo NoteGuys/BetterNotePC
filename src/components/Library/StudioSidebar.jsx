@@ -2,8 +2,6 @@ import React from 'react';
 import { 
   Folder, 
   Star, 
-  Users, 
-  Store, 
   Trash2, 
   BookOpen,
   Sun,
@@ -34,19 +32,6 @@ export const StudioSidebar = ({
       icon: Star,
       iconColor: 'text-zinc-400',
       badge: favoriteCount > 0 ? favoriteCount : null
-    },
-    {
-      id: 'shared',
-      label: t('sidebarShared', 'แชร์'),
-      icon: Users,
-      iconColor: 'text-zinc-400'
-    },
-    {
-      id: 'marketplace',
-      label: t('sidebarMarketplace', 'มาร์เก็ตเพลส'),
-      icon: Store,
-      iconColor: 'text-zinc-400',
-      subtext: t('sidebarMarketplaceSub', '500+ รายการสำหรับคุณ')
     }
   ];
 

@@ -20,6 +20,8 @@ export const ThumbnailSidebar = ({
   const handleInsert = onInsertPageAfter || onInsertAfter;
   const activeItemRef = React.useRef(null);
 
+  const lastPageIndexRef = React.useRef(currentPageIndex);
+
   // Auto-scroll sidebar list to keep active page thumbnail visible (strictly container-scoped, zero window bleed)
   useEffect(() => {
     if (activeItemRef.current) {
@@ -29,11 +31,14 @@ export const ThumbnailSidebar = ({
         const itemHeight = activeItemRef.current.offsetHeight;
         const cTop = container.scrollTop;
         const cHeight = container.clientHeight;
+        const isFar = Math.abs(currentPageIndex - (lastPageIndexRef.current ?? currentPageIndex)) > 2;
+        const behavior = isFar ? 'auto' : 'smooth';
+        lastPageIndexRef.current = currentPageIndex;
 
         if (itemTop < cTop) {
-          container.scrollTo({ top: Math.max(0, itemTop - 12), behavior: 'smooth' });
+          container.scrollTo({ top: Math.max(0, itemTop - 12), behavior });
         } else if (itemTop + itemHeight > cTop + cHeight) {
-          container.scrollTo({ top: itemTop + itemHeight - cHeight + 12, behavior: 'smooth' });
+          container.scrollTo({ top: itemTop + itemHeight - cHeight + 12, behavior });
         }
       }
     }
@@ -178,7 +183,7 @@ export const ThumbnailSidebar = ({
                     e.stopPropagation();
                     setMenuOpenIndex(menuOpenIndex === index ? null : index);
                   }}
-                  title={language === 'en' ? 'Manage this page (duplicate, delete, insert after)' : 'จัดการหน้านี้ (ทำสำเนา, ลบ, เพิ่มหน้าต่อ)'}
+                  title={t('managePageTooltip', 'จัดการหน้านี้ (ทำสำเนา, ลบ, เพิ่มหน้าต่อ)')}
                 >
                   <MoreVertical size={14} />
                 </button>

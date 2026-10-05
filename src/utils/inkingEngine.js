@@ -379,12 +379,22 @@ export const detectScribble = (points, existingStrokes = [], enabled = true) => 
   }
 
   // Check orientation: Horizontal/Diagonal scratching vs pure vertical scratching
-  const isHorizontalOrDiagonal = width >= height * 0.45;
-  const isZigzag = isHorizontalOrDiagonal 
-    ? (xReversals >= 2 || (xReversals >= 1 && yReversals >= 1 && pathDensity >= 1.35)) 
-    : (yReversals >= 2);
+  // A true scribble gesture (ขยี้ลบ) requires rapid, repeated back-and-forth sweeps!
+  // Drawing a closed rectangle, circle, square, or triangle only has 1 reversal in X and 1 in Y (a single loop).
+  // Requiring at least 3 reversals in X, or 3 reversals in Y, or (2 in X and 2 in Y with high density)
+  // guarantees that simple geometric loops or boxes are never falsely classified as scribbles.
+  const isZigzag = (xReversals >= 3) || (yReversals >= 3) || (xReversals >= 2 && yReversals >= 2 && pathDensity >= 2.0);
 
   if (!isZigzag) return false;
+
+  // STRICT SAFETY GUARD: If stroke is recognized as a geometric shape (circle, ellipse, rectangle, triangle, line, arrow, polygon, star)
+  // it is an intentionally drawn shape or container and must NEVER erase underlying text!
+  if (typeof classifyGeometricShape === 'function') {
+    const recognizedShape = classifyGeometricShape(points);
+    if (recognizedShape && recognizedShape.type !== 'polyline') {
+      return false;
+    }
+  }
 
   const coreBox = { minX, maxX, minY, maxY };
   const bbox = {
@@ -562,7 +572,7 @@ export const snapAngle = (angleRad, snapThresholdDeg = 6) => {
  * High-Precision Geometric Shape Classifier
  * Returns { type, startPt, endPt, points, label, ...metadata } or null
  */
-export const classifyGeometricShape = (rawPoints) => {
+export function classifyGeometricShape(rawPoints) {
   if (!rawPoints || rawPoints.length < 5) return null;
 
   const startPt = rawPoints[0];

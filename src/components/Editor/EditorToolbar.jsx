@@ -347,7 +347,7 @@ export const EditorToolbar = ({
                   setShowPenSettings(false);
                 }
               }}
-              title={`${t('pen', 'ปากกา')}: ${penNib === 'fountain' ? t('fountainNib', 'หมึกซึม') : penNib === 'ballpoint' ? t('ballpointNib', 'ลูกลื่น') : t('brushNib', 'พู่กัน')} (${language === 'en' ? 'Tap again for nib settings' : 'แตะซ้ำเพื่อตั้งค่าหัวปากกา'})`}
+              title={`${t('pen', 'ปากกา')}: ${penNib === 'fountain' ? t('fountainNib', 'หมึกซึม') : penNib === 'ballpoint' ? t('ballpointNib', 'ลูกลื่น') : t('brushNib', 'พู่กัน')} (${t('penNibTapAgain', 'แตะซ้ำเพื่อตั้งค่าหัวปากกา')})`}
             >
               {penNib === 'fountain' ? <Feather size={17} /> : penNib === 'brush' ? <Paintbrush size={17} /> : <Pen size={17} />}
               {/* Color pip under pen icon */}
@@ -411,7 +411,7 @@ export const EditorToolbar = ({
                     />
                   </label>
                   <span className="text-[10px] text-zinc-400 block">
-                    {isTapered ? (language === 'en' ? 'On: Elegant tapering tip for calligraphy' : 'เปิด: ปลายเรียวแหลมพลิ้วไหว สไตล์ปากกาคัดลายมือ') : (language === 'en' ? 'Off: Fixed round uniform stroke' : 'ปิด: เส้นหัวมนสม่ำเสมอคงที่')}
+                    {isTapered ? t('taperOnDesc', 'เปิด: ปลายเรียวแหลมพลิ้วไหว สไตล์ปากกาคัดลายมือ') : t('taperOffDesc', 'ปิด: เส้นหัวมนสม่ำเสมอคงที่')}
                   </span>
                 </div>
 
@@ -427,7 +427,7 @@ export const EditorToolbar = ({
                     />
                   </label>
                   <span className="text-[10px] text-zinc-400 block">
-                    {usePressure ? (language === 'en' ? 'On: Dynamic thickness from Surface Pen pressure' : 'เปิด: เส้นหนาบางตามแรงกดจริงของ Surface Pen') : (language === 'en' ? 'Off: Uniform stroke thickness' : 'ปิด: เส้นคงที่')}
+                    {usePressure ? t('pressureOnDesc', 'เปิด: เส้นหนาบางตามแรงกดจริงของ Surface Pen') : t('pressureOffDesc', 'ปิด: เส้นคงที่')}
                   </span>
                 </div>
 
@@ -461,7 +461,7 @@ export const EditorToolbar = ({
                     />
                   </label>
                   <span className="text-[10px] text-zinc-400 block">
-                    {scribbleToErase ? (language === 'en' ? 'On: Scribble back and forth rapidly to erase' : 'เปิด: ขยี้ลายเส้นซ้ำๆ รวดเร็วเพื่อลบ') : (language === 'en' ? 'Off: Scribble-to-erase disabled' : 'ปิด: ปิดระบบขยี้ลบ (เขียนตัวหนังสือหยักได้ไม่เผลอลบ)')}
+                    {scribbleToErase ? t('scribbleOnDesc', 'เปิด: ขยี้ลายเส้นซ้ำๆ รวดเร็วเพื่อลบ') : t('scribbleOffDesc', 'ปิด: ปิดระบบขยี้ลบ')}
                   </span>
                 </div>
 
@@ -499,7 +499,7 @@ export const EditorToolbar = ({
                   setShowEraserMenu(false);
                 }
               }}
-              title={`${t('eraser', 'ยางลบ')}: ${eraserMode === 'precision' ? t('eraserPrecision', 'ลบเฉพาะจุดสัมผัส (Precision)') : t('eraserStroke', 'ลบทั้งเส้น (Stroke)')} (${language === 'en' ? 'Tap again to switch mode' : 'แตะซ้ำเพื่อเปลี่ยนโหมด'})`}
+              title={`${t('eraser', 'ยางลบ')}: ${eraserMode === 'precision' ? t('eraserPrecision', 'ลบเฉพาะจุดสัมผัส (Precision)') : t('eraserStroke', 'ลบทั้งเส้น (Stroke)')} (${t('eraserTapAgain', 'แตะซ้ำเพื่อเปลี่ยนโหมด')})`}
             >
               <Eraser size={17} />
             </button>
@@ -600,7 +600,7 @@ export const EditorToolbar = ({
           <button 
             className={`bn-tool-btn ${activeTool === 'lasso' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('lasso'); closeAllPopovers(); }}
-            title={language === 'en' ? 'Lasso Tool - Select strokes/text/images to move, resize, recolor, duplicate, or delete' : 'เครื่องมือบ่วงบาศก์ (Lasso Tool) - ลากคลุมลายเส้น/ข้อความ/รูป เพื่อย้าย ย่อขยาย เปลี่ยนสี คัดลอก ลบ'}
+            title={`${t('lasso', 'Lasso')} - ${t('lassoHint', 'ลากคลุมลายเส้น/ข้อความ/รูป เพื่อย้าย ย่อขยาย เปลี่ยนสี')}`}
           >
             <LassoSelect size={17} />
           </button>
@@ -657,7 +657,7 @@ export const EditorToolbar = ({
                   className={`bn-quick-color-btn ${isSelected ? 'bn-quick-color-active' : ''}`}
                   style={{ backgroundColor: col }}
                   onClick={() => handleSelectSlotColor(col)}
-                  title={language === 'en' ? `Color slot #${idx + 1}: ${col}` : `สีสล็อต #${idx + 1}: ${col}`}
+                  title={t('colorSlotTitle', `สีสล็อต #${idx + 1}: ${col}`, { slot: idx + 1, color: col })}
                 />
               );
             })}
@@ -665,7 +665,7 @@ export const EditorToolbar = ({
             {/* Custom Color (+) Button */}
             <div 
               className="relative w-5 h-5 rounded-full flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-white/20 cursor-pointer flex-shrink-0 transition-transform hover:scale-110" 
-              title={language === 'en' ? 'Choose custom color (automatically updates slot)' : 'เลือกสีเพิ่มเติม (อัปเดตสล็อตสีอัตโนมัติ)'}
+              title={t('chooseCustomColor', 'เลือกสีเพิ่มเติม (อัปเดตสล็อตสีอัตโนมัติ)')}
             >
               <span className="text-[11px] font-bold text-zinc-300 pointer-events-none leading-none">+</span>
               <input 
@@ -708,7 +708,7 @@ export const EditorToolbar = ({
                           e.stopPropagation();
                           handleSelectSlot(idx);
                         }}
-                        title={language === 'en' ? `Slot #${idx + 1}: ${val}px (tap again to adjust)` : `สล็อต #${idx + 1}: ${val}px (แตะซ้ำเพื่อเลื่อนปรับระดับ)`}
+                        title={t('widthSlotTitle', `สล็อต #${idx + 1}: ${val}px (แตะซ้ำเพื่อเลื่อนปรับระดับ)`, { slot: idx + 1, val })}
                       >
                         <div 
                           className="bn-width-circle" 
@@ -826,7 +826,7 @@ export const EditorToolbar = ({
           <button
             className="bn-btn-icon"
             onClick={onCaptureFullPage}
-            title={language === 'en' ? 'Capture entire page (Capture Page)' : 'แคปภาพทั้งหน้า (Capture Page)'}
+            title={t('captureEntirePageTooltip', 'แคปภาพทั้งหน้า (Capture Page)')}
           >
             <Camera size={17} />
           </button>
@@ -834,7 +834,7 @@ export const EditorToolbar = ({
           <button
             className={`bn-btn-icon ${hasClipboardImage ? 'text-amber-400 font-bold' : 'text-zinc-300 hover:text-white'}`}
             onClick={onPasteClipboardImage}
-            title={language === 'en' ? 'Paste image from clipboard / screenshot (Paste Image) [Ctrl+V]' : 'วางรูปภาพจากคลิปบอร์ด / แคปหน้าจอ (Paste Image) [Ctrl+V]'}
+            title={t('pasteImageTooltip', 'วางรูปภาพจากคลิปบอร์ด / แคปหน้าจอ [Ctrl+V]')}
           >
             <ClipboardPaste size={17} />
           </button>
@@ -912,7 +912,7 @@ export const EditorToolbar = ({
               e.stopPropagation();
               setShowExportMenu(!showExportMenu);
             }}
-            title={language === 'en' ? 'Export document as high quality PDF (click to choose page or whole document)' : 'ส่งออกเอกสารเป็น PDF คุณภาพสูง (คลิกเพื่อเลือกหน้าหรือทั้งเล่ม)'}
+            title={t('exportPdfTooltip', 'ส่งออกเอกสารเป็น PDF คุณภาพสูง (คลิกเพื่อเลือกหน้าหรือทั้งเล่ม)')}
           >
             <FileText size={14} className="text-red-200" />
             <span>PDF</span>
@@ -932,7 +932,7 @@ export const EditorToolbar = ({
                 }}
               >
                 <FileText size={14} className="text-red-400" />
-                <span>{language === 'en' ? 'Export current page (.pdf)' : 'ส่งออกเฉพาะหน้านี้ (.pdf)'}</span>
+                <span>{t('exportCurrentPage', 'ส่งออกเฉพาะหน้านี้ (.pdf)')}</span>
               </button>
               <button 
                 className="bn-shape-item text-zinc-200"
@@ -942,7 +942,7 @@ export const EditorToolbar = ({
                 }}
               >
                 <Download size={14} className="text-blue-400" />
-                <span>{language === 'en' ? 'Export all pages / options...' : 'ส่งออกทั้งเล่ม / ตัวเลือกอื่น...'}</span>
+                <span>{t('exportAllPages', 'ส่งออกทั้งเล่ม / ตัวเลือกอื่น...')}</span>
               </button>
             </div>
           )}

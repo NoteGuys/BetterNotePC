@@ -3669,6 +3669,106 @@ input, textarea, select {
   border-color: rgba(16, 185, 129, 0.35);
 }
 
+/* Unified Cloud Sync & Backup Protection Pill (Library Topbar) */
+.bn-gn-cloud-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6.5px;
+  padding: 5px 12px;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #e4e4e7;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  user-select: none;
+}
+
+.bn-gn-cloud-sync-pill:hover {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+  transform: translateY(-0.5px);
+}
+
+.bn-gn-cloud-sync-pill:active {
+  transform: translateY(0);
+}
+
+.bn-gn-cloud-sync-pill.is-syncing {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.bn-gn-cloud-sync-pill.is-syncing:hover {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25);
+}
+
+.bn-sync-indicator-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.bn-sync-indicator-dot.dot-emerald {
+  background: #34d399;
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
+}
+
+.bn-sync-indicator-dot.dot-amber {
+  background: #fbbf24;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.7);
+  animation: bn-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes bn-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.bn-sync-pill-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: #e4e4e7;
+  white-space: nowrap;
+}
+
+.bn-sync-shield-icon {
+  margin-left: 1px;
+  flex-shrink: 0;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+
+.bn-gn-cloud-sync-pill:hover .bn-sync-shield-icon {
+  opacity: 1;
+}
+
+[data-theme="light"] .bn-gn-cloud-sync-pill {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #1e293b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .bn-gn-cloud-sync-pill:hover {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(16, 185, 129, 0.55);
+}
+
+[data-theme="light"] .bn-sync-pill-label {
+  color: #0f172a;
+}
+
 .bn-gn-new-pill-btn {
   display: flex;
   align-items: center;

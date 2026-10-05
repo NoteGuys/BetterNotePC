@@ -67,10 +67,8 @@ export const MoveModal = ({
   };
 
   const modalTitle = isBatch
-    ? (language === 'en' ? `Move ${moveItems.length} selected items` : `ย้าย ${moveItems.length} รายการที่เลือก`)
-    : (language === 'en'
-        ? `Move ${singleItemType === 'folder' ? 'Folder' : 'Notebook'} "${singleItem?.name || ''}"`
-        : `ย้าย ${singleItemType === 'folder' ? 'โฟลเดอร์' : 'สมุดโน้ต'} "${singleItem?.name || ''}"`);
+    ? `${t('move', 'ย้าย')} ${moveItems.length} ${t('itemsSelected', 'รายการ')}`
+    : `${t('move', 'ย้าย')} "${singleItem?.name || ''}"`;
 
   return (
     <div className="bn-move-overlay" onClick={onClose}>
