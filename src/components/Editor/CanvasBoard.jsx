@@ -42,6 +42,8 @@ import { SnipModal } from './SnipModal';
 
 const PAGE_WIDTH = 1200;
 const PAGE_HEIGHT = 1600;
+const PASTE_HOLD_DELAY = 1200;
+const PASTE_HOLD_FEEDBACK_DELAY = 600;
 
 export const CanvasBoard = ({
   page,
@@ -77,6 +79,7 @@ export const CanvasBoard = ({
   // Inking state
   const isDrawingRef = useRef(false);
   const currentPointsRef = useRef([]);
+  const strokeStartTimeRef = useRef(0);
   const startPointRef = useRef(null);
   const [activeTextId, setActiveTextId] = useState(null);
   const [selectedImageId, setSelectedImageId] = useState(null);
@@ -106,14 +109,55 @@ export const CanvasBoard = ({
   // Long-Press Floating Paste Menu State & Timer
   const [floatingPasteMenu, setFloatingPasteMenu] = useState(null); // { x, y, canvasX, canvasY }
   const longPressTimerRef = useRef(null);
-  const longPressStartPosRef = useRef({ clientX: 0, clientY: 0, canvasX: 0, canvasY: 0 });
+  const longPressFeedbackTimerRef = useRef(null);
+  const pasteHoldRef = useRef(null);
+  const lastPastePointerRef = useRef(null);
+  const [pasteHoldFeedback, setPasteHoldFeedback] = useState(null);
   const lastTouchTimeRef = useRef(0);
 
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    };
+  const cancelPasteHold = useCallback(() => {
+    clearTimeout(longPressTimerRef.current);
+    clearTimeout(longPressFeedbackTimerRef.current);
+    longPressTimerRef.current = null;
+    longPressFeedbackTimerRef.current = null;
+    pasteHoldRef.current = null;
+    setPasteHoldFeedback(null);
   }, []);
+
+  // A hold belongs to one contact only; leaving the page or changing tools cancels it.
+  useEffect(() => {
+    cancelPasteHold();
+  }, [activeTool, page?.id, zoom, cancelPasteHold]);
+
+  useEffect(() => {
+    const endHold = (e) => {
+      const press = lastPastePointerRef.current;
+      if (press?.pointerId === e.pointerId) {
+        press.isDown = false;
+        press.endedAt = Date.now();
+      }
+      if (pasteHoldRef.current?.pointerId === e.pointerId) cancelPasteHold();
+    };
+    const anotherContact = (e) => {
+      if (pasteHoldRef.current && pasteHoldRef.current.pointerId !== e.pointerId) cancelPasteHold();
+    };
+    window.addEventListener('pointerup', endHold);
+    window.addEventListener('pointercancel', endHold);
+    window.addEventListener('lostpointercapture', endHold);
+    window.addEventListener('pointerdown', anotherContact, true);
+    window.addEventListener('blur', cancelPasteHold);
+    window.addEventListener('scroll', cancelPasteHold, true);
+    return () => {
+      clearTimeout(longPressTimerRef.current);
+      clearTimeout(longPressFeedbackTimerRef.current);
+      window.removeEventListener('pointerup', endHold);
+      window.removeEventListener('pointercancel', endHold);
+      window.removeEventListener('lostpointercapture', endHold);
+      window.removeEventListener('pointerdown', anotherContact, true);
+      window.removeEventListener('blur', cancelPasteHold);
+      window.removeEventListener('scroll', cancelPasteHold, true);
+    };
+  }, [cancelPasteHold]);
 
   // Draw & Hold QuickShape State & Timer
   const holdTimerRef = useRef(null);
@@ -453,6 +497,51 @@ export const CanvasBoard = ({
     }
   };
 
+  // Start once at pointer-down. Moving away permanently cancels this contact's hold.
+  const startPasteHold = (e, coords) => {
+    cancelPasteHold();
+    if (e.isPrimary === false || e.button !== 0 || (e.buttons & 2)) return;
+    const hold = {
+      pointerId: e.pointerId,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      coords,
+      movementLimit: e.pointerType === 'touch' ? 10 : 3,
+      opened: false
+    };
+    pasteHoldRef.current = hold;
+    longPressFeedbackTimerRef.current = setTimeout(() => {
+      if (pasteHoldRef.current === hold) setPasteHoldFeedback(coords);
+      longPressFeedbackTimerRef.current = null;
+    }, PASTE_HOLD_FEEDBACK_DELAY);
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      clearTimeout(longPressFeedbackTimerRef.current);
+      longPressFeedbackTimerRef.current = null;
+      setPasteHoldFeedback(null);
+      if (pasteHoldRef.current !== hold) return;
+      if (isSnippingRef.current || isLassoingRef.current || heldShapeRef.current ||
+          imageDragRef.current.isDragging || imageDragRef.current.isResizing ||
+          lassoDragRef.current.isDragging || lassoDragRef.current.isResizing) {
+        cancelPasteHold();
+        return;
+      }
+      // Keep active ink intact; pointer-up still commits it through the normal path.
+      hold.opened = true;
+      setFloatingPasteMenu({ x: coords.x, y: coords.y, canvasX: coords.x, canvasY: coords.y });
+    }, PASTE_HOLD_DELAY);
+  };
+
+  const recordPastePointer = (e) => {
+    lastPastePointerRef.current = {
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      secondary: e.button === 2 || Boolean(e.buttons & 2),
+      isDown: true,
+      endedAt: 0
+    };
+  };
+
   // Pointer Down (Pen / Mouse / Touch)
   const handlePointerDown = (e) => {
     // Dismiss floating paste menu if clicking outside it
@@ -477,27 +566,9 @@ export const CanvasBoard = ({
         return;
       }
 
-      // Start Long-Press Timer for Floating "วาง" (Paste) Menu (450ms stationary hold)
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      longPressStartPosRef.current = {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        canvasX: coords.x,
-        canvasY: coords.y
-      };
-
-      if (activeTool !== 'snip' && activeTool !== 'lasso') {
-        longPressTimerRef.current = setTimeout(() => {
-          if (!isSnippingRef.current && !isLassoingRef.current && !imageDragRef.current.isDragging) {
-            setFloatingPasteMenu({
-              x: coords.x,
-              y: coords.y,
-              canvasX: coords.x,
-              canvasY: coords.y
-            });
-          }
-        }, 450);
-      }
+      recordPastePointer(e);
+      // A stationary finger hold uses the same Paste delay.
+      if (activeTool !== 'snip' && activeTool !== 'lasso') startPasteHold(e, coords);
 
       // DO NOT draw ink. Return so touch can pan/scroll smoothly if pen is not active.
       return;
@@ -513,6 +584,7 @@ export const CanvasBoard = ({
       return;
     }
 
+    recordPastePointer(e);
     // 4. STYLUS PEN (or physical desktop mouse click)
     // When pen touches the canvas: halt any scrolling immediately!
     window.__bn_pen_active = true;
@@ -530,37 +602,9 @@ export const CanvasBoard = ({
       setSelectedImageId(null);
     }
 
-    // Setup long-press for pen as well (e.g. if user holds pen still without moving):
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    longPressStartPosRef.current = {
-      clientX: e.clientX,
-      clientY: e.clientY,
-      canvasX: coords.x,
-      canvasY: coords.y
-    };
-
+    // Pen / mouse hold: never reset this timer after a stroke starts moving.
     if (activeTool !== 'hand' && activeTool !== 'snip' && activeTool !== 'lasso') {
-      longPressTimerRef.current = setTimeout(() => {
-        if (!isSnippingRef.current && !isLassoingRef.current && !imageDragRef.current.isDragging) {
-          if (isDrawingRef.current) {
-            isDrawingRef.current = false;
-            currentPointsRef.current = [];
-            const activeCanvas = activeCanvasRef.current;
-            if (activeCanvas) {
-              const dpr = getDpr();
-              const ctx = activeCanvas.getContext('2d');
-              ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-              ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-            }
-          }
-          setFloatingPasteMenu({
-            x: coords.x,
-            y: coords.y,
-            canvasX: coords.x,
-            canvasY: coords.y
-          });
-        }
-      }, 450);
+      startPasteHold(e, coords);
     }
 
     if (lassoSelection) {
@@ -675,15 +719,16 @@ export const CanvasBoard = ({
 
   // Pointer Move
   const handlePointerMove = (e) => {
-    // 1. Long-Press Movement Check: Cancel long-press timer if pointer moved > 10px
-    if (longPressTimerRef.current) {
-      const dist = Math.hypot(
-        e.clientX - longPressStartPosRef.current.clientX,
-        e.clientY - longPressStartPosRef.current.clientY
-      );
-      if (dist > 10) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
+    // Cancel on drawing movement, including coalesced samples that return to the start.
+    const hold = pasteHoldRef.current;
+    if (hold?.pointerId === e.pointerId) {
+      const nativeEvent = e.nativeEvent || e;
+      const samples = nativeEvent.getCoalescedEvents ? [...nativeEvent.getCoalescedEvents(), e] : [e];
+      if (samples.some(sample => Math.hypot(
+        sample.clientX - hold.clientX, sample.clientY - hold.clientY
+      ) > hold.movementLimit)) {
+        if (hold.opened) setFloatingPasteMenu(null);
+        cancelPasteHold();
       }
     }
 
@@ -904,10 +949,11 @@ export const CanvasBoard = ({
 
   // Pointer Up
   const handlePointerUp = (e) => {
-    // 1. Clear Long-Press Timer
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
+    // 1. End only this pointer's Paste hold; leave ink finalization unchanged.
+    if (pasteHoldRef.current?.pointerId === e.pointerId) cancelPasteHold();
+    if (lastPastePointerRef.current?.pointerId === e.pointerId) {
+      lastPastePointerRef.current.isDown = false;
+      lastPastePointerRef.current.endedAt = Date.now();
     }
 
     if (e.pointerType === 'pen') {
@@ -1255,10 +1301,17 @@ export const CanvasBoard = ({
   const handleContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
+    const pointerType = e.nativeEvent?.pointerType;
+    const press = lastPastePointerRef.current;
+    const recentPress = press && (press.isDown || Date.now() - press.endedAt < 700);
+    const keyboardMenu = !pointerType && e.button === 0 && e.detail === 0;
+    // Windows may emit a native contextmenu before our hold finishes, even as a
+    // mouse event. Only an explicit secondary-button press may bypass the timer.
+    if (!keyboardMenu && !(recentPress && press.secondary) &&
+        (pointerType === 'pen' || pointerType === 'touch' || (recentPress && !press.secondary))) {
+      return;
     }
+    cancelPasteHold();
     const coords = getCanvasCoordinates(e);
     setFloatingPasteMenu({
       x: coords.x,
@@ -2622,6 +2675,23 @@ export const CanvasBoard = ({
               title={language === 'en' ? 'Resize (Bottom-Left)' : 'ย่อ/ขยาย (ล่างซ้าย)'}
             />
           </div>
+        )}
+
+        {/* Non-interactive progress ring; stays above the contact without blocking ink. */}
+        {pasteHoldFeedback && (
+          <svg
+            className="bn-paste-hold-feedback"
+            viewBox="0 0 28 28"
+            aria-hidden="true"
+            style={{
+              left: `${(pasteHoldFeedback.x / canvasWidth) * 100}%`,
+              top: `${(pasteHoldFeedback.y / canvasHeight) * 100}%`,
+              '--bn-paste-hold-remaining': `${PASTE_HOLD_DELAY - PASTE_HOLD_FEEDBACK_DELAY}ms`
+            }}
+          >
+            <circle className="bn-paste-hold-track" cx="14" cy="14" r="11" />
+            <circle className="bn-paste-hold-progress" cx="14" cy="14" r="11" pathLength="1" />
+          </svg>
         )}
 
         {/* Floating Paste Menu (Triggered by Long Press or Context Menu) */}

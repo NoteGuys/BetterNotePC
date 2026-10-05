@@ -2559,46 +2559,185 @@ input, textarea, select {
 }
 
 /* Pen Settings Dropdown (Nib types, Tapered toggle, Pressure sensitivity) */
+.bn-pen-tool {
+  position: relative;
+}
+
 .bn-pen-settings-dropdown {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  background: rgba(24, 24, 27, 0.96);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
-  padding: 14px;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  color-scheme: dark;
+  border: 1px solid var(--border-medium);
+  border-radius: 16px;
+  padding: 16px;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
   z-index: 60;
-  min-width: 250px;
+  line-height: 1.5;
 }
 
-.bn-nib-choice-btn {
+.bn-pen-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.bn-pen-settings-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bn-pen-settings-icon {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--accent-blue);
+}
+
+.bn-pen-settings-caption {
+  flex-shrink: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.bn-pen-settings-nibs {
+  margin-top: 14px;
+}
+
+.bn-pen-settings-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.bn-pen-settings-section-title {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bn-pen-settings-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+}
+
+.bn-pen-settings-dropdown .bn-nib-choice-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 6px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 4px;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 8px;
-  color: #a1a1aa;
-  font-size: 11px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.bn-nib-choice-btn:hover {
+.bn-pen-settings-dropdown .bn-nib-choice-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #f4f4f5;
+  color: var(--text-primary);
 }
 
-.bn-nib-choice-active {
-  background: rgba(59, 130, 246, 0.2) !important;
-  border-color: #3b82f6 !important;
-  color: #60a5fa !important;
+.bn-pen-settings-dropdown .bn-nib-choice-active {
+  background: rgba(59, 130, 246, 0.16);
+  border-color: var(--accent-blue);
+  color: #93c5fd;
   font-weight: 600;
+}
+
+.bn-pen-settings-choices-pressure .bn-nib-choice-btn {
+  min-height: 34px;
+}
+
+.bn-pen-settings-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 16px;
+  min-height: 24px;
+  cursor: pointer;
+}
+
+.bn-pen-settings-label {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.bn-pen-settings-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent-blue);
+  cursor: pointer;
+}
+
+.bn-pen-settings-description {
+  display: block;
+  margin-top: 5px;
+  padding-right: 34px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.bn-pen-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.bn-pen-settings-done {
+  min-height: 34px;
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.bn-pen-settings-dropdown button:focus-visible,
+.bn-pen-settings-checkbox:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+[data-theme="light"] .bn-pen-settings-dropdown {
+  color-scheme: light;
+}
+
+[data-theme="light"] .bn-pen-settings-dropdown .bn-nib-choice-active {
+  color: #1d4ed8;
 }
 
 /* Windows Snipping Tool-like Experience */
@@ -3060,6 +3199,41 @@ input, textarea, select {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
   z-index: 60;
   user-select: none;
+}
+
+/* Stationary Paste hold feedback: no pointer interception or ink redraws. */
+.bn-paste-hold-feedback {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  z-index: 65;
+  overflow: visible;
+  transform: translate(-50%, calc(-100% - 12px));
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(15, 23, 42, 0.35));
+}
+
+.bn-paste-hold-feedback circle {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.bn-paste-hold-track {
+  stroke: rgba(148, 163, 184, 0.45);
+}
+
+.bn-paste-hold-progress {
+  stroke: #3b82f6;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transform: rotate(-90deg);
+  transform-origin: 14px 14px;
+  animation: bn-paste-hold-progress var(--bn-paste-hold-remaining) linear forwards;
+}
+
+@keyframes bn-paste-hold-progress {
+  to { stroke-dashoffset: 0; }
 }
 
 /* Long-Press Floating Paste Menu (Fluent / Glassmorphism) */

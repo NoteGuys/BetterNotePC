@@ -335,7 +335,7 @@ export const EditorToolbar = ({
       <div className="bn-editor-toolbar-center">
         <div className="bn-tool-pill">
           {/* Pen with Sub-Pip & Settings Dropdown */}
-          <div className="relative">
+          <div className="bn-pen-tool">
             <button 
               className={`bn-tool-btn ${activeTool === 'pen' ? 'bn-tool-btn-active' : ''}`}
               onClick={(e) => {
@@ -363,18 +363,18 @@ export const EditorToolbar = ({
                 className="bn-pen-settings-dropdown" 
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="text-[12px] font-bold text-zinc-100 border-b border-white/10 pb-2 mb-2.5 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <SlidersHorizontal size={14} className="text-blue-400" />
+                <div className="bn-pen-settings-header">
+                  <div className="bn-pen-settings-title">
+                    <SlidersHorizontal size={14} className="bn-pen-settings-icon" />
                     <span>{t('penSettings', 'ตั้งค่าหัวปากกา & แรงกด')}</span>
                   </div>
-                  <span className="text-[10px] text-zinc-400 font-mono">Surface Inking</span>
+                  <span className="bn-pen-settings-caption">Surface Inking</span>
                 </div>
 
                 {/* Nib Types Segmented Choice */}
-                <div className="space-y-1 mb-3">
-                  <div className="text-[11px] font-medium text-zinc-400">{t('nibType', 'ชนิดหัวปากกา')}</div>
-                  <div className="grid grid-cols-3 gap-1 bg-zinc-900/60 p-1 rounded-lg border border-white/10">
+                <div className="bn-pen-settings-nibs">
+                  <div className="bn-pen-settings-section-title">{t('nibType', 'ชนิดหัวปากกา')}</div>
+                  <div className="bn-pen-settings-choices">
                     <button 
                       className={`bn-nib-choice-btn ${penNib === 'fountain' ? 'bn-nib-choice-active' : ''}`}
                       onClick={() => setPenNib('fountain')}
@@ -400,42 +400,42 @@ export const EditorToolbar = ({
                 </div>
 
                 {/* Tapered Stroke Setting */}
-                <div className="mb-2.5 pt-2 border-t border-white/10">
-                  <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">{t('taperedLine', 'คมต้น-คมปลาย (Tapered)')}</span>
+                <div className="bn-pen-settings-section">
+                  <label className="bn-pen-settings-toggle">
+                    <span className="bn-pen-settings-label">{t('taperedLine', 'คมต้น-คมปลาย (Tapered)')}</span>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                      className="bn-pen-settings-checkbox"
                       checked={isTapered}
                       onChange={(e) => setIsTapered(e.target.checked)}
                     />
                   </label>
-                  <span className="text-[10px] text-zinc-400 block">
+                  <span className="bn-pen-settings-description">
                     {isTapered ? t('taperOnDesc', 'เปิด: ปลายเรียวแหลมพลิ้วไหว สไตล์ปากกาคัดลายมือ') : t('taperOffDesc', 'ปิด: เส้นหัวมนสม่ำเสมอคงที่')}
                   </span>
                 </div>
 
                 {/* Pen Pressure Switch Setting */}
-                <div className="mb-2.5 pt-2 border-t border-white/10">
-                  <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">{t('penPressure', 'น้ำหนักกดปากกา (Pressure)')}</span>
+                <div className="bn-pen-settings-section">
+                  <label className="bn-pen-settings-toggle">
+                    <span className="bn-pen-settings-label">{t('penPressure', 'น้ำหนักกดปากกา (Pressure)')}</span>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                      className="bn-pen-settings-checkbox"
                       checked={usePressure}
                       onChange={(e) => setUsePressure && setUsePressure(e.target.checked)}
                     />
                   </label>
-                  <span className="text-[10px] text-zinc-400 block">
+                  <span className="bn-pen-settings-description">
                     {usePressure ? t('pressureOnDesc', 'เปิด: เส้นหนาบางตามแรงกดจริงของ Surface Pen') : t('pressureOffDesc', 'ปิด: เส้นคงที่')}
                   </span>
                 </div>
 
                 {/* Pressure Sensitivity Levels (when pressure is ON) */}
                 {usePressure && (
-                  <div className="pt-2 border-t border-white/10">
-                    <div className="text-[11px] font-medium text-zinc-400 mb-1.5">{t('pressureSensitivity', 'ความไวต่อแรงกด')}</div>
-                    <div className="grid grid-cols-3 gap-1 bg-zinc-900/60 p-1 rounded-lg border border-white/10">
+                  <div className="bn-pen-settings-section">
+                    <div className="bn-pen-settings-section-title">{t('pressureSensitivity', 'ความไวต่อแรงกด')}</div>
+                    <div className="bn-pen-settings-choices bn-pen-settings-choices-pressure">
                       {['low', 'medium', 'high'].map(lvl => (
                         <button
                           key={lvl}
@@ -450,24 +450,24 @@ export const EditorToolbar = ({
                 )}
 
                 {/* Scribble to Erase Toggle Setting */}
-                <div className="mb-2.5 pt-2 border-t border-white/10">
-                  <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">{t('scribbleToErase', 'ขยี้เส้นเพื่อลบ (Scribble to Erase)')}</span>
+                <div className="bn-pen-settings-section">
+                  <label className="bn-pen-settings-toggle">
+                    <span className="bn-pen-settings-label">{t('scribbleToErase', 'ขยี้เส้นเพื่อลบ (Scribble to Erase)')}</span>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                      className="bn-pen-settings-checkbox"
                       checked={scribbleToErase}
                       onChange={(e) => setScribbleToErase && setScribbleToErase(e.target.checked)}
                     />
                   </label>
-                  <span className="text-[10px] text-zinc-400 block">
+                  <span className="bn-pen-settings-description">
                     {scribbleToErase ? t('scribbleOnDesc', 'เปิด: ขยี้ลายเส้นซ้ำๆ รวดเร็วเพื่อลบ') : t('scribbleOffDesc', 'ปิด: ปิดระบบขยี้ลบ')}
                   </span>
                 </div>
 
-                <div className="mt-3 pt-2 border-t border-white/10 flex justify-end">
+                <div className="bn-pen-settings-footer">
                   <button 
-                    className="bn-btn-primary bn-btn-sm py-1 px-3 text-xs" 
+                    className="bn-btn-primary bn-btn-sm bn-pen-settings-done"
                     onClick={() => setShowPenSettings(false)}
                   >
                     {t('done', 'เรียบร้อย')}
