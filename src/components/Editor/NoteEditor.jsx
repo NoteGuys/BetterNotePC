@@ -3,6 +3,8 @@ import { EditorToolbar } from './EditorToolbar';
 import { PageNavigation } from './PageNavigation';
 import { ThumbnailSidebar } from './ThumbnailSidebar';
 import { CanvasBoard } from './CanvasBoard';
+import { WhiteboardBoard } from './WhiteboardBoard';
+import { isWhiteboardPage } from '../../utils/whiteboard';
 import { ExportModal } from '../Common/ExportModal';
 import { 
   getPagesByNotebookId, 
@@ -127,6 +129,9 @@ export const NoteEditor = ({
 
   // Clipboard for Snipped Images
   const [clipboardImage, setClipboardImage] = useState(null); // { dataUrl, width, height }
+  const [pastedImageSelection, setPastedImageSelection] = useState(null); // { pageId, imageId }
+  const imageFileInputRef = useRef(null);
+  const imageImportPendingRef = useRef(false);
 
   const [showThumbnails, setShowThumbnails] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -154,6 +159,8 @@ export const NoteEditor = ({
   }, []);
 
   // Stage Ref and Zoom tracking for Touchpad & Touchscreen gestures
+  const whiteboardViewportRef = useRef(null);
+  const handleWhiteboardViewportChange = useCallback(viewport => { whiteboardViewportRef.current = viewport; }, []);
   const stageRef = useRef(null);
   const stageContentRef = useRef(null);
   const zoomRef = useRef(zoom);
@@ -169,6 +176,7 @@ export const NoteEditor = ({
     if (!stage) return;
 
     const handleWheel = (e) => {
+      if (isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) return;
       if (e.ctrlKey) {
         e.preventDefault();
         isPinchingActiveRef.current = true;
@@ -585,6 +593,107 @@ export const NoteEditor = ({
     }
   };
 
+  // Shared image placement: the existing Paste geometry, persistence and selection.
+  const insertImageOnPage = (imgDataUrl, customPos = null, imgWidth = 400, imgHeight = 300, targetPageId = currentPage?.id) => new Promise((resolve, reject) => {
+    if (!pagesRef.current.some(page => page.id === targetPageId)) { resolve(); return; }
+    const img = new Image();
+    img.onerror = () => reject(new Error('invalid-image'));
+    img.onload = async () => {
+      try {
+        const targetPageIndex = pagesRef.current.findIndex(page => page.id === targetPageId);
+        const currentPage = pagesRef.current[targetPageIndex];
+        if (!currentPage) { resolve(); return; }
+        let w = img.naturalWidth || imgWidth || 400;
+        let h = img.naturalHeight || imgHeight || 300;
+
+        const maxDim = 650;
+        if (w > maxDim || h > maxDim) {
+          const r = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * r);
+          h = Math.round(h * r);
+        }
+
+        const imageViewport = isWhiteboardPage(currentPage, notebook.templateId) && whiteboardViewportRef.current?.pageId === currentPage.id
+          ? whiteboardViewportRef.current : null;
+        const pWidth = imageViewport?.width || currentPage.pageWidth || 1200;
+        const pHeight = imageViewport?.height || currentPage.pageHeight || 1600;
+
+        const hasCustomPos = Number.isFinite(customPos?.x) && Number.isFinite(customPos?.y);
+        let posX = hasCustomPos ? customPos.x - (imageViewport?.x || 0) - w / 2 : (pWidth - w) / 2;
+        let posY = hasCustomPos ? customPos.y - (imageViewport?.y || 0) - h / 2 : (pHeight - h) / 2;
+
+        posX = Math.max(20, Math.min(pWidth - w - 20, Math.round(posX)));
+        posY = Math.max(20, Math.min(pHeight - h - 20, Math.round(posY)));
+
+        if (imageViewport) { posX += imageViewport.x; posY += imageViewport.y; }
+
+        const newImg = {
+          id: `img-${Date.now()}`,
+          src: imgDataUrl,
+          x: posX,
+          y: posY,
+          width: w,
+          height: h
+        };
+
+        const existingImgs = pagesRef.current[targetPageIndex]?.imageElements || [];
+        await handleImageElementsChange([...existingImgs, newImg], targetPageIndex);
+        setPastedImageSelection({ pageId: currentPage.id, imageId: newImg.id });
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    };
+    img.src = imgDataUrl;
+  });
+
+  const handleImportImage = async () => {
+    if (!currentPage || imageImportPendingRef.current) return;
+    if (!window.electronAPI?.selectImage) {
+      if (imageFileInputRef.current) {
+        imageFileInputRef.current.value = '';
+        imageFileInputRef.current.click();
+      }
+      return;
+    }
+    imageImportPendingRef.current = true;
+    try {
+      const result = await window.electronAPI.selectImage({
+        title: t('insertImage', 'Insert image from computer'),
+        allImagesLabel: t('supportedImages', 'All supported images')
+      });
+      if (result?.canceled) return;
+      if (!result?.success || !result.dataUrl) throw new Error('image-read-failed');
+      await insertImageOnPage(result.dataUrl);
+    } catch (_) {
+      alert(t('imageImportError', 'Unable to open this image. Please choose a supported image file.'));
+    } finally {
+      imageImportPendingRef.current = false;
+    }
+  };
+
+  // Browser preview fallback uses the same insertion path without Electron IPC.
+  const handleImageFileChange = async (e) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = '';
+    if (!file || imageImportPendingRef.current) return;
+    imageImportPendingRef.current = true;
+    try {
+      if (!/\.(png|jpe?g|webp|gif|bmp|svg|avif)$/i.test(file.name)) throw new Error('unsupported-image');
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('image-read-failed'));
+        reader.readAsDataURL(file);
+      });
+      await insertImageOnPage(dataUrl);
+    } catch (_) {
+      alert(t('imageImportError', 'Unable to open this image. Please choose a supported image file.'));
+    } finally {
+      imageImportPendingRef.current = false;
+    }
+  };
+
   // Paste Snipped / External Clipboard Image on Current Page
   const handlePasteClipboardImage = async (customPos = null) => {
     if (!currentPage) return;
@@ -640,40 +749,11 @@ export const NoteEditor = ({
       return;
     }
 
-    const img = new Image();
-    img.onload = async () => {
-      let w = img.naturalWidth || imgWidth || 400;
-      let h = img.naturalHeight || imgHeight || 300;
-
-      const maxDim = 650;
-      if (w > maxDim || h > maxDim) {
-        const r = Math.min(maxDim / w, maxDim / h);
-        w = Math.round(w * r);
-        h = Math.round(h * r);
-      }
-
-      const pWidth = currentPage.pageWidth || 1200;
-      const pHeight = currentPage.pageHeight || 1600;
-
-      let posX = customPos ? customPos.x - w / 2 : (pWidth - w) / 2;
-      let posY = customPos ? customPos.y - h / 2 : (pHeight - h) / 2;
-
-      posX = Math.max(20, Math.min(pWidth - w - 20, Math.round(posX)));
-      posY = Math.max(20, Math.min(pHeight - h - 20, Math.round(posY)));
-
-      const newImg = {
-        id: `img-${Date.now()}`,
-        src: imgDataUrl,
-        x: posX,
-        y: posY,
-        width: w,
-        height: h
-      };
-
-      const existingImgs = currentPage.imageElements || [];
-      await handleImageElementsChange([...existingImgs, newImg]);
-    };
-    img.src = imgDataUrl;
+    try {
+      await insertImageOnPage(imgDataUrl, customPos, imgWidth, imgHeight);
+    } catch (_) {
+      alert(t('imageImportError', 'Unable to open this image. Please choose a supported image file.'));
+    }
   };
 
   // Duplicate Current Notebook
@@ -915,6 +995,7 @@ export const NoteEditor = ({
       const stageEl = stageRef.current;
 
       const observer = new IntersectionObserver((entries) => {
+        if (isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) return;
         // STRICT: Never switch pages while user is actively pinching to zoom, during initial page navigation, or during programmatic scroll!
         if (isPinchingActiveRef.current || stagePinchRef.current?.isPinching) return;
         if (!hasInitialNavigatedRef.current && initialPageRef.current > 0) return;
@@ -1207,6 +1288,13 @@ export const NoteEditor = ({
 
   return (
     <div className="bn-editor-container">
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.avif"
+        hidden
+        onChange={handleImageFileChange}
+      />
       {/* Top Studio Toolbar with Pen Nibs, Snip, Paste, and Duplicate */}
       <EditorToolbar 
         notebookTitle={notebook.name}
@@ -1256,6 +1344,7 @@ export const NoteEditor = ({
         onToggleFavoriteCurrentPage={() => handleToggleFavoritePage(currentPageIndex)}
         hasClipboardImage={!!clipboardImage}
         onPasteClipboardImage={handlePasteClipboardImage}
+        onImportImage={handleImportImage}
         onCaptureFullPage={handleCaptureFullPage}
       />
 
@@ -1280,7 +1369,7 @@ export const NoteEditor = ({
         {/* Canvas & Inking Board */}
         <main 
           ref={stageRef}
-          className={`bn-editor-canvas-stage ${scrollDirection === 'vertical' ? 'bn-stage-vertical' : ''}`}
+          className={`bn-editor-canvas-stage ${scrollDirection === 'vertical' ? 'bn-stage-vertical' : ''} ${isWhiteboardPage(currentPage, notebook.templateId) ? 'bn-stage-whiteboard' : ''}`}
           onTouchStart={handleStageTouchStart}
           onTouchMove={handleStageTouchMove}
           onTouchEnd={handleStageTouchEnd}
@@ -1294,10 +1383,41 @@ export const NoteEditor = ({
             </div>
           )}
 
-          {scrollDirection === 'vertical' ? (
+          {currentPage && isWhiteboardPage(currentPage, notebook.templateId) ? (
+            <div ref={stageContentRef} className="bn-whiteboard-page">
+                <WhiteboardBoard
+                  key={currentPage.id || `horizontal-page-${currentPageIndex}`}
+                  page={currentPage}
+                  newlyPastedImageId={pastedImageSelection?.pageId === currentPage.id ? pastedImageSelection.imageId : null}
+                  onViewportChange={handleWhiteboardViewportChange}
+                  templateId={notebook.templateId}
+                  activeTool={activeTool}
+                  activeColor={activeColor}
+                  activeWidth={activeWidth}
+                  activeShape={activeShape}
+                  penNib={penNib}
+                  isTapered={isTapered}
+                  usePressure={usePressure}
+                  pressureSensitivity={pressureSensitivity}
+                  eraserMode={eraserMode}
+                  scribbleToErase={scribbleToErase}
+                  penOnly={penOnly}
+                  zoom={zoom}
+                  onZoomChange={setZoom}
+                  onToolChange={setActiveTool}
+                  onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, currentPageIndex)}
+                  onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, currentPageIndex)}
+                  onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPageIndex)}
+                  onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPageIndex)}
+                  onSnipComplete={handleSnipComplete}
+                  onUndo={handleUndo}
+                />
+            </div>
+          ) : scrollDirection === 'vertical' ? (
             /* Vertical Continuous Scroll Mode with Viewport Virtualization */
             <div ref={stageContentRef} className="bn-vertical-pages-stack">
               {pages.map((p, idx) => {
+                const PageBoard = isWhiteboardPage(p, notebook.templateId) ? WhiteboardBoard : CanvasBoard;
                 const isMounted = Math.abs(idx - currentPageIndex) <= 2;
                 const pWidth = p.pageWidth || 1200;
                 const pHeight = p.pageHeight || 1600;
@@ -1311,9 +1431,11 @@ export const NoteEditor = ({
                   >
                     <div className="bn-vertical-page-badge">{t('page', 'หน้า')} {idx + 1}</div>
                     {isMounted ? (
-                      <CanvasBoard 
+                      <PageBoard
                         key={p.id}
                         page={p}
+                        newlyPastedImageId={pastedImageSelection?.pageId === p.id ? pastedImageSelection.imageId : null}
+                        onViewportChange={handleWhiteboardViewportChange}
                         templateId={notebook.templateId}
                         activeTool={activeTool}
                         activeColor={activeColor}
@@ -1378,6 +1500,7 @@ export const NoteEditor = ({
                 <CanvasBoard 
                   key={currentPage.id || `horizontal-page-${currentPageIndex}`}
                   page={currentPage}
+                  newlyPastedImageId={pastedImageSelection?.pageId === currentPage.id ? pastedImageSelection.imageId : null}
                   templateId={notebook.templateId}
                   activeTool={activeTool}
                   activeColor={activeColor}

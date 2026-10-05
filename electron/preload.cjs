@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openBackupFolder: (folderPath) => ipcRenderer.invoke('open-backup-folder', folderPath),
   revealBackupFile: (filePath) => ipcRenderer.invoke('reveal-backup-file', filePath),
   readClipboardImage: () => ipcRenderer.invoke('read-clipboard-image'),
+  selectImage: (options) => ipcRenderer.invoke('select-image', options),
   openGoogleSignIn: () => ipcRenderer.invoke('open-google-signin'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url)
 });

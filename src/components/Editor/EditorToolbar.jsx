@@ -114,6 +114,7 @@ export const EditorToolbar = ({
   onToggleFavoriteCurrentPage,
   hasClipboardImage,
   onPasteClipboardImage,
+  onImportImage,
   onCaptureFullPage
 }) => {
   const { t, language } = useLanguage();
@@ -614,11 +615,11 @@ export const EditorToolbar = ({
             <Type size={17} />
           </button>
 
-          {/* Image Tool (Select, Move, Layer) */}
+          {/* Import image from the computer, then use the existing image controls. */}
           <button 
             className={`bn-tool-btn ${activeTool === 'image' ? 'bn-tool-btn-active' : ''}`}
-            onClick={() => { setActiveTool('image'); closeAllPopovers(); }}
-            title={t('imageTool')}
+            onClick={() => { setActiveTool('image'); closeAllPopovers(); onImportImage?.(); }}
+            title={t('insertImage', 'Insert image from computer')}
           >
             <ImageIcon size={17} />
           </button>
@@ -833,7 +834,7 @@ export const EditorToolbar = ({
 
           <button
             className={`bn-btn-icon ${hasClipboardImage ? 'text-amber-400 font-bold' : 'text-zinc-300 hover:text-white'}`}
-            onClick={onPasteClipboardImage}
+            onClick={() => onPasteClipboardImage()}
             title={t('pasteImageTooltip', 'วางรูปภาพจากคลิปบอร์ด / แคปหน้าจอ [Ctrl+V]')}
           >
             <ClipboardPaste size={17} />

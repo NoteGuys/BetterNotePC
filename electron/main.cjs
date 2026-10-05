@@ -707,6 +707,40 @@ function createWindow() {
     });
   });
 
+  // Import one image explicitly chosen in the native Windows file picker.
+  ipcMain.handle('select-image', async (_event, options = {}) => {
+    const mimeTypes = {
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+      webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp',
+      svg: 'image/svg+xml', avif: 'image/avif'
+    };
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: typeof options?.title === 'string' ? options.title : 'Insert Image',
+        properties: ['openFile'],
+        filters: [
+          { name: typeof options?.allImagesLabel === 'string' ? options.allImagesLabel : 'All Supported Images', extensions: Object.keys(mimeTypes) },
+          { name: 'PNG', extensions: ['png'] },
+          { name: 'JPEG', extensions: ['jpg', 'jpeg'] },
+          { name: 'WebP', extensions: ['webp'] },
+          { name: 'GIF', extensions: ['gif'] },
+          { name: 'BMP', extensions: ['bmp'] },
+          { name: 'SVG', extensions: ['svg'] },
+          { name: 'AVIF', extensions: ['avif'] }
+        ]
+      });
+      if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+      const filePath = result.filePaths[0];
+      const extension = path.extname(filePath).slice(1).toLowerCase();
+      const mimeType = Object.hasOwn(mimeTypes, extension) ? mimeTypes[extension] : null;
+      if (!mimeType) return { success: false, error: 'unsupported-image' };
+      const data = await fs.promises.readFile(filePath);
+      return { success: true, dataUrl: `data:${mimeType};base64,${data.toString('base64')}` };
+    } catch (_) {
+      return { success: false, error: 'image-read-failed' };
+    }
+  });
+
   // Handle reading image from Windows / system clipboard (for Long-Press Paste, External Copy, Win+Shift+S, Explorer)
   ipcMain.handle('read-clipboard-image', async () => {
     try {

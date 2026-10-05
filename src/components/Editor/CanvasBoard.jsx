@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { renderPaperBackground } from '../../utils/paperRenderer';
 import { 
   renderStroke, 
@@ -47,6 +47,7 @@ const PASTE_HOLD_FEEDBACK_DELAY = 600;
 
 export const CanvasBoard = ({
   page,
+  newlyPastedImageId = null,
   templateId,
   activeTool,
   activeColor,
@@ -204,7 +205,6 @@ export const CanvasBoard = ({
 
   const strokes = page?.strokes || [];
   const textElements = page?.textElements || [];
-  const imageElements = page?.imageElements || [];
 
   // Ref tracking latest committed strokes to prevent stale snapshots during rapid lasso interactions
   const latestStrokesRef = useRef(strokes);
@@ -214,6 +214,41 @@ export const CanvasBoard = ({
 
   const canvasWidth = page?.pageWidth || PAGE_WIDTH;
   const canvasHeight = page?.pageHeight || PAGE_HEIGHT;
+
+  // Older toolbar pastes can contain NaN / null coordinates. Repair only the
+  // working view; persistence still happens solely through existing user actions.
+  const imageElements = useMemo(() => (page?.imageElements || []).map(img => {
+    if (Number.isFinite(img.x) && Number.isFinite(img.y)) return img;
+    return {
+      ...img,
+      x: Number.isFinite(img.x) ? img.x : Math.max(20, Math.min(
+        canvasWidth - img.width - 20, Math.round((canvasWidth - img.width) / 2)
+      )),
+      y: Number.isFinite(img.y) ? img.y : Math.max(20, Math.min(
+        canvasHeight - img.height - 20, Math.round((canvasHeight - img.height) / 2)
+      ))
+    };
+  }), [page?.imageElements, canvasWidth, canvasHeight]);
+
+  useEffect(() => {
+    if (!newlyPastedImageId) return;
+    setSelectedImageId(newlyPastedImageId);
+    setLassoSelection(null);
+    setShowLassoColorPicker(false);
+  }, [newlyPastedImageId]);
+
+  const lassoSelectedImages = lassoSelection
+    ? imageElements.filter(img => lassoSelection.imageIds.includes(img.id))
+    : [];
+  const isImageOnlyLassoSelection = !!lassoSelection &&
+    lassoSelection.strokeIndices.length === 0 && lassoSelection.textIds.length === 0 &&
+    lassoSelectedImages.length > 0;
+  const areLassoImagesLocked = lassoSelectedImages.length > 0 &&
+    lassoSelectedImages.every(img => img.locked);
+  const canTransformLassoSelection = !!lassoSelection && (
+    lassoSelection.strokeIndices.length > 0 || lassoSelection.textIds.length > 0 ||
+    lassoSelectedImages.some(img => !img.locked)
+  );
 
   const showToast = (msg) => {
     setGestureToast(msg);
@@ -1037,11 +1072,17 @@ export const CanvasBoard = ({
           }
         });
 
+        const imagesInLoop = imageElements.filter(img =>
+          isPointInPolygon({ x: img.x + img.width / 2, y: img.y + img.height / 2 }, loop) ||
+          isPointInPolygon({ x: img.x, y: img.y }, loop)
+        );
+        // Locked images stay out of handwriting/mixed selections. A locked-image-only
+        // selection remains available so its action bar can unlock those images.
+        const hasMovableContent = selectedStrokes.length > 0 || selectedTexts.length > 0 ||
+          imagesInLoop.some(img => !img.locked);
         const selectedImgs = [];
-        imageElements.forEach(img => {
-          const inside = isPointInPolygon({ x: img.x + img.width / 2, y: img.y + img.height / 2 }, loop) ||
-                         isPointInPolygon({ x: img.x, y: img.y }, loop);
-          if (inside) {
+        imagesInLoop.forEach(img => {
+          if (!img.locked || !hasMovableContent) {
             selectedImgs.push(img.id);
             bMinX = Math.min(bMinX, img.x);
             bMaxX = Math.max(bMaxX, img.x + img.width);
@@ -1489,6 +1530,11 @@ export const CanvasBoard = ({
     const updated = imageElements.map(img => {
       if (img.id === imgId) {
         const nextLocked = !img.locked;
+        if (nextLocked) {
+          setSelectedImageId(null);
+          setLassoSelection(null);
+          setShowLassoColorPicker(false);
+        }
         showToast(nextLocked ? (language === 'en' ? 'Image position locked 🔒' : 'ล็อกตำแหน่งรูปภาพแล้ว 🔒') : (language === 'en' ? 'Image position unlocked 🔓' : 'ปลดล็อกรูปภาพแล้ว 🔓'));
         return { ...img, locked: nextLocked };
       }
@@ -1700,11 +1746,32 @@ export const CanvasBoard = ({
     window.addEventListener('pointercancel', onResizeUp, { passive: false });
   };
 
+  const handleLassoImageLockToggle = () => {
+    if (!isImageOnlyLassoSelection) return;
+    const nextLocked = !areLassoImagesLocked;
+    const updated = imageElements.map(img =>
+      lassoSelection.imageIds.includes(img.id) ? { ...img, locked: nextLocked } : img
+    );
+    if (onBatchUpdatePage) {
+      onBatchUpdatePage({ imageElements: updated });
+    } else if (onImageElementsChange) {
+      onImageElementsChange(updated);
+    }
+    setShowLassoColorPicker(false);
+    if (nextLocked) {
+      setLassoSelection(null);
+      setSelectedImageId(null);
+    }
+    showToast(nextLocked
+      ? (language === 'en' ? 'Image position locked 🔒' : 'ล็อกตำแหน่งรูปภาพแล้ว 🔒')
+      : (language === 'en' ? 'Image position unlocked 🔓' : 'ปลดล็อกรูปภาพแล้ว 🔓'));
+  };
+
   // Lasso Selection Drag (Move) Handlers - Zero-Flicker 60fps
   const handleLassoBoxPointerDown = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!lassoSelection) return;
+    if (!canTransformLassoSelection) return;
     
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
     if (lassoBoxRef.current) lassoBoxRef.current.classList.add('dragging');
@@ -1783,9 +1850,10 @@ export const CanvasBoard = ({
         if (el) el.style.transform = `translate3d(${dx * zoom}px, ${dy * zoom}px, 0)`;
       });
 
-      // 3. Direct transform on selected image elements
-      lassoSelection.imageIds.forEach(id => {
-        const el = document.getElementById(`img-${id}`);
+      // 3. Direct transform on selected, unlocked image elements
+      lassoDragRef.current.initialImages.forEach(img => {
+        if (img.locked || !lassoSelection.imageIds.includes(img.id)) return;
+        const el = document.getElementById(`img-${img.id}`);
         if (el) el.style.transform = `translate3d(${dx * zoom}px, ${dy * zoom}px, 0)`;
       });
 
@@ -1885,7 +1953,7 @@ export const CanvasBoard = ({
 
         const newImages = lassoSelection.imageIds.length > 0
           ? initialImages.map(img => {
-              if (lassoSelection.imageIds.includes(img.id)) {
+              if (!img.locked && lassoSelection.imageIds.includes(img.id)) {
                 return { ...img, x: img.x + dx, y: img.y + dy };
               }
               return img;
@@ -1953,7 +2021,7 @@ export const CanvasBoard = ({
   const handleLassoResizePointerDown = (e, handle = 'se') => {
     e.preventDefault();
     e.stopPropagation();
-    if (!lassoSelection) return;
+    if (!canTransformLassoSelection) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
     setShowLassoColorPicker(false);
     const currentStrokes = latestStrokesRef.current || strokes;
@@ -2064,7 +2132,7 @@ export const CanvasBoard = ({
         });
 
         const newImages = initialImages.map(img => {
-          if (lassoSelection.imageIds.includes(img.id)) {
+          if (!img.locked && lassoSelection.imageIds.includes(img.id)) {
             return {
               ...img,
               x: currentBbox.x + (img.x - initialBbox.x) * scaleX,
@@ -2228,7 +2296,7 @@ export const CanvasBoard = ({
           top: `${(img.y / canvasHeight) * 100}%`,
           width: `${(img.width / canvasWidth) * 100}%`,
           height: `${(img.height / canvasHeight) * 100}%`,
-          pointerEvents: isDrawingTool && !isSelected ? 'none' : 'auto'
+          pointerEvents: activeTool === 'lasso' || (isDrawingTool && (!isSelected || isLocked)) ? 'none' : 'auto'
         }}
         onPointerDown={(e) => handleImagePointerDown(e, img)}
         onTouchStart={(e) => e.stopPropagation()}
@@ -2260,6 +2328,7 @@ export const CanvasBoard = ({
         {isSelected && (
           <div 
             className="bn-image-action-bar" 
+            style={{ pointerEvents: 'auto' }}
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onPointerUp={(e) => e.stopPropagation()}
@@ -2373,18 +2442,22 @@ export const CanvasBoard = ({
           <>
             <div 
               className="bn-image-resize-handle bn-handle-nw"
+              style={{ pointerEvents: 'auto' }}
               onPointerDown={(e) => handleImageResizeStart(e, img, 'nw')}
             />
             <div 
               className="bn-image-resize-handle bn-handle-ne"
+              style={{ pointerEvents: 'auto' }}
               onPointerDown={(e) => handleImageResizeStart(e, img, 'ne')}
             />
             <div 
               className="bn-image-resize-handle bn-handle-sw"
+              style={{ pointerEvents: 'auto' }}
               onPointerDown={(e) => handleImageResizeStart(e, img, 'sw')}
             />
             <div 
               className="bn-image-resize-handle bn-handle-se"
+              style={{ pointerEvents: 'auto' }}
               onPointerDown={(e) => handleImageResizeStart(e, img, 'se')}
             />
           </>
@@ -2427,9 +2500,9 @@ export const CanvasBoard = ({
           style={{ width: '100%', height: '100%' }}
         />
 
-        {/* Layer 1.5: Under-Ink Image Elements (Writing and inking directly over images) */}
+        {/* Layer 1.5: Under-ink images; a selected image uses the editing layer below. */}
         <div className="bn-images-layer-under">
-          {imageElements.filter(img => img.layer !== 'over').map(renderImageElement)}
+          {imageElements.filter(img => img.layer !== 'over' && img.id !== selectedImageId).map(renderImageElement)}
         </div>
 
         {/* Layer 2: Finalized Static Strokes Canvas (Hi-DPI) */}
@@ -2443,7 +2516,7 @@ export const CanvasBoard = ({
         <canvas 
           ref={activeCanvasRef}
           className="bn-layer-active"
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', pointerEvents: activeTool === 'image' ? 'none' : 'auto' }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -2472,9 +2545,9 @@ export const CanvasBoard = ({
           </div>
         )}
 
-        {/* Layer 4: Over-Ink Image Elements (Images in front of handwriting) */}
+        {/* Layer 4: Over-ink images and the selected image, so its controls receive input. */}
         <div className="bn-images-layer-over">
-          {imageElements.filter(img => img.layer === 'over').map(renderImageElement)}
+          {imageElements.filter(img => img.layer === 'over' || img.id === selectedImageId).map(renderImageElement)}
         </div>
 
         {/* Layer 5: Interactive Text Elements */}
@@ -2526,6 +2599,7 @@ export const CanvasBoard = ({
               top: `${(lassoSelection.bbox.y / canvasHeight) * 100}%`,
               width: `${(lassoSelection.bbox.width / canvasWidth) * 100}%`,
               height: `${(lassoSelection.bbox.height / canvasHeight) * 100}%`,
+              cursor: canTransformLassoSelection ? 'grab' : 'default',
               pointerEvents: 'auto'
             }}
             onPointerDown={handleLassoBoxPointerDown}
@@ -2542,6 +2616,27 @@ export const CanvasBoard = ({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
+              {isImageOnlyLassoSelection && (
+                <>
+                  <button
+                    className="bn-lasso-action-btn text-zinc-200 hover:text-white"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleLassoImageLockToggle();
+                    }}
+                    title={areLassoImagesLocked ? t('unlockImage') : t('lockImage')}
+                    aria-pressed={areLassoImagesLocked}
+                  >
+                    {areLassoImagesLocked
+                      ? <Unlock size={13} className="text-emerald-400" />
+                      : <Lock size={13} className="text-amber-400" />}
+                    <span>{areLassoImagesLocked ? t('unlockImage') : t('lockImage')}</span>
+                  </button>
+                  <div className="w-px h-3 bg-zinc-700 mx-0.5" />
+                </>
+              )}
+
               {/* Recolor Button with Inline Palette Popover */}
               <div className="relative">
                 <button 
@@ -2645,35 +2740,40 @@ export const CanvasBoard = ({
               </button>
             </div>
 
-            {/* 4 Corner Resize Handles (Surface Pro 7 Touch-Friendly 28px Targets) */}
-            <div 
-              className="bn-lasso-corner-handle bn-lasso-corner-nw"
-              onPointerDown={(e) => handleLassoResizePointerDown(e, 'nw')}
-              onPointerMove={handleLassoResizePointerMove}
-              onPointerUp={handleLassoResizePointerUp}
-              title={language === 'en' ? 'Resize (Top-Left)' : 'ย่อ/ขยาย (บนซ้าย)'}
-            />
-            <div 
-              className="bn-lasso-corner-handle bn-lasso-corner-ne"
-              onPointerDown={(e) => handleLassoResizePointerDown(e, 'ne')}
-              onPointerMove={handleLassoResizePointerMove}
-              onPointerUp={handleLassoResizePointerUp}
-              title={language === 'en' ? 'Resize (Top-Right)' : 'ย่อ/ขยาย (บนขวา)'}
-            />
-            <div 
-              className="bn-lasso-corner-handle bn-lasso-corner-se"
-              onPointerDown={(e) => handleLassoResizePointerDown(e, 'se')}
-              onPointerMove={handleLassoResizePointerMove}
-              onPointerUp={handleLassoResizePointerUp}
-              title={language === 'en' ? 'Resize (Bottom-Right)' : 'ย่อ/ขยาย (ล่างขวา)'}
-            />
-            <div 
-              className="bn-lasso-corner-handle bn-lasso-corner-sw"
-              onPointerDown={(e) => handleLassoResizePointerDown(e, 'sw')}
-              onPointerMove={handleLassoResizePointerMove}
-              onPointerUp={handleLassoResizePointerUp}
-              title={language === 'en' ? 'Resize (Bottom-Left)' : 'ย่อ/ขยาย (ล่างซ้าย)'}
-            />
+            {/* Locked-image-only selections expose Unlock without movable handles. */}
+            {canTransformLassoSelection && (
+              <>
+                {/* 4 Corner Resize Handles (Surface Pro 7 Touch-Friendly 28px Targets) */}
+                <div
+                  className="bn-lasso-corner-handle bn-lasso-corner-nw"
+                  onPointerDown={(e) => handleLassoResizePointerDown(e, 'nw')}
+                  onPointerMove={handleLassoResizePointerMove}
+                  onPointerUp={handleLassoResizePointerUp}
+                  title={language === 'en' ? 'Resize (Top-Left)' : 'ย่อ/ขยาย (บนซ้าย)'}
+                />
+                <div
+                  className="bn-lasso-corner-handle bn-lasso-corner-ne"
+                  onPointerDown={(e) => handleLassoResizePointerDown(e, 'ne')}
+                  onPointerMove={handleLassoResizePointerMove}
+                  onPointerUp={handleLassoResizePointerUp}
+                  title={language === 'en' ? 'Resize (Top-Right)' : 'ย่อ/ขยาย (บนขวา)'}
+                />
+                <div
+                  className="bn-lasso-corner-handle bn-lasso-corner-se"
+                  onPointerDown={(e) => handleLassoResizePointerDown(e, 'se')}
+                  onPointerMove={handleLassoResizePointerMove}
+                  onPointerUp={handleLassoResizePointerUp}
+                  title={language === 'en' ? 'Resize (Bottom-Right)' : 'ย่อ/ขยาย (ล่างขวา)'}
+                />
+                <div
+                  className="bn-lasso-corner-handle bn-lasso-corner-sw"
+                  onPointerDown={(e) => handleLassoResizePointerDown(e, 'sw')}
+                  onPointerMove={handleLassoResizePointerMove}
+                  onPointerUp={handleLassoResizePointerUp}
+                  title={language === 'en' ? 'Resize (Bottom-Left)' : 'ย่อ/ขยาย (ล่างซ้าย)'}
+                />
+              </>
+            )}
           </div>
         )}
 

@@ -1,5 +1,7 @@
 // PDF Export Engine for BetterNote using jsPDF & Canvas
 import { jsPDF } from 'jspdf';
+import { isWhiteboardPage } from './whiteboard.js';
+import { renderWhiteboardToDataUrl, getWhiteboardPdfDimensions } from './whiteboardExport.js';
 import { renderPaperBackground } from './paperRenderer.js';
 import { renderAllStrokes } from './inkingEngine.js';
 import { PAPER_TEMPLATES } from '../data/templates.js';
@@ -8,6 +10,7 @@ import { PAPER_TEMPLATES } from '../data/templates.js';
  * Render a single page to an offscreen canvas and return data URL
  */
 export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', width = 1200, height = 1600) => {
+  if (isWhiteboardPage(page, templateId)) return renderWhiteboardToDataUrl(page);
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(100, Number(page.pageWidth) || width || 1200);
   canvas.height = Math.max(100, Number(page.pageHeight) || height || 1600);
@@ -95,7 +98,8 @@ export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', widt
 /**
  * Calculate dynamic PDF dimensions preserving exact original aspect ratio
  */
-export const getPagePdfDimensions = (page) => {
+export const getPagePdfDimensions = (page, templateId) => {
+  if (isWhiteboardPage(page, templateId)) return getWhiteboardPdfDimensions(page);
   const canvasW = page?.pageWidth || 1200;
   const canvasH = page?.pageHeight || 1600;
   const isLandscape = canvasW > canvasH;
@@ -124,7 +128,7 @@ export const exportNotebookToPdf = async (notebook, pages, onProgress = null) =>
   }
 
   const firstPage = pages[0];
-  const firstDim = getPagePdfDimensions(firstPage);
+  const firstDim = getPagePdfDimensions(firstPage, notebook.templateId);
 
   const pdf = new jsPDF({
     orientation: firstDim.orientation,
@@ -138,7 +142,7 @@ export const exportNotebookToPdf = async (notebook, pages, onProgress = null) =>
     }
 
     const page = pages[i];
-    const dim = getPagePdfDimensions(page);
+    const dim = getPagePdfDimensions(page, notebook.templateId);
 
     if (i > 0) {
       pdf.addPage([dim.pdfW, dim.pdfH], dim.orientation);
@@ -161,7 +165,7 @@ export const exportSinglePageToPdf = async (notebook, page, pageIndex = 0) => {
     throw new Error('ไม่พบข้อมูลหน้าเอกสารที่ต้องการส่งออก');
   }
 
-  const dim = getPagePdfDimensions(page);
+  const dim = getPagePdfDimensions(page, notebook.templateId);
   const pdf = new jsPDF({
     orientation: dim.orientation,
     unit: 'pt',
@@ -186,7 +190,7 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
   }
 
   const firstPage = pages[0];
-  const firstDim = getPagePdfDimensions(firstPage);
+  const firstDim = getPagePdfDimensions(firstPage, notebook.templateId);
 
   const pdf = new jsPDF({
     orientation: firstDim.orientation,
@@ -203,7 +207,7 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
     }
 
     const page = pages[i];
-    const dim = getPagePdfDimensions(page);
+    const dim = getPagePdfDimensions(page, notebook.templateId);
 
     if (i > 0) {
       pdf.addPage([dim.pdfW, dim.pdfH], dim.orientation);
