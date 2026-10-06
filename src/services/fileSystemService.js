@@ -4,12 +4,12 @@ import { getAllFolders, getAllNotebooks, getPagesByNotebookId, saveFolder, saveN
 /**
  * Save data as a local file (using File System Access API or Blob download)
  */
-export const saveFileToDisk = async (blob, suggestedName) => {
+export const saveFileToDisk = async (blob, suggestedName, fileTypes = null) => {
   if ('showSaveFilePicker' in window) {
     try {
       const handle = await window.showSaveFilePicker({
         suggestedName,
-        types: [
+        types: fileTypes || [
           {
             description: 'BetterNote Document / Backup',
             accept: {

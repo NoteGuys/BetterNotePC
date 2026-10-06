@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { registerPdfExport } = require('./pdfExport.cjs');
 
 // Surface Pro Hardware Acceleration, High-DPI & Touch/Stylus Flags
 app.commandLine.appendSwitch('enable-features', 'TouchEvents,VaapiVideoDecoder');
@@ -708,6 +709,8 @@ function createWindow() {
   });
 
   // Import one image explicitly chosen in the native Windows file picker.
+  registerPdfExport(ipcMain, BrowserWindow, () => mainWindow);
+
   ipcMain.handle('select-image', async (_event, options = {}) => {
     const mimeTypes = {
       png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',

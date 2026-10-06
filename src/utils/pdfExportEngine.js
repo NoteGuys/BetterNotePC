@@ -5,6 +5,7 @@ import { renderWhiteboardToDataUrl, getWhiteboardPdfDimensions } from './whitebo
 import { renderPaperBackground } from './paperRenderer.js';
 import { renderAllStrokes } from './inkingEngine.js';
 import { PAPER_TEMPLATES } from '../data/templates.js';
+import { buildExportDocument, downloadExportBlob, renderExportPageImage } from './exportDocument.js';
 
 /**
  * Render a single page to an offscreen canvas and return data URL
@@ -127,6 +128,14 @@ export const exportNotebookToPdf = async (notebook, pages, onProgress = null) =>
     throw new Error('สมุดบันทึกไม่มีหน้าเอกสารให้ส่งออก');
   }
 
+  if (window.electronAPI?.exportPdfDocument) {
+    const html = await buildExportDocument(notebook, pages, getPagePdfDimensions, onProgress);
+    const bytes = await window.electronAPI.exportPdfDocument(html);
+    const filename = `${notebook.name || 'Notebook'}.pdf`;
+    downloadExportBlob(new Blob([bytes], { type: 'application/pdf' }), filename);
+    return filename;
+  }
+
   const firstPage = pages[0];
   const firstDim = getPagePdfDimensions(firstPage, notebook.templateId);
 
@@ -148,8 +157,9 @@ export const exportNotebookToPdf = async (notebook, pages, onProgress = null) =>
       pdf.addPage([dim.pdfW, dim.pdfH], dim.orientation);
     }
 
-    const imgData = await renderPageToCanvasDataUrl(page, notebook.templateId);
-    pdf.addImage(imgData, 'JPEG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
+    const { blob } = await renderExportPageImage(page, notebook.templateId, getPagePdfDimensions);
+    pdf.addImage(new Uint8Array(await blob.arrayBuffer()), 'PNG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
 
   const filename = `${notebook.name || 'Notebook'}.pdf`;
@@ -165,6 +175,14 @@ export const exportSinglePageToPdf = async (notebook, page, pageIndex = 0) => {
     throw new Error('ไม่พบข้อมูลหน้าเอกสารที่ต้องการส่งออก');
   }
 
+  if (window.electronAPI?.exportPdfDocument) {
+    const html = await buildExportDocument(notebook, [page], getPagePdfDimensions);
+    const bytes = await window.electronAPI.exportPdfDocument(html);
+    const filename = `${notebook.name || 'Notebook'}_Page_${pageIndex + 1}.pdf`;
+    downloadExportBlob(new Blob([bytes], { type: 'application/pdf' }), filename);
+    return filename;
+  }
+
   const dim = getPagePdfDimensions(page, notebook.templateId);
   const pdf = new jsPDF({
     orientation: dim.orientation,
@@ -172,8 +190,8 @@ export const exportSinglePageToPdf = async (notebook, page, pageIndex = 0) => {
     format: [dim.pdfW, dim.pdfH]
   });
 
-  const imgData = await renderPageToCanvasDataUrl(page, notebook.templateId);
-  pdf.addImage(imgData, 'JPEG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
+  const { blob } = await renderExportPageImage(page, notebook.templateId, getPagePdfDimensions);
+  pdf.addImage(new Uint8Array(await blob.arrayBuffer()), 'PNG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
 
   const filename = `${notebook.name || 'Notebook'}_Page_${pageIndex + 1}.pdf`;
   pdf.save(filename);
@@ -230,3 +248,7 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
 };
 
 
+
+// Explicit image exports only; backup and preview renderers keep their original defaults.
+export const exportPageAsImage = (page, templateId, options) =>
+  renderExportPageImage(page, templateId, getPagePdfDimensions, options);

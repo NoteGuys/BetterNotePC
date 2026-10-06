@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, clipboard } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
+  exportPdfDocument: (html) => ipcRenderer.invoke('export-pdf-document', html),
   saveBackup: (data) => ipcRenderer.invoke('save-auto-backup', data),
   pruneBackupNotebook: (name) => ipcRenderer.invoke('prune-backup-notebook', name),
   pruneBackupNotebooksBatch: (names) => ipcRenderer.invoke('prune-backup-notebooks-batch', names),
