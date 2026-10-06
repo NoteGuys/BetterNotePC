@@ -19,6 +19,7 @@ import { getSetting, saveSetting } from '../../services/db';
 import { useLanguage } from '../../services/i18n';
 import { DEFAULT_GOOGLE_CLIENT_ID } from '../../config/googleConfig';
 import { autoBackupService } from '../../services/autoBackupService';
+import { BackupDestinationSummary, backupStateKey } from './BackupStatusIndicator';
 
 export const GoogleDriveModal = ({ isOpen, onClose, onSyncComplete }) => {
   const { t, language } = useLanguage();
@@ -55,7 +56,7 @@ export const GoogleDriveModal = ({ isOpen, onClose, onSyncComplete }) => {
       const savedClientId = (await getSetting('gdrive_client_id')) || DEFAULT_GOOGLE_CLIENT_ID || '';
       const savedConnected = await getSetting('gdrive_connected') || false;
       const savedEmail = await getSetting('gdrive_user_email') || '';
-      const savedLastSync = await getSetting('gdrive_last_sync');
+      const savedLastSync = autoBackupService.getSnapshot().lastSuccess;
 
       setClientId(savedClientId);
       setIsConnected(savedConnected);
@@ -147,41 +148,24 @@ export const GoogleDriveModal = ({ isOpen, onClose, onSyncComplete }) => {
   const handleBackupNow = async () => {
     if (isLoading) return;
     setIsLoading(true);
-    setStatusMsg({ 
-      type: 'info', 
-      text: t('gdriveSyncing', 'กำลังอัปโหลดข้อมูลสมุดโน้ตไปยัง Google Drive...') 
-    });
-
+    setStatusMsg({ type: 'info', text: t('backupStateWorking') });
     try {
-      if (detectedGoogleDrivePath) {
-        await autoBackupService.runAutoBackup({ forcePdf: false });
-        const now = new Date();
-        setLastSync(now);
+      if (window.electronAPI?.saveBackup) {
+        const result = await autoBackupService.runAutoBackup({ forcePdf: false });
         await refreshBackupDetails();
-        setStatusMsg({ 
-          type: 'success', 
-          text: t('gdriveBackupSuccess', 'สำรองข้อมูลสำเร็จเรียบร้อย!') 
-        });
+        const current = !!result?.success && autoBackupService.getSnapshot().status === 'current';
+        setLastSync(current && result.timestamp ? new Date(result.timestamp) : null);
+        setStatusMsg({ type: current ? 'success' : 'error', text: t(current ? backupStateKey(autoBackupService.getSnapshot()) : 'backupPartialNotice') });
+        if (current && onSyncComplete) onSyncComplete();
       } else {
-        const res = await googleDrive.backupAllToDrive();
-        const now = new Date();
-        setLastSync(now);
-        await refreshBackupDetails();
-        setStatusMsg({ 
-          type: 'success', 
-          text: t('gdriveBackupSuccess', 'สำรองข้อมูลสำเร็จเรียบร้อย! ไฟล์ชื่อ: {name}', { name: res.name || 'BetterNote_Backup.json' }) 
-        });
+        const result = await googleDrive.backupAllToDrive();
+        if (!result?.id) throw new Error('Drive did not confirm a backup file');
+        setLastSync(new Date());
+        setStatusMsg({ type: 'success', text: t('gdriveBackupSuccess', '', { name: result.name }) });
+        if (onSyncComplete) onSyncComplete();
       }
-      if (onSyncComplete) onSyncComplete();
-    } catch (err) {
-      console.error(err);
-      setStatusMsg({ 
-        type: 'error', 
-        text: t('gdriveBackupError', 'เกิดข้อผิดพลาดในการสำรองข้อมูล: {error}', { error: err.message }) 
-      });
-    } finally {
-      setTimeout(() => setIsLoading(false), 1200);
-    }
+    } catch (_) { setStatusMsg({ type: 'error', text: t('backupProblemGeneric') }); }
+    finally { setIsLoading(false); }
   };
 
   const handleRestoreFromDrive = async () => {
@@ -255,6 +239,8 @@ export const GoogleDriveModal = ({ isOpen, onClose, onSyncComplete }) => {
           if (typeof window.localStorage !== 'undefined') {
             window.localStorage.setItem('local_backup_path', folder);
           }
+          await autoBackupService.destinationChanged();
+          await refreshBackupDetails();
           setDetectedGoogleDrivePath(folder);
           setStatusMsg({
             type: 'success',
@@ -295,6 +281,7 @@ export const GoogleDriveModal = ({ isOpen, onClose, onSyncComplete }) => {
         </div>
 
         <div className="bn-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px', paddingTop: '16px' }}>
+          <BackupDestinationSummary />
           {/* Card 1: Active Google Drive on PC */}
           {detectedGoogleDrivePath ? (
             <div style={{
@@ -352,7 +339,7 @@ export const GoogleDriveModal = ({ isOpen, onClose, onSyncComplete }) => {
                       {t('gdriveVerifiedBackupStats', 'ยืนยันไฟล์สำรอง: สำรองแล้ว {count} เล่ม ({size}) • ซิงค์ล่าสุด: {time}', {
                         count: backupDetails?.manifest?.activeNotebooksCount || Math.round((backupDetails?.files?.length || 0) / 2) || 1,
                         size: backupDetails?.formattedTotalSize || '0 B',
-                        time: lastSync ? lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('justNow', 'เมื่อสักครู่')
+                        time: lastSync ? lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('backupNever')
                       })}
                     </span>
                   </div>
@@ -525,7 +512,7 @@ export const GoogleDriveModal = ({ isOpen, onClose, onSyncComplete }) => {
                         {t('gdriveVerifiedBackupStats', 'ยืนยันไฟล์สำรอง: สำรองแล้ว {count} เล่ม ({size}) • ซิงค์ล่าสุด: {time}', {
                           count: backupDetails?.manifest?.activeNotebooksCount || Math.round(backupDetails.files.length / 2) || 1,
                           size: backupDetails?.formattedTotalSize || '0 B',
-                          time: lastSync ? lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('justNow', 'เมื่อสักครู่')
+                          time: lastSync ? lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('backupNever')
                         })}
                       </span>
                     ) : (

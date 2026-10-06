@@ -9,6 +9,7 @@ import { autoBackupService } from '../../services/autoBackupService';
 import { appCacheService } from '../../services/appCacheService';
 import { useLanguage } from '../../services/i18n';
 import { saveSetting } from '../../services/db';
+import { useBackupSnapshot, BackupDestinationSummary, backupStateKey } from '../Common/BackupStatusIndicator';
 
 export default function BackupStatusModal({ 
   isOpen, 
@@ -18,6 +19,7 @@ export default function BackupStatusModal({
   onRestoreBackup 
 }) {
   const { t, language } = useLanguage();
+  const backupState = useBackupSnapshot();
   const [loading, setLoading] = useState(true);
   const [syncingNow, setSyncingNow] = useState(false);
   const [statusDetails, setStatusDetails] = useState(null);
@@ -56,6 +58,7 @@ export default function BackupStatusModal({
         const newPath = await window.electronAPI.selectFolder();
         if (newPath) {
           await saveSetting('local_backup_path', newPath);
+          await autoBackupService.destinationChanged();
           if (typeof window.localStorage !== 'undefined') {
             window.localStorage.setItem('local_backup_path', newPath);
           }
@@ -71,6 +74,7 @@ export default function BackupStatusModal({
         if (chosen && chosen.trim()) {
           const trimmed = chosen.trim();
           await saveSetting('local_backup_path', trimmed);
+          await autoBackupService.destinationChanged();
           if (typeof window.localStorage !== 'undefined') {
             window.localStorage.setItem('local_backup_path', trimmed);
           }
@@ -89,21 +93,14 @@ export default function BackupStatusModal({
   const handleManualBackupNow = async () => {
     if (syncingNow) return;
     setSyncingNow(true);
-    setActionNotice({ type: 'info', text: t('backupNoticeBackingUp', 'กำลังทำการบันทึกสำรองข้อมูลและเอกสาร PDF ลงดิสก์และ Google Drive...') });
+    setActionNotice({ type: 'info', text: t('backupStateWorking') });
     try {
-      if (onTriggerSync) {
-        await onTriggerSync({ forcePdf: false });
-      } else {
-        await autoBackupService.runAutoBackup({ forcePdf: false });
-      }
-      await new Promise(r => setTimeout(r, 600));
+      const result = onTriggerSync ? await onTriggerSync({ forcePdf: false }) : await autoBackupService.runAutoBackup({ forcePdf: false });
       await fetchDetails();
-      setActionNotice({ type: 'success', text: t('backupNoticeSuccess', 'สำรองข้อมูลและไฟล์ PDF ครบทุกสมุดสำเร็จเรียบร้อยแล้ว! 🚀') });
-    } catch (err) {
-      setActionNotice({ type: 'error', text: t('backupNoticeError', 'เกิดข้อผิดพลาดในการสำรองข้อมูล: {error}', { error: err.message }) });
-    } finally {
-      setTimeout(() => setSyncingNow(false), 1200);
-    }
+      const current = !!result?.success && autoBackupService.getSnapshot().status === 'current';
+      setActionNotice({ type: current ? 'success' : 'error', text: t(current ? backupStateKey(autoBackupService.getSnapshot()) : 'backupPartialNotice') });
+    } catch (_) { setActionNotice({ type: 'error', text: t('backupProblemGeneric') }); }
+    finally { setSyncingNow(false); }
   };
 
   const handleOpenFolder = async () => {
@@ -177,7 +174,7 @@ export default function BackupStatusModal({
               <h3>
                 {t('backupStatusTitle', 'ตรวจสอบสถานะการ Backup')}
                 <span className="bn-backup-agent-badge">
-                  2-Agent Cloud Sync
+                  {t('backupDestinations')}
                 </span>
               </h3>
               <p className="bn-backup-subtitle">
@@ -220,6 +217,7 @@ export default function BackupStatusModal({
 
         {/* Content Body */}
         <div className="bn-backup-body">
+          <BackupDestinationSummary />
           {/* Summary Stat Cards */}
           <div className="bn-backup-cards-grid">
             {/* Card 1: Backup Folder */}
@@ -247,7 +245,7 @@ export default function BackupStatusModal({
                   </button>
                 </div>
                 <span className={isGoogleDrive ? 'bn-backup-tag-cloud' : 'bn-backup-tag-local'}>
-                  {isGoogleDrive ? 'Google Drive ☁️' : 'Local Disk 💾'}
+                  {t(isGoogleDrive ? 'backupTargetDrive' : statusDetails?.targets?.at(-1)?.kind === 'folder' ? 'backupTargetSelected' : 'backupTargetLocal')}
                 </span>
               </div>
               <div className="bn-backup-path-box" title={targetDir}>
@@ -283,15 +281,15 @@ export default function BackupStatusModal({
                 <span className="bn-backup-stat-label">
                   <Clock size={15} style={{ color: '#34d399' }} /> {t('backupLastSyncTime', 'เวลาสำรองล่าสุด')}
                 </span>
-                <span className="bn-backup-tag-synced">
-                  <CheckCircle2 size={12} /> {t('backupSynced', 'ซิงค์แล้ว')}
+                <span className={backupState.status === 'current' ? 'bn-backup-tag-synced' : 'bn-backup-tag-local'}>
+                  {t(backupStateKey(backupState))}
                 </span>
               </div>
               <div className="bn-backup-stat-value">
                 {lastSyncDate}
               </div>
               <p className="bn-backup-stat-hint">
-                {t('backupBackgroundHint', 'ระบบทำงานอัตโนมัติในพื้นหลัง ไม่หน่วงเครื่อง ไม่กิน RAM')}
+                {t('backupFolderOnlyHint')}
               </p>
             </div>
 
@@ -400,6 +398,10 @@ export default function BackupStatusModal({
                   {filteredFiles.map((file, idx) => {
                     const isBnote = file.fileName.endsWith('.bnote');
                     const isPdf = file.fileName.endsWith('.pdf');
+                    const target = backupState.targets.find(item => item.targetDir === file.targetDir);
+                    const isCurrent = !backupState.localSaving && !backupState.metadataPending && !target?.error && (file.kind === 'system'
+                      ? !!target?.fullCurrent
+                      : !!file.revision && file.revision === backupState.revisions?.[file.notebookId]);
                     return (
                       <tr key={file.fullPath || idx}>
                         {/* File Name */}
@@ -430,7 +432,7 @@ export default function BackupStatusModal({
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#cbd5e1' }}>
                             <Clock size={12} style={{ color: '#71717a' }} />
-                            <span>{file.formattedDate}</span>
+                            <span>{new Date(file.lastModified).toLocaleString(currentLocale)}</span>
                           </div>
                         </td>
 
@@ -441,8 +443,8 @@ export default function BackupStatusModal({
 
                         {/* Status Badge */}
                         <td>
-                          <span className="bn-backup-status-tag-synced">
-                            <CheckCircle2 size={11} /> {t('backupSyncedBadge', 'สำรองแล้ว ✅')}
+                          <span className={isCurrent ? 'bn-backup-status-tag-synced' : 'bn-backup-tag-local'}>
+                            {t(isCurrent ? 'backupVersionCurrent' : 'backupStatePending')}
                           </span>
                         </td>
 
@@ -470,8 +472,8 @@ export default function BackupStatusModal({
         {/* Footer Actions */}
         <div className="bn-backup-footer">
           <div className="bn-backup-footer-status">
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
-            <span>{t('backupAutoSyncNotice', 'ซิงค์อัตโนมัติแบบเรียลไทม์เมื่อมีการแก้ไข')}</span>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: backupState.status === 'current' ? '#34d399' : '#94a3b8', display: 'inline-block' }} />
+            <span>{t(backupStateKey(backupState))}</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>

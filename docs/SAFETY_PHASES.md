@@ -6,7 +6,7 @@
 | เฟส | สิ่งที่ผู้ใช้จะได้รับ | ประเด็นจากแผน 24 ข้อ | สถานะ |
 | --- | --- | --- | --- |
 | 1 | Undo/Redo ของเนื้อหาและการเพิ่ม/ลบ/ทำสำเนาหน้า ประวัติแยกสมุดข้ามแท็บ เซฟตามลำดับ มีสถานะและลองเซฟใหม่ได้ ปิดตามปกติรอคิวทั้งหมด | 1–4, ประวัติข้ามแท็บ และส่วนลดการเซฟซ้ำของ 17 | ครบข้อ 1–4 เพิ่มภาษาและ 9 แท็บแล้ว รอผู้ใช้ตรวจ |
-| 2 | สำรองนับงานที่เขียนจริง รายงานผลแต่ละปลายทางตามจริง เขียนแทนไฟล์อย่างปลอดภัย เก็บรุ่นก่อน ใช้รหัสสมุด และไม่ล้างสำรองเมื่อย้ายเข้าถังขยะ | 5–8, 11 | ยังไม่เริ่ม |
+| 2 | สำรองนับงานที่เขียนจริง รายงานผลแต่ละปลายทางตามจริง เขียนแทนไฟล์อย่างปลอดภัย เก็บรุ่นก่อน ใช้รหัสสมุด และไม่ล้างสำรองเมื่อย้ายเข้าถังขยะ | 5–8, 11 | พัฒนาและตรวจอัตโนมัติแล้ว รอผู้ใช้ตรวจ |
 | 3 | ตรวจไฟล์ก่อนกู้คืน ไม่ค้างครึ่งทาง เก็บข้อมูลที่ขัดแย้ง ตรวจทุกแหล่ง และทดสอบย้ายจากเครื่องเก่าสู่ฐานข้อมูลเครื่องใหม่ผ่านโฟลเดอร์ Drive จำลอง | 9–10 และการย้ายเครื่อง | ยังไม่เริ่ม |
 | 4 | เก็บจุดปากกาครบ เส้นตรงทำงาน คืนสถานะเมื่อจบการเขียน และตรวจการสลับ/เลื่อนหน้ากับท่าทางสัมผัส | 12–14 และการเลื่อนหน้า | ยังไม่เริ่ม |
 | 5 | ลดงานวาด โหลดข้อมูลและ Canvas ตามงบหน่วยความจำ จำกัดประวัติ งานหนักอยู่เบื้องหลัง รักษา PDF ต้นฉบับ และล้างแคชที่ใช้อยู่จริง | 15–21 | ยังไม่เริ่ม |
@@ -128,3 +128,67 @@ close guard ตรวจด้วย mock Electron และ renderer protocol �
 เฟสแรกยังไม่แก้ความถูกต้องของสำรอง/กู้คืนทั้งหมด ไม่ยืนยันการอัปโหลดคลาวด์หรือย้ายเครื่องสำเร็จจนกว่าจะตรวจเฟส 2–3
 ความหน่วงปากกา การเลื่อนหน้าใหญ่ และ RAM ต้องวัดบน Surface จริงหลังเฟส 4–5
 การปิดตามปกติที่ตรวจในเฟสนี้ครอบคลุมงานที่ส่งเข้าคิวเซฟแล้ว; การเก็บ stroke/text draft ที่ยังไม่จบต้องตรวจเพิ่มในเฟสการเขียน
+
+## เฟส 2: ระบบสำรองและสถานะ (6 ตุลาคม 2026)
+
+ผู้ใช้อนุมัติแผนเฟส 2 และตำแหน่งสถานะด้วย “ตกลง” แล้วสั่ง “ต่อ”
+เริ่มงานจาก checkpoint f620bec บน sol-work; ไม่เปลี่ยน branch ไม่ commit/push ระหว่างพัฒนา
+
+- รอให้คิวเซฟหน้าและคิว Undo/Redo commit สำเร็จก่อนสำรอง อ่าน notebook และหน้าทั้งหมดของเล่มนั้นใน transaction เดียว; งานใหม่ระหว่างสำรองยังคงเป็น pending และเข้ารอบถัดไป
+- แยกสถานะเซฟบนเครื่องออกจากสำรอง: ปุ่มข้างแถบแท็บ, ปุ่มบน Documents และรายละเอียดในหน้าสำรอง/Google Drive ใช้สถานะร่วมเดียวกัน รองรับภาษา en/th/zh/ru และ 9 แท็บ
+- รายงานแยกโฟลเดอร์สำรองใน Documents ของเครื่องกับโฟลเดอร์ที่เลือก/Drive โดยนับสมุดที่แก้ไขได้ PDF และ snapshot ทั้งคลังตามรุ่นที่ตรวจยืนยัน พร้อมเวลารอบที่เสร็จจริง
+- คำว่า Drive folder up to date ยืนยันว่าเขียนและตรวจไฟล์ในโฟลเดอร์แล้ว; BetterNote ยังไม่ยืนยันการอัปโหลดของ Google Drive Desktop ขึ้นคลาวด์ ไม่ใช้ connected flag หรือเวลาเดิมมาทำให้เป็นสีเขียว
+- หลังมีการแก้ไข เปลี่ยนสถานะทันทีและรวมคำขอ รอประมาณ 10 วินาทีหลังการแก้ล่าสุดเพื่อสำรอง ไม่อ่าน metadata วนระหว่างช่วงหยุดท้ายเส้น ไม่อ่านหน้า/สร้าง PDF/สั่ง filesystem ทุก stroke
+- ทำคิวทีละรอบและทีละสมุด งาน JSON/ตรวจ hash/เขียนไฟล์อยู่ใน Node worker; ใช้ async filesystem แยกผลและจำกัดเวลาของแต่ละปลายทาง ปลายทางหนึ่งล้มเหลวไม่ทำให้โฟลเดอร์ในเครื่องหายตามไปด้วย
+- ตรวจไฟล์ชั่วคราวและอ่านกลับก่อน rename แทนไฟล์เดิม ไม่ unlink ไฟล์เดิมเพื่อบังคับให้ replace สำเร็จ; หลัง replace สำเร็จเก็บก่อนหน้าที่สมบูรณ์ไว้ไม่เกิน 3 รุ่นใน .history ของไฟล์ที่เปลี่ยน
+- ผูกชื่อไฟล์สำรองใหม่กับ notebook ID; ชื่อซ้ำ ชื่อที่ Windows แปลงเหมือนกัน และ rename ไม่ทับอีกเล่ม ชื่อและไฟล์สำรองเดิมคงอยู่ในรายการและการอ่านสำรองเดิม
+- รวม snapshot ตาม ID โดยเก็บสมุด/โฟลเดอร์ที่มีอยู่ที่ปลายทางแต่ไม่มีบนเครื่องนี้ไว้ หาก same-ID เดิมใหม่กว่า หรือเวลาเท่ากันแต่ข้อมูลหน้าไม่ตรง จะเก็บเดิมและแจ้งปัญหาแทนการเขียนทับ
+- ฐานข้อมูลว่างไม่เขียนทับสำรองทั้งคลังด้วยข้อมูลว่าง; ย้ายเข้าถังขยะไม่ prune สำรอง การลบถาวรต้องมี ID และลบเฉพาะ ID นั้น ตรวจ manifest/path ก่อนลบและไม่สั่งซ้ำ
+- PDF สำรองสร้างเฉพาะเมื่อเนื้อหาหน้าเปลี่ยน/ไฟล์หาย/ตรวจไม่ได้; rename หรือย้ายโฟลเดอร์ไม่ render PDF เดิมซ้ำ พัก PDF เมื่อมี contact หรือกำลังเซฟ แล้วลองรอบถัดไป
+- ตัวสร้าง PDF สำหรับสำรองแยกจากคำสั่ง export เดิม ใช้ renderer ที่มีอยู่แบบจำกัด bitmap ที่ 150 DPI ตรวจการ decode ของรูปและจำนวนหน้า หากรูปเสียหรือสร้าง PDF ไม่ครบ ยังคงสำรอง .bnote แต่แสดง incomplete โดยไม่อัปเดตเวลาสำเร็จทั้งรอบ
+- เก็บ original pdfBase64 ของสมุด ลายมือ ข้อความ รูปที่ล็อก พื้นหลัง PDF ขนาดกระดาษ และพิกัดติดลบของ whiteboard ใน editable/full snapshot
+- ไม่เปลี่ยน DB version/stores/indexes, dependencies, package.json, package-lock.json, HANDOFF.md, โค้ดปากกา NoteEditor/CanvasBoard/WhiteboardBoard หรือคำสั่ง export ของผู้ใช้
+
+ผลตรวจ: ชุดเดิม 72 unit + 108 browser ผ่าน และเฟส 2 เพิ่ม 48 unit/worker/filesystem + 35 browser/integration รวม 263 กรณีผ่าน
+Browser ใช้ React และ IndexedDB จริง พร้อม Node worker ที่เขียนเฉพาะโฟลเดอร์จำลองในพื้นที่ QA; ไม่มี renderer exception
+ตรวจหน้าต่าง 700/900/1024/1360/1920 px ภาษา 4 ภาษา คีย์บอร์ด ธีมสว่าง พาธยาว เซฟล้มเหลว งานใหม่ระหว่างสำรอง ปลายทางเขียนไม่ได้ และรูปเสีย
+Production build ผ่าน 2132 modules; ยังมี warning static/dynamic import ของ autoBackupService/fileSystemService และ bundle หลักเกิน 500 kB
+ไม่ติดตั้งหรืออัปเดต dependency; npm มี notice อัปเดตเวอร์ชันในรอบบิลด์ก่อนหน้าแต่ไม่ได้ดำเนินการ
+
+ขอบเขตที่ยังต้องตรวจ: ไม่เปิดแอปที่ติดตั้ง ไม่อ่านฐานข้อมูลโน้ตจริง/Google Drive จริง/ไฟล์สำรองจริง และไม่เข้าถึงโฟลเดอร์ส่วนตัวที่ห้ามแตะ
+เฟส 3 ยังไม่เริ่ม การเลือกไฟล์ที่ใหม่ที่สุด ตรวจไฟล์ก่อน restore และทดสอบย้ายเครื่องแบบครบกระบวนการยังอยู่ในเฟส 3
+ยังไม่ยืนยันการอัปโหลด Drive หรือความลื่นบน Surface จริง; ปากกาที่ทดสอบเป็น synthetic pointer events
+
+ให้ผู้ใช้ปิด–เปิดแอปที่ใช้ทดสอบเพื่อโหลด native worker ใหม่ ใช้สมุดทดลองตรวจสถานะ “Saved on this device” แยกจาก “Backup pending”
+เปิดรายละเอียดจากแถบแท็บหรือ Documents แล้วกด Backup Now ตรวจผล editable/PDF/full snapshot และแต่ละโฟลเดอร์ ก่อนให้ผ่านไปเฟสถัดไป
+
+รายการไฟล์ที่จะเซฟเฟส 2 มี 23 ไฟล์ (ยังไม่ stage/commit/push):
+
+| ไฟล์ | สิ่งที่เปลี่ยน |
+| --- | --- |
+| [electron/main.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/main.cjs>) | ส่งงานสำรองไป worker และเปิดโฟลเดอร์แบบ async |
+| [electron/preload.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/preload.cjs>) | ส่ง notebook ID สำหรับการลบสำรองถาวร |
+| [electron/backupWriter.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backupWriter.cjs>) | ตรวจและเขียนไฟล์สำรอง เก็บรุ่นเดิม ป้องกันข้อมูลชน |
+| [electron/backupWorkerClient.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backupWorkerClient.cjs>) | คิวรับส่งงานกับ worker และจัดการ worker ล้มเหลว |
+| [electron/backup.worker.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backup.worker.cjs>) | ทำงานไฟล์ใน Node worker |
+| [src/App.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/App.jsx>) | เปิดรายละเอียดจากแถบแท็บ และลบสำรองถาวรเพียงครั้งเดียว |
+| [src/components/Common/DocumentTabBar.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/DocumentTabBar.jsx>) | ปุ่มสถานะสำรองข้างสถานะเซฟในเครื่อง |
+| [src/components/Common/BackupStatusIndicator.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/BackupStatusIndicator.jsx>) | สถานะร่วมและผลแยกแต่ละปลายทาง |
+| [src/components/Common/GoogleDriveModal.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/GoogleDriveModal.jsx>) | ใช้ผลสำรองจริงและแยกการเขียนโฟลเดอร์จากคลาวด์ |
+| [src/components/Library/LibraryView.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/LibraryView.jsx>) | แสดงสถานะจริงและคงสำรองเมื่อย้ายสมุดเข้าถังขยะ |
+| [src/components/Library/BackupStatusModal.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/BackupStatusModal.jsx>) | รายละเอียดรุ่นล่าสุด จำนวนไฟล์ และผลของการลองสำรอง |
+| [src/index.css](<D:/AI WorkShop/Codex/BetterNotePC/src/index.css>) | หน้าตาปุ่มและกรอบสถานะ รองรับพาธยาวและหน้าจอเล็ก |
+| [src/services/autoBackupService.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/autoBackupService.js>) | เชื่อมคิวเซฟ ตัวตรวจช่วงเขียน และ controller |
+| [src/services/backupController.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/backupController.js>) | คิวสำรอง สถานะตามรุ่นข้อมูล และการรอช่วงว่าง |
+| [src/services/db.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/db.js>) | แจ้งเมื่อ transaction สำเร็จ และอ่าน snapshot ใน transaction เดียว |
+| [src/services/i18n.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/i18n.js>) | ข้อความสถานะใหม่ 4 ภาษา |
+| [src/utils/backupRevision.js](<D:/AI WorkShop/Codex/BetterNotePC/src/utils/backupRevision.js>) | ตัวระบุรุ่นข้อมูลขนาดเล็ก |
+| [src/utils/backupPdf.js](<D:/AI WorkShop/Codex/BetterNotePC/src/utils/backupPdf.js>) | สร้าง PDF สำหรับสำรองพร้อมตรวจรูปและจำนวนหน้า |
+| [tests/backup-controller.test.js](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-controller.test.js>) | ทดสอบคิว รุ่นข้อมูล และสถานะ |
+| [tests/backup-writer.test.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-writer.test.cjs>) | ทดสอบไฟล์ล้มเหลว ชื่อซ้ำ รุ่นก่อน และข้อมูลจากหลายเครื่อง |
+| [tests/backup-worker.test.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-worker.test.cjs>) | ทดสอบ Node worker จริงด้วยโฟลเดอร์จำลอง |
+| [tests/backup-status.browser.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-status.browser.cjs>) | ทดสอบ React/IndexedDB/UI จริงกับ worker และข้อมูลจำลอง |
+| [docs/SAFETY_PHASES.md](<D:/AI WorkShop/Codex/BetterNotePC/docs/SAFETY_PHASES.md>) | บันทึกขอบเขต ผลตรวจ และรายการไฟล์เฟส 2 |
+
+ไฟล์ชั่วคราว core-js-banners และ node-compile-cache/ มีอยู่ก่อนเริ่มเฟส ไม่อ่าน ไม่ลบ และไม่รวมในการเซฟ
+รอผู้ใช้ตอบ “ตกลง” ตามกติกาเซฟ Git ก่อน add/commit/push ไป sol-work; ห้าม push main

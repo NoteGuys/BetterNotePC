@@ -64,6 +64,11 @@ const getStore = async (storeName, mode = 'readonly') => {
   return tx.objectStore(storeName);
 };
 
+const backupChangeListeners = new Set();
+export const subscribeBackupChanges = listener => {
+  backupChangeListeners.add(listener);
+  return () => backupChangeListeners.delete(listener);
+};
 const pendingWrites = new Set();
 const writeListeners = new Set();
 const notifyWrites = () => writeListeners.forEach(listener => listener());
@@ -91,7 +96,13 @@ const writeTransaction = (storeNames, operation) => {
         failure = error;
         try { tx.abort(); } catch (_) {}
       };
-      tx.oncomplete = () => resolve(result);
+      tx.oncomplete = () => {
+        resolve(result);
+        const names = Array.isArray(storeNames) ? storeNames : [storeNames];
+        if (names.some(name => ['pages', 'notebooks', 'folders'].includes(name))) {
+          backupChangeListeners.forEach(listener => { try { listener(); } catch (_) {} });
+        }
+      };
       tx.onabort = () => reject(failure || tx.error || new Error('Local save aborted'));
       tx.onerror = event => { failure ||= tx.error || event.target?.error; };
       try { operation(tx, value => { result = value; }, abort); }
@@ -684,5 +695,52 @@ export const seedInitialData = async () => {
     };
     marker.onsuccess = finish;
     counts.forEach(request => { request.onsuccess = finish; });
+  });
+};
+
+// Backup reads share one transaction: a page reorder cannot split a snapshot.
+export const getBackupMetadata = async () => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['folders', 'notebooks'], 'readonly');
+    const metadata = { folders: [], notebooks: [] };
+    tx.oncomplete = () => resolve(metadata);
+    tx.onabort = () => reject(tx.error || new Error('Backup metadata read aborted'));
+    tx.onerror = () => {};
+    for (const name of ['folders', 'notebooks']) {
+      const request = tx.objectStore(name).openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const value = cursor.value;
+        metadata[name].push(name === 'folders' ? value : {
+          id: value.id, name: value.name, folderId: value.folderId,
+          updatedAt: value.updatedAt, pageCount: value.pageCount, isDeleted: value.isDeleted
+        });
+        cursor.continue();
+      };
+    }
+  });
+};
+export const getBackupNotebookSnapshot = async notebookId => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['notebooks', 'pages'], 'readonly');
+    let notebook;
+    const pages = [];
+    tx.oncomplete = () => resolve(notebook ? {
+      ...notebook, pages: pages.sort((a, b) => a.pageIndex - b.pageIndex)
+    } : null);
+    tx.onabort = () => reject(tx.error || new Error('Backup notebook read aborted'));
+    tx.onerror = () => {};
+    const request = tx.objectStore('notebooks').get(notebookId);
+    request.onsuccess = () => { notebook = request.result; };
+    const cursorRequest = tx.objectStore('pages').index('notebookId').openCursor(notebookId);
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) return;
+      pages.push(cursor.value);
+      cursor.continue();
+    };
   });
 };

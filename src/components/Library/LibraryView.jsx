@@ -39,6 +39,7 @@ import { MoveModal } from './MoveModal';
 import { SearchModal } from './SearchModal';
 import { SettingsModal } from './SettingsModal';
 import BackupStatusModal from './BackupStatusModal';
+import { BackupStatusIndicator } from '../Common/BackupStatusIndicator';
 import { getAllFavoritePages, savePage } from '../../services/db';
 import { importBnoteFile } from '../../services/fileSystemService';
 import { useLanguage } from '../../services/i18n';
@@ -445,9 +446,6 @@ export const LibraryView = ({
   const handleSoftDeleteNotebook = (notebookId) => {
     const target = notebooks.find(nb => nb.id === notebookId);
     handleUpdateNotebook(notebookId, { isDeleted: true, deletedAt: Date.now() });
-    if (target?.name) {
-      autoBackupService.pruneDeletedNotebook(target.name);
-    }
     showToast(t('toastMovedNotebookToTrash', 'ย้ายสมุดไปยังถังขยะแล้ว 🗑️'));
   };
 
@@ -718,20 +716,7 @@ export const LibraryView = ({
               <kbd className="hidden md:inline text-[10px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 ml-1">Ctrl+K</kbd>
             </button>
 
-            {/* Unified Cloud Sync & Backup Protection Pill */}
-            <button
-              type="button"
-              className={`bn-gn-cloud-sync-pill ${isSyncing ? 'is-syncing' : 'is-synced'}`}
-              onClick={() => setIsBackupStatusModalOpen(true)}
-              title={t('libraryDriveMergedTooltip', 'Google Drive & Backup Protection (Click to check backup status & files)')}
-            >
-              <span className={`bn-sync-indicator-dot ${isSyncing ? 'dot-amber' : 'dot-emerald'}`} />
-              <Cloud size={14} className={`bn-sync-cloud-icon ${isSyncing ? 'animate-pulse text-amber-400' : 'text-emerald-400'}`} />
-              <span className="bn-sync-pill-label">
-                {isSyncing ? t('libraryDriveMergedSyncing', 'Syncing...') : t('libraryDriveMergedSynced', 'Drive Sync')}
-              </span>
-              <ShieldCheck size={13} className={`bn-sync-shield-icon ${isSyncing ? 'text-amber-400/80' : 'text-emerald-400/90'}`} />
-            </button>
+            <BackupStatusIndicator onClick={() => setIsBackupStatusModalOpen(true)} />
 
             {/* Settings Button - Opens Full SettingsModal */}
             <button

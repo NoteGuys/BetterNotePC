@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react'
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
 import { GoogleDriveModal } from './components/Common/GoogleDriveModal';
+import BackupStatusModal from './components/Library/BackupStatusModal';
 import { UpdateNotificationModal } from './components/Common/UpdateNotificationModal';
 import { LibraryView } from './components/Library/LibraryView';
 import { NoteEditor } from './components/Editor/NoteEditor';
@@ -143,17 +144,18 @@ export function App() {
 
   // Cloud & Google Drive auto-sync state
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
+  const [isBackupStatusOpen, setIsBackupStatusOpen] = useState(false);
   const [isDriveConnected, setIsDriveConnected] = useState(true); // G: drive local sync is connected!
   const [driveEmail, setDriveEmail] = useState('G:\\My Drive');
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
 
-  // Start background auto-backup service (every 1 hour & on close)
+  // Queue folder backups after idle edits, with periodic recovery checks.
   useEffect(() => {
     autoBackupService.startScheduledSync();
     const unsubscribe = autoBackupService.subscribe((status) => {
       setIsAutoSyncing(status.syncing);
     });
-    return () => unsubscribe();
+    return () => { unsubscribe(); autoBackupService.stopScheduledSync(); };
   }, []);
 
   // Normal close waits for committed local writes; failures keep this window open.
@@ -406,9 +408,6 @@ export function App() {
   const handleDeleteNotebook = async (notebookId) => {
     const target = notebooks.find(nb => nb.id === notebookId);
     await deleteNotebook(notebookId);
-    if (target?.name) {
-      autoBackupService.pruneDeletedNotebook(target.name);
-    }
     setNotebooks(prev => prev.filter(nb => nb.id !== notebookId));
 
     // Remove from openTabs if currently open
@@ -428,7 +427,7 @@ export function App() {
     });
 
     if (target?.name) {
-      await autoBackupService.pruneDeletedNotebook(target.name);
+      await autoBackupService.pruneDeletedNotebook(target.name, target.id);
     }
   };
 
@@ -551,6 +550,7 @@ export function App() {
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
         onGoHome={handleBackToLibrary}
+        onOpenBackupStatus={() => setIsBackupStatusOpen(true)}
       />
 
       {/* Main Workspace: NoteEditor or LibraryView */}
@@ -606,6 +606,9 @@ export function App() {
           <span>{t('localSaveClosing')}</span>
         </div>
       )}
+
+      <BackupStatusModal isOpen={isBackupStatusOpen} onClose={() => setIsBackupStatusOpen(false)}
+        notebooks={notebooks} onTriggerSync={opts => autoBackupService.runAutoBackup(opts)} />
 
       {/* Google Drive / Cloud Sync Modal */}
       <GoogleDriveModal 

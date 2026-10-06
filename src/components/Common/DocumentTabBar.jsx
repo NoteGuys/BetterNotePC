@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Home, X, FileText, ChevronDown } from 'lucide-react';
 import { LocalSaveStatus } from './LocalSaveStatus';
+import { BackupStatusIndicator } from './BackupStatusIndicator';
 import { useLanguage } from '../../services/i18n';
 import { getDocumentTabLayout } from '../../utils/documentTabs';
 import { localizeNotebookCopyName } from '../../utils/notebookNames';
@@ -10,7 +11,8 @@ export const DocumentTabBar = ({
   activeTabId = null,
   onSelectTab,
   onCloseTab,
-  onGoHome
+  onGoHome,
+  onOpenBackupStatus
 }) => {
   const { t } = useLanguage();
   const listRef = useRef(null);
@@ -119,6 +121,7 @@ export const DocumentTabBar = ({
       </div>
       <div className="bn-tab-spacer" />
       <LocalSaveStatus />
+      {onOpenBackupStatus && <BackupStatusIndicator compact onClick={onOpenBackupStatus} />}
     </div>
   );
 };
