@@ -174,7 +174,7 @@ export const importBnoteFile = async (file, targetFolderId = null) => {
   };
 
   // Save notebook metadata
-  await saveNotebook(importedNotebook);
+  const savedNotebook = await saveNotebook(importedNotebook, { ensureUniqueName: true });
 
   // Save all pages with newly linked notebookId
   if (Array.isArray(rawPages) && rawPages.length > 0) {
@@ -203,5 +203,5 @@ export const importBnoteFile = async (file, targetFolderId = null) => {
     });
   }
 
-  return importedNotebook;
+  return savedNotebook;
 };

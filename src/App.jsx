@@ -315,7 +315,7 @@ export function App() {
 
   // Notebook Operations
   const handleCreateNotebook = async (notebook) => {
-    await saveNotebook(notebook);
+    const savedNotebook = await saveNotebook(notebook, { ensureUniqueName: true });
     const sizeDim = getPaperSize(notebook.sizeId || 'A4', notebook.orientation || 'portrait');
     // Create initial page for new notebook
     const page0 = {
@@ -334,7 +334,7 @@ export function App() {
     };
     await savePage(page0);
 
-    setNotebooks(prev => [notebook, ...prev]);
+    setNotebooks(prev => [savedNotebook, ...prev]);
     // Automatically open the new notebook in tabs!
     handleOpenNotebook(notebook.id, 0);
   };
@@ -390,10 +390,10 @@ export function App() {
   };
 
   const handleNotebookUpdated = async (updated) => {
-    await saveNotebook(updated);
-    setNotebooks(prev => prev.map(nb => nb.id === updated.id ? updated : nb));
+    const savedNotebook = await saveNotebook(updated, { ensureUniqueName: true });
+    setNotebooks(prev => prev.map(nb => nb.id === savedNotebook.id ? savedNotebook : nb));
     // Update title in openTabs immediately
-    setOpenTabs(prev => prev.map(t => t.id === updated.id ? { ...t, title: updated.name } : t));
+    setOpenTabs(prev => prev.map(t => t.id === savedNotebook.id ? { ...t, title: savedNotebook.name } : t));
   };
 
   // Import PDF Success handler (supports single notebook or array from batch import)

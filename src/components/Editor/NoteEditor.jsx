@@ -1273,8 +1273,8 @@ export const NoteEditor = ({
   // Rename Notebook Title
   const handleRenameTitle = async (newTitle) => {
     const updated = { ...notebook, name: newTitle, updatedAt: Date.now() };
-    await saveNotebook(updated);
-    if (onNotebookUpdated) onNotebookUpdated(updated);
+    const savedNotebook = await saveNotebook(updated, { ensureUniqueName: true });
+    if (onNotebookUpdated) onNotebookUpdated(savedNotebook);
   };
 
   if (isLoading) {

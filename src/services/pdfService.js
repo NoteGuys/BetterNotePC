@@ -92,7 +92,7 @@ export const importPdfAsNotebook = async (file, folderId = null, onProgress = nu
     pdfName: file.name
   };
 
-  await saveNotebook(notebook);
+  const savedNotebook = await saveNotebook(notebook, { ensureUniqueName: true });
 
   // Render and save each page with optimized resolution and non-blocking event loop yield
   for (let i = 1; i <= numPages; i++) {
@@ -122,5 +122,5 @@ export const importPdfAsNotebook = async (file, folderId = null, onProgress = nu
     await savePage(pageRecord);
   }
 
-  return notebook;
+  return savedNotebook;
 };

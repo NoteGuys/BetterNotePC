@@ -150,8 +150,60 @@ export const getNotebookById = async (id) => {
   });
 };
 
-export const saveNotebook = async (notebook) => {
+// Match the Windows backup filename without changing the user's displayed spelling.
+const notebookNameKey = (name) => String(name || 'Untitled')
+  .normalize('NFC')
+  .replace(/[\\/:*?"<>|]/g, '_')
+  .trim()
+  .toLowerCase();
+
+const uniqueNotebookName = (requestedName, occupiedNames) => {
+  if (!occupiedNames.has(notebookNameKey(requestedName))) return requestedName;
+  const baseName = requestedName.replace(/\([1-9]\d*\)$/, '').trimEnd();
+  let number = 1;
+  while (occupiedNames.has(notebookNameKey(`${baseName}(${number})`))) number++;
+  return `${baseName}(${number})`;
+};
+
+export const saveNotebook = async (notebook, { ensureUniqueName = false } = {}) => {
   const store = await getStore('notebooks', 'readwrite');
+  if (ensureUniqueName && typeof notebook.name === 'string') {
+    // Checking and saving in one transaction also protects simultaneous creations.
+    // Other metadata saves and full-backup restores keep their original names.
+    return new Promise((resolve, reject) => {
+      const tx = store.transaction;
+      let savedNotebook;
+      tx.oncomplete = () => resolve(savedNotebook);
+      tx.onabort = () => reject(tx.error || new Error('Notebook save aborted'));
+      tx.onerror = () => reject(tx.error);
+
+      const putNotebook = (name) => {
+        savedNotebook = { ...notebook, name, updatedAt: Date.now() };
+        store.put(savedNotebook);
+      };
+
+      const existing = store.get(notebook.id);
+      existing.onsuccess = () => {
+        if (existing.result?.name === notebook.name) {
+          putNotebook(notebook.name);
+          return;
+        }
+        const occupiedNames = new Set();
+        const names = store.openCursor();
+        names.onsuccess = () => {
+          const cursor = names.result;
+          if (cursor) {
+            if (cursor.primaryKey !== notebook.id) {
+              occupiedNames.add(notebookNameKey(cursor.value.name));
+            }
+            cursor.continue();
+          } else {
+            putNotebook(uniqueNotebookName(notebook.name, occupiedNames));
+          }
+        };
+      };
+    });
+  }
   return new Promise((resolve, reject) => {
     const req = store.put({
       ...notebook,
@@ -226,7 +278,7 @@ export const duplicateNotebook = async (notebookId) => {
     updatedAt: Date.now()
   };
 
-  await saveNotebook(clonedNotebook);
+  const savedNotebook = await saveNotebook(clonedNotebook, { ensureUniqueName: true });
 
   // Clone all pages
   for (const page of pages) {
@@ -239,7 +291,7 @@ export const duplicateNotebook = async (notebookId) => {
     await savePage(clonedPage);
   }
 
-  return clonedNotebook;
+  return savedNotebook;
 };
 
 /**
