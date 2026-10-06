@@ -6,16 +6,16 @@ import {
   Copy, 
   Download, 
   FolderInput, 
-  Share2, 
-  Link, 
   Trash2, 
   User,
   FileText,
   Check
 } from 'lucide-react';
-import { NOTEBOOK_COVERS } from '../../data/covers';
+import { NOTEBOOK_COVERS, THUMBNAIL_COVER_ID } from '../../data/covers';
+import { PaperTemplatePreview } from '../Common/PaperTemplatePreview';
 import { getFirstPageByNotebookId } from '../../services/db';
 import { useLanguage } from '../../services/i18n';
+import { localizeNotebookCopyName } from '../../utils/notebookNames';
 
 export const NotebookCard = ({ 
   notebook, 
@@ -27,22 +27,25 @@ export const NotebookCard = ({
   onMoveToFolder,
   onRename,
   onToggleFavorite,
-  onShare,
-  onCopyLink,
   isSelectMode = false,
   isSelected = false,
   onToggleSelect
 }) => {
   const { language, t } = useLanguage();
+  const displayName = localizeNotebookCopyName(notebook.name, t('notebookCopySuffix'));
   const [showMenu, setShowMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [firstPageThumbnail, setFirstPageThumbnail] = useState(notebook.pdfCoverSnapshot || null);
   const menuRef = useRef(null);
 
+  const usesThumbnailCover = notebook.coverId === THUMBNAIL_COVER_ID;
+  const cachedThumbnail = /^data:image\/png;base64,/i.test(notebook.firstPageThumbnail?.dataUrl || '') ? notebook.firstPageThumbnail.dataUrl : null;
+  const coverThumbnail = usesThumbnailCover ? cachedThumbnail : firstPageThumbnail;
   const cover = NOTEBOOK_COVERS.find(c => c.id === notebook.coverId) || NOTEBOOK_COVERS[0];
 
   useEffect(() => {
     let isMounted = true;
+    if (usesThumbnailCover) return;
     if (notebook.pdfCoverSnapshot) {
       setFirstPageThumbnail(notebook.pdfCoverSnapshot);
       return;
@@ -66,7 +69,7 @@ export const NotebookCard = ({
 
     loadPageThumbnail();
     return () => { isMounted = false; };
-  }, [notebook.id, notebook.pdfCoverSnapshot, notebook.isPdf]);
+  }, [notebook.id, notebook.pdfCoverSnapshot, notebook.isPdf, usesThumbnailCover]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -156,16 +159,16 @@ export const NotebookCard = ({
       <div 
         className="bn-gn-book-wrapper"
         onClick={handleCardClick}
-        title={isSelectMode ? `${isSelected ? t('deselect') : t('selectNotebook')} "${notebook.name}"` : `${notebook.name} (${notebook.pageCount || 1} ${t('page')})`}
+        title={isSelectMode ? `${isSelected ? t('deselect') : t('selectNotebook')} "${displayName}"` : `${displayName} (${notebook.pageCount || 1} ${t('page')})`}
       >
         {/* Simulated White Paper Pages Edge (Studio 3D Look) */}
         <div className="bn-gn-book-paper-edge" />
 
         {/* Notebook Main Cover */}
         <div 
-          className={`bn-gn-book-cover ${isSelected ? 'bn-card-selected' : ''}`}
+          className={`bn-gn-book-cover ${isSelected ? 'bn-card-selected' : ''} ${usesThumbnailCover ? 'bn-gn-thumbnail-cover' : ''}`}
           style={{ 
-            background: notebook.isPdf 
+            background: usesThumbnailCover ? '#ffffff' : notebook.isPdf
               ? 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)' 
               : (cover.gradient || '#2563eb')
           }}
@@ -208,13 +211,17 @@ export const NotebookCard = ({
 
           {/* Book Cover Content / First Page Thumbnail */}
           <div className="bn-gn-book-content">
-            {firstPageThumbnail ? (
+            {coverThumbnail ? (
               <div className="bn-gn-firstpage-preview">
                 <img 
-                  src={firstPageThumbnail} 
-                  alt={notebook.name} 
+                  src={coverThumbnail}
+                  alt={usesThumbnailCover ? t('coverThumbnailAlt', '', { name: displayName }) : displayName}
                   className="bn-gn-firstpage-img" 
                 />
+              </div>
+            ) : usesThumbnailCover ? (
+              <div className="bn-gn-thumbnail-placeholder" title={t('coverThumbnailDescription')}>
+                <PaperTemplatePreview templateId={notebook.templateId || 'dotted'} landscape={notebook.orientation === 'landscape'} />
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center p-2 text-center h-full">
@@ -225,7 +232,7 @@ export const NotebookCard = ({
                   className="font-bold text-xs leading-snug line-clamp-3"
                   style={{ color: cover.textColor || '#ffffff' }}
                 >
-                  {notebook.name}
+                  {displayName}
                 </span>
               </div>
             )}
@@ -247,8 +254,8 @@ export const NotebookCard = ({
           className="bn-gn-book-title-row"
           onClick={handleCardClick}
         >
-          <span className="bn-gn-book-name truncate" title={notebook.name}>
-            {notebook.name}
+          <span className="bn-gn-book-name truncate" title={displayName}>
+            {displayName}
           </span>
           {!isSelectMode && (
             <button
@@ -286,7 +293,7 @@ export const NotebookCard = ({
             }}
           >
             <Edit3 size={16} />
-            <span>{t('renameAction', 'ตั้งชื่อใหม่')}</span>
+            <span>{t('rename', 'ตั้งชื่อใหม่')}</span>
           </button>
 
           {/* 2. Duplicate */}
@@ -298,7 +305,7 @@ export const NotebookCard = ({
             }}
           >
             <Copy size={16} />
-            <span>{t('duplicateAction', 'ทำสำเนา')}</span>
+            <span>{t('duplicate', 'ทำสำเนา')}</span>
           </button>
 
           {/* 3. Export PDF */}
@@ -310,7 +317,7 @@ export const NotebookCard = ({
             }}
           >
             <Download size={16} />
-            <span>{t('exportPdfAction', 'นำออกเป็น PDF')}</span>
+            <span>{t('exportPdf', 'นำออกเป็น PDF')}</span>
           </button>
 
           {/* 4. Move */}
@@ -322,36 +329,12 @@ export const NotebookCard = ({
             }}
           >
             <FolderInput size={16} />
-            <span>{t('moveAction', 'ย้าย')}</span>
-          </button>
-
-          {/* 5. Share */}
-          <button 
-            className="bn-gn-action-item"
-            onClick={() => {
-              setShowMenu(false);
-              if (onShare) onShare(notebook);
-            }}
-          >
-            <Share2 size={16} />
-            <span>{t('shareAction', 'แชร์...')}</span>
-          </button>
-
-          {/* 6. Copy Link */}
-          <button 
-            className="bn-gn-action-item"
-            onClick={() => {
-              setShowMenu(false);
-              if (onCopyLink) onCopyLink(notebook);
-            }}
-          >
-            <Link size={16} />
-            <span>{t('copyLinkAction', 'คัดลอกลิงก์')}</span>
+            <span>{t('move', 'ย้าย')}</span>
           </button>
 
           <div className="bn-gn-menu-divider" />
 
-          {/* 7. Move to Trash */}
+          {/* 5. Move to Trash */}
           <button 
             className="bn-gn-action-item bn-gn-action-danger"
             onClick={() => {
@@ -360,7 +343,7 @@ export const NotebookCard = ({
             }}
           >
             <Trash2 size={16} />
-            <span>{t('moveToTrashAction', 'ย้ายไปยังถังขยะ')}</span>
+            <span>{t('moveToTrash', 'ย้ายไปยังถังขยะ')}</span>
           </button>
         </div>
       )}

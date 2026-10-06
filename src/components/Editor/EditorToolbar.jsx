@@ -33,6 +33,7 @@ import {
   X
 } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
+import { localizeNotebookCopyName } from '../../utils/notebookNames';
 import { DEFAULT_TOOL_WIDTH_SLOTS } from '../../services/userPreferences';
 
 const DEFAULT_PRESET_COLORS = [
@@ -326,7 +327,7 @@ export const EditorToolbar = ({
               }}
               title={t('renameNotebookPrompt', 'คลิกเพื่อเปลี่ยนชื่อสมุดโน้ต')}
             >
-              {notebookTitle}
+              {localizeNotebookCopyName(notebookTitle, t('notebookCopySuffix'))}
             </span>
           )}
         </div>

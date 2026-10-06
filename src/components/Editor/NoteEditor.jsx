@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
 import { EditorToolbar } from './EditorToolbar';
 import { PageNavigation } from './PageNavigation';
 import { ThumbnailSidebar } from './ThumbnailSidebar';
@@ -9,16 +9,22 @@ import { ExportModal } from '../Common/ExportModal';
 import { 
   getPagesByNotebookId, 
   savePage, 
-  deletePage, 
+  mutateNotebookPages,
   saveNotebook,
   duplicateNotebook 
 } from '../../services/db';
+import { pageSaveQueue } from '../../services/localSaveService';
+import { pageContentSnapshot, findHistoryPageIndex } from '../../utils/pageHistory';
+import { notebookHistoryStore } from '../../services/notebookHistoryService';
 import { renderPageToCanvasDataUrl, exportSinglePageToPdf } from '../../utils/pdfExportEngine';
 import { loadEditorPreferences, saveEditorPreferences } from '../../services/userPreferences';
 import { AddPageModal } from './AddPageModal';
 import { getPaperSize } from '../../data/templates';
 import { RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
+import { localizeNotebookCopyName } from '../../utils/notebookNames';
+import { queueNotebookCover } from '../../services/notebookCoverService';
+import { THUMBNAIL_COVER_ID } from '../../data/covers';
 
 export const NoteEditor = ({ 
   notebook, 
@@ -40,6 +46,7 @@ export const NoteEditor = ({
   }, [currentPageIndex]);
   const initialPageRef = useRef(initialPageIndex);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   // Sync active page index to parent tab state so returning to this tab opens exact page
   useEffect(() => {
@@ -137,15 +144,12 @@ export const NoteEditor = ({
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAddPageModalOpen, setIsAddPageModalOpen] = useState(false);
 
-  // Undo / Redo history for current page
-  const [historyStack, setHistoryStack] = useState([]);
-  const [historyPointer, setHistoryPointer] = useState(-1);
-  const historyStackRef = useRef([]);
-  const historyPointerRef = useRef(-1);
-  useEffect(() => {
-    historyStackRef.current = historyStack;
-    historyPointerRef.current = historyPointer;
-  }, [historyStack, historyPointer]);
+  // History is shared by notebook for this app session, independent of this view.
+  const historySession = useMemo(() => notebookHistoryStore.forNotebook(notebook.id), [notebook.id]);
+  const { stack: historyStack, pointer: historyPointer, busy: historyBusy } = useSyncExternalStore(
+    historySession.subscribe, historySession.getSnapshot, historySession.getSnapshot
+  );
+  const loadGenerationRef = useRef(0);
 
   // Floating Gesture Toast
   const [gestureToast, setGestureToast] = useState(null);
@@ -463,59 +467,64 @@ export const NoteEditor = ({
     }, 250);
   };
 
-  // Load pages from database
+  // Wait for this notebook's pending page operation before opening its view.
   const loadPages = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     setIsLoading(true);
+    setLoadError(false);
     try {
+      await historySession.wait();
       let loadedPages = await getPagesByNotebookId(notebook.id);
+      if (generation !== loadGenerationRef.current) return;
       if (loadedPages.length === 0) {
         const initialPage = {
-          id: `${notebook.id}_page_0`,
-          notebookId: notebook.id,
-          pageIndex: 0,
-          templateId: notebook.templateId || 'ruled',
-          strokes: [],
-          textElements: [],
+          id: notebook.id + '_page_0', notebookId: notebook.id, pageIndex: 0,
+          templateId: notebook.templateId || 'ruled', strokes: [], textElements: [], imageElements: [],
           updatedAt: Date.now()
         };
         await savePage(initialPage);
         loadedPages = [initialPage];
       }
+      if (generation !== loadGenerationRef.current) return;
+      loadedPages = pageSaveQueue.overlay(loadedPages, notebook.id);
+      pagesRef.current = loadedPages;
       setPages(loadedPages);
       const startIdx = Math.min(Math.max(0, initialPageRef.current), Math.max(0, loadedPages.length - 1));
+      currentPageIndexRef.current = startIdx;
       setCurrentPageIndex(startIdx);
-
-      if (loadedPages[startIdx]) {
-        setHistoryStack([]);
-        setHistoryPointer(-1);
-        historyStackRef.current = [];
-        historyPointerRef.current = -1;
-      }
+      historySession.reconcile(loadedPages);
     } catch (err) {
+      if (generation !== loadGenerationRef.current) return;
+      setLoadError(true);
       console.error('Failed to load notebook pages:', err);
     } finally {
-      setIsLoading(false);
+      if (generation === loadGenerationRef.current) setIsLoading(false);
     }
-  }, [notebook.id, notebook.templateId]);
+  }, [notebook.id, notebook.templateId, historySession]);
 
   useEffect(() => {
     loadPages();
+    return () => { loadGenerationRef.current++; };
   }, [loadPages]);
 
+  const firstCoverPage = pages[0];
+  useEffect(() => {
+    if (notebook.coverId !== THUMBNAIL_COVER_ID || !firstCoverPage || isLoading || loadError) return;
+    const cached = notebook.firstPageThumbnail;
+    if (cached?.dataUrl && cached.pageId === firstCoverPage.id && cached.pageUpdatedAt === firstCoverPage.updatedAt) return;
+    // Mark the notebook only; App starts the preview when Documents is visible.
+    queueNotebookCover(notebook.id);
+  }, [notebook.id, notebook.coverId, notebook.firstPageThumbnail, firstCoverPage, isLoading, loadError]);
+
   const currentPage = pages[currentPageIndex] || null;
+  const persistPage = useCallback(page => pageSaveQueue.enqueue(page).then(() => true, () => false), []);
 
   // Atomic Batch Update for Page Elements (Strokes, Texts, Images) - IMMEDIATELY PERSISTENT
-  const handleBatchUpdatePage = async (updates, targetPageIndex = currentPageIndex) => {
+  const applyBatchUpdatePage = (updates, target = currentPageIndexRef.current) => {
     const prevPages = pagesRef.current;
-    const targetPage = prevPages[targetPageIndex];
-    if (!targetPage) return;
-
-    const beforeState = {
-      strokes: targetPage.strokes || [],
-      textElements: targetPage.textElements || [],
-      imageElements: targetPage.imageElements || []
-    };
-
+    const targetIndex = typeof target === 'string' ? prevPages.findIndex(page => page.id === target) : target;
+    const targetPage = prevPages[targetIndex];
+    if (!targetPage) return Promise.resolve(false);
     const updatedPage = {
       ...targetPage,
       ...(updates.strokes !== undefined ? { strokes: updates.strokes } : {}),
@@ -523,39 +532,30 @@ export const NoteEditor = ({
       ...(updates.imageElements !== undefined ? { imageElements: updates.imageElements } : {}),
       updatedAt: Date.now()
     };
-
-    const nextPages = prevPages.map((p, idx) => idx === targetPageIndex ? updatedPage : p);
+    const nextPages = prevPages.map(page => page.id === targetPage.id ? updatedPage : page);
     pagesRef.current = nextPages;
     setPages(nextPages);
 
-    // Save directly to IndexedDB immediately without depending on React async batching!
-    await savePage(updatedPage);
-
-    if (targetPageIndex !== currentPageIndex) {
-      setCurrentPageIndex(targetPageIndex);
-    }
-
-    const afterState = {
-      strokes: updatedPage.strokes || [],
-      textElements: updatedPage.textElements || [],
-      imageElements: updatedPage.imageElements || []
-    };
-
-    const curStack = historyStackRef.current;
-    const curPointer = historyPointerRef.current;
-    const nextHistory = (curStack && curPointer >= 0) ? curStack.slice(0, curPointer + 1) : [];
-
-    nextHistory.push({
-      pageIndex: targetPageIndex,
-      pageId: updatedPage.id,
-      before: beforeState,
-      after: afterState
+    // Record immediately, so slow saves cannot reorder Undo.
+    historySession.append({
+      kind: 'content', pageId: targetPage.id,
+      before: pageContentSnapshot(targetPage),
+      after: pageContentSnapshot(updatedPage)
     });
+    if (targetIndex !== currentPageIndexRef.current) {
+      currentPageIndexRef.current = targetIndex;
+      setCurrentPageIndex(targetIndex);
+    }
+    return persistPage(updatedPage);
+  };
 
-    setHistoryStack(nextHistory);
-    setHistoryPointer(nextHistory.length - 1);
-    historyStackRef.current = nextHistory;
-    historyPointerRef.current = nextHistory.length - 1;
+  const handleBatchUpdatePage = (updates, target = currentPageIndexRef.current) => {
+    const pageId = typeof target === 'string' ? target : pagesRef.current[target]?.id;
+    if (!pageId) return Promise.resolve(false);
+    if (historySession.getSnapshot().busy) {
+      return historySession.run(() => applyBatchUpdatePage(updates, pageId));
+    }
+    return applyBatchUpdatePage(updates, pageId);
   };
 
   // Handle Strokes Change for a specific page (Safe Functional State Update)
@@ -759,12 +759,12 @@ export const NoteEditor = ({
   // Duplicate Current Notebook
   const handleDuplicateCurrentNotebook = async () => {
     try {
-      const cloned = await duplicateNotebook(notebook.id);
-      alert(`${t('duplicateSuccess', 'ทำสำเนาสำเร็จ!')} "${cloned.name}"`);
+      const cloned = await duplicateNotebook(notebook.id, { copySuffix: t('notebookCopySuffix') });
+      alert(t('duplicateSuccess') + ' "' + localizeNotebookCopyName(cloned.name, t('notebookCopySuffix')) + '"');
       if (onNotebookUpdated) onNotebookUpdated(cloned);
     } catch (err) {
       console.error(err);
-      alert(`${t('cannotDuplicate', 'ไม่สามารถทำสำเนาได้')}: ${err.message}`);
+      alert(t('cannotDuplicate') + ': ' + (err.code === 'NOTEBOOK_NOT_FOUND' ? t('duplicateNotebookNotFound') : err.message));
     }
   };
 
@@ -853,89 +853,77 @@ export const NoteEditor = ({
     }
   }, [scrollDirection, scrollToPageInStage]);
 
-  // Page-aware Undo / Redo
-  const canUndo = historyPointer >= 0;
-  const canRedo = historyPointer < historyStack.length - 1;
-
-  const handleUndo = useCallback(async () => {
-    const curPointer = historyPointerRef.current;
-    const curStack = historyStackRef.current;
-    if (curPointer < 0 || !curStack || curStack.length === 0) return;
-
-    const entry = curStack[curPointer];
-    if (!entry) return;
-
-    const newPointer = curPointer - 1;
-    setHistoryPointer(newPointer);
-    historyPointerRef.current = newPointer;
-
-    const prevPages = pagesRef.current;
-    const targetIdx = (entry.pageIndex !== undefined && entry.pageIndex >= 0 && entry.pageIndex < prevPages.length)
-      ? entry.pageIndex
-      : currentPageIndexRef.current;
-    const targetPage = prevPages[targetIdx];
-    if (!targetPage) return;
-
-    const restoreState = entry.before || { strokes: [], textElements: [], imageElements: [] };
-
-    const updatedPage = {
-      ...targetPage,
-      strokes: restoreState.strokes || [],
-      textElements: restoreState.textElements || [],
-      imageElements: restoreState.imageElements || [],
-      updatedAt: Date.now()
-    };
-    const nextPages = prevPages.map((p, idx) => idx === targetIdx ? updatedPage : p);
+  // Commit page layout and notebook count together. Restore the complete page
+  // snapshot (including PDF/background/media), without cloning the whole book.
+  const commitPageStructure = useCallback(async (change, selectedPageId) => {
+    await pageSaveQueue.flush(notebook.id);
+    const result = await mutateNotebookPages(notebook.id, change);
+    if (change.kind === 'delete') pageSaveQueue.forgetDeletedPage(change.pageId);
+    const livePages = new Map(pagesRef.current.map(page => [page.id, page]));
+    const nextPages = result.pages.map(page => {
+      const live = livePages.get(page.id);
+      return live ? { ...page, ...live, pageIndex: page.pageIndex } : page;
+    });
     pagesRef.current = nextPages;
     setPages(nextPages);
+    const selectedIndex = Math.max(0, nextPages.findIndex(page => page.id === selectedPageId));
+    currentPageIndexRef.current = selectedIndex;
+    setCurrentPageIndex(selectedIndex);
+    if (onNotebookUpdated) onNotebookUpdated(result.notebook);
+    if (scrollDirection === 'vertical') setTimeout(() => scrollToPageInStage(selectedIndex, 'smooth'), 60);
+    return result;
+  }, [notebook.id, onNotebookUpdated, scrollDirection, scrollToPageInStage]);
 
-    await savePage(updatedPage);
+  const canUndo = !isLoading && !loadError && !historyBusy && historyPointer >= 0;
+  const canRedo = !isLoading && !loadError && !historyBusy && historyPointer < historyStack.length - 1;
 
-    // If undone edit was on another page, navigate to that page so the user sees it undo there!
-    if (targetIdx !== currentPageIndexRef.current) {
-      handleSelectPage(targetIdx);
-    }
-  }, [handleSelectPage]);
-
-  const handleRedo = useCallback(async () => {
-    const curPointer = historyPointerRef.current;
-    const curStack = historyStackRef.current;
-    if (!curStack || curPointer >= curStack.length - 1) return;
-
-    const newPointer = curPointer + 1;
-    const entry = curStack[newPointer];
-    if (!entry) return;
-
-    setHistoryPointer(newPointer);
-    historyPointerRef.current = newPointer;
-
-    const prevPages = pagesRef.current;
-    const targetIdx = (entry.pageIndex !== undefined && entry.pageIndex >= 0 && entry.pageIndex < prevPages.length)
-      ? entry.pageIndex
-      : currentPageIndexRef.current;
-    const targetPage = prevPages[targetIdx];
-    if (!targetPage) return;
-
-    const restoreState = entry.after || { strokes: [], textElements: [], imageElements: [] };
-
-    const updatedPage = {
-      ...targetPage,
-      strokes: restoreState.strokes || [],
-      textElements: restoreState.textElements || [],
-      imageElements: restoreState.imageElements || [],
-      updatedAt: Date.now()
+  const replayHistory = useCallback(direction => {
+    // A hotkey during load/retry must not invalidate an existing session's
+    // history against this view's temporary empty pages array.
+    if (isLoading || loadError || !pagesRef.current.length) return Promise.resolve(false);
+    const perform = async () => {
+      const { stack, pointer } = historySession.getSnapshot();
+      const entry = stack[direction === 'undo' ? pointer : pointer + 1];
+      if (!entry) return false;
+      if (entry.kind === 'insert-page' || entry.kind === 'delete-page') {
+        const removes = entry.kind === 'insert-page' ? direction === 'undo' : direction === 'redo';
+        const change = removes
+          ? { kind: 'delete', pageId: entry.pageId }
+          : { kind: 'insert', page: entry.page, atIndex: entry.pageIndex };
+        const selectedId = direction === 'undo' ? entry.selectedBefore : entry.selectedAfter;
+        const result = await commitPageStructure(change, selectedId || entry.pageId);
+        // Keep changes such as favorite/template made since insertion; a later
+        // Redo restores the latest removed page instead of its original blank copy.
+        const replacement = removes ? { ...entry, page: result.changedPage } : entry;
+        historySession.step(direction, entry, replacement);
+        return true;
+      }
+      const targetIdx = findHistoryPageIndex(pagesRef.current, entry);
+      if (targetIdx < 0) { historySession.reconcile(pagesRef.current); return false; }
+      const targetPage = pagesRef.current[targetIdx];
+      const updatedPage = {
+        ...targetPage, ...(direction === 'undo' ? entry.before : entry.after), updatedAt: Date.now()
+      };
+      const nextPages = pagesRef.current.map(page => page.id === targetPage.id ? updatedPage : page);
+      historySession.step(direction, entry);
+      pagesRef.current = nextPages;
+      setPages(nextPages);
+      if (targetIdx !== currentPageIndexRef.current) handleSelectPage(targetIdx);
+      return persistPage(updatedPage);
     };
-    const nextPages = prevPages.map((p, idx) => idx === targetIdx ? updatedPage : p);
-    pagesRef.current = nextPages;
-    setPages(nextPages);
+    const { stack, pointer, busy } = historySession.getSnapshot();
+    const entry = stack[direction === 'undo' ? pointer : pointer + 1];
+    const isStructural = entry?.kind === 'insert-page' || entry?.kind === 'delete-page';
+    const result = busy || isStructural ? historySession.run(perform) : perform();
+    return result.catch(error => {
+      console.error('History replay failed:', error);
+      alert(t('localSavePageChangeFailed'));
+      return false;
+    });
+  }, [historySession, commitPageStructure, handleSelectPage, persistPage, t, isLoading, loadError]);
 
-    await savePage(updatedPage);
-
-    // If redone edit was on another page, navigate to that page so the user sees it redo there!
-    if (targetIdx !== currentPageIndexRef.current) {
-      handleSelectPage(targetIdx);
-    }
-  }, [handleSelectPage]);
+  const handleUndo = useCallback(() => replayHistory('undo'), [replayHistory]);
+  const handleRedo = useCallback(() => replayHistory('redo'), [replayHistory]);
 
   // Keyboard shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+V)
   useEffect(() => {
@@ -1040,234 +1028,118 @@ export const NoteEditor = ({
     };
   }, [isLoading, scrollDirection, pages.length]);
 
+  const changePageStructure = (change, selectedPageId) => historySession.run(async () => {
+    const selectedBefore = pagesRef.current[currentPageIndexRef.current]?.id;
+    const result = await commitPageStructure(change, selectedPageId);
+    historySession.append({
+      kind: change.kind === 'insert' ? 'insert-page' : 'delete-page',
+      pageId: result.changedPage.id, page: result.changedPage,
+      pageIndex: result.changedPage.pageIndex,
+      selectedBefore, selectedAfter: pagesRef.current[currentPageIndexRef.current]?.id
+    });
+    return true;
+  }).catch(error => {
+    console.error('Page operation failed:', error);
+    alert(t('localSavePageChangeFailed'));
+    return false;
+  });
+
   // Add Page with custom size (A2, A3, A4), orientation, and template
   const handleAddPage = async (pageConfig = {}) => {
     const sizeId = pageConfig.sizeId || 'A4';
     const orientation = pageConfig.orientation || 'portrait';
     const sizeDim = getPaperSize(sizeId, orientation);
-    const templateId = pageConfig.templateId || notebook.templateId || 'ruled';
-    const insertPosition = pageConfig.insertPosition || 'after';
-
-    let targetIndex = pages.length;
-    if (insertPosition === 'after' && currentPageIndex >= 0 && currentPageIndex < pages.length) {
-      targetIndex = currentPageIndex + 1;
-    }
-
     const newPage = {
-      id: `${notebook.id}_page_${Date.now()}`,
-      notebookId: notebook.id,
-      pageIndex: targetIndex,
-      templateId,
-      sizeId,
-      orientation,
+      id: notebook.id + '_page_' + (globalThis.crypto?.randomUUID?.() || Date.now() + '-' + Math.random().toString(36).slice(2)),
+      notebookId: notebook.id, pageIndex: 0,
+      templateId: pageConfig.templateId || notebook.templateId || 'ruled',
+      sizeId, orientation,
       pageWidth: pageConfig.pageWidth || sizeDim.width,
       pageHeight: pageConfig.pageHeight || sizeDim.height,
-      strokes: [],
-      textElements: [],
-      imageElements: [],
-      updatedAt: Date.now()
+      strokes: [], textElements: [], imageElements: [], updatedAt: Date.now()
     };
-
-    const nextPages = [...pages];
-    nextPages.splice(targetIndex, 0, newPage);
-    const reindexedPages = nextPages.map((p, idx) => ({ ...p, pageIndex: idx }));
-
-    // Shift existing pages from end backwards down to targetIndex + 1 to prevent unique index collisions in IndexedDB
-    for (let i = reindexedPages.length - 1; i > targetIndex; i--) {
-      await savePage(reindexedPages[i]);
-    }
-    // Now targetIndex slot is free in IndexedDB! Save the new page:
-    await savePage(reindexedPages[targetIndex]);
-
-    setPages(reindexedPages);
-    setCurrentPageIndex(targetIndex);
-
-    const updatedNotebook = {
-      ...notebook,
-      pageCount: reindexedPages.length,
-      updatedAt: Date.now()
-    };
-    await saveNotebook(updatedNotebook);
-    if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
-
-    setHistoryStack([{ strokes: [], textElements: [], imageElements: [] }]);
-    setHistoryPointer(0);
-
-    if (scrollDirection === 'vertical') {
-      setTimeout(() => {
-        scrollToPageInStage(targetIndex, 'smooth');
-      }, 60);
-    }
+    const afterPageId = (pageConfig.insertPosition || 'after') === 'after'
+      ? pagesRef.current[currentPageIndexRef.current]?.id : null;
+    return changePageStructure({ kind: 'insert', page: newPage, afterPageId }, newPage.id);
   };
 
   // Duplicate a specific page (from thumbnail 3-dots or wherever)
-  const handleDuplicatePage = async (pageIndex = currentPageIndex) => {
-    const currentPagesList = pagesRef.current;
-    const sourcePage = currentPagesList[pageIndex];
+  const handleDuplicatePage = async (pageIndex = currentPageIndexRef.current) => {
+    const sourcePage = pagesRef.current[pageIndex];
     if (!sourcePage) return;
-
-    const newPageId = `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const clonedPage = {
       ...sourcePage,
-      id: newPageId,
-      pageIndex: pageIndex + 1,
-      strokes: JSON.parse(JSON.stringify(sourcePage.strokes || [])),
-      textElements: JSON.parse(JSON.stringify(sourcePage.textElements || [])),
-      imageElements: JSON.parse(JSON.stringify(sourcePage.imageElements || [])),
+      id: 'page-' + (globalThis.crypto?.randomUUID?.() || Date.now() + '-' + Math.random().toString(36).slice(2)),
+      strokes: structuredClone(sourcePage.strokes || []),
+      textElements: structuredClone(sourcePage.textElements || []),
+      imageElements: structuredClone(sourcePage.imageElements || []),
       updatedAt: Date.now()
     };
-
-    const nextPages = [...currentPagesList];
-    nextPages.splice(pageIndex + 1, 0, clonedPage);
-    const reindexedPages = nextPages.map((p, idx) => ({ ...p, pageIndex: idx }));
-
-    // Shift existing pages from end backwards down to pageIndex + 2 to prevent unique index collisions in IndexedDB
-    for (let i = reindexedPages.length - 1; i > pageIndex + 1; i--) {
-      await savePage(reindexedPages[i]);
-    }
-    // Now position pageIndex + 1 is vacated in DB! Save the cloned page:
-    await savePage(reindexedPages[pageIndex + 1]);
-
-    pagesRef.current = reindexedPages;
-    setPages(reindexedPages);
-    setCurrentPageIndex(pageIndex + 1);
-
-    const updatedNotebook = {
-      ...notebook,
-      pageCount: reindexedPages.length,
-      updatedAt: Date.now()
-    };
-    await saveNotebook(updatedNotebook);
-    if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
-
-    if (scrollDirection === 'vertical') {
-      setTimeout(() => {
-        scrollToPageInStage(pageIndex + 1, 'smooth');
-      }, 60);
-    }
+    return changePageStructure({ kind: 'insert', page: clonedPage, afterPageId: sourcePage.id }, clonedPage.id);
   };
 
   // Insert Blank Page after a specific index
-  const handleInsertPageAfter = async (pageIndex = currentPageIndex) => {
-    const currentPagesList = pagesRef.current;
-    const prevPage = currentPagesList[pageIndex];
+  const handleInsertPageAfter = async (pageIndex = currentPageIndexRef.current) => {
+    const previous = pagesRef.current[pageIndex];
+    if (!previous) return;
     const newPage = {
-      id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      notebookId: notebook.id,
-      pageIndex: pageIndex + 1,
-      templateId: prevPage ? prevPage.templateId : (notebook.templateId || 'blank'),
-      paperColor: prevPage ? prevPage.paperColor : (notebook.paperColor || '#ffffff'),
-      paperPattern: prevPage ? prevPage.paperPattern : (notebook.paperPattern || 'none'),
-      pageSize: prevPage ? prevPage.pageSize : (notebook.pageSize || 'A4'),
-      pageOrientation: prevPage ? prevPage.pageOrientation : (notebook.pageOrientation || 'portrait'),
-      pageWidth: prevPage ? prevPage.pageWidth : 1200,
-      pageHeight: prevPage ? prevPage.pageHeight : 1600,
-      strokes: [],
-      textElements: [],
-      imageElements: [],
-      updatedAt: Date.now()
+      id: 'page-' + (globalThis.crypto?.randomUUID?.() || Date.now() + '-' + Math.random().toString(36).slice(2)),
+      notebookId: notebook.id, pageIndex: 0,
+      templateId: previous.templateId || notebook.templateId || 'blank',
+      paperColor: previous.paperColor || notebook.paperColor || '#ffffff',
+      paperPattern: previous.paperPattern || notebook.paperPattern || 'none',
+      pageSize: previous.pageSize || notebook.pageSize || 'A4',
+      pageOrientation: previous.pageOrientation || notebook.pageOrientation || 'portrait',
+      pageWidth: previous.pageWidth || 1200, pageHeight: previous.pageHeight || 1600,
+      strokes: [], textElements: [], imageElements: [], updatedAt: Date.now()
     };
-
-    const nextPages = [...currentPagesList];
-    nextPages.splice(pageIndex + 1, 0, newPage);
-    const reindexedPages = nextPages.map((p, idx) => ({ ...p, pageIndex: idx }));
-
-    // Shift existing pages from end backwards down to pageIndex + 2 to prevent unique index collisions in IndexedDB
-    for (let i = reindexedPages.length - 1; i > pageIndex + 1; i--) {
-      await savePage(reindexedPages[i]);
-    }
-    // Now position pageIndex + 1 is vacated in DB! Save the new page:
-    await savePage(reindexedPages[pageIndex + 1]);
-
-    pagesRef.current = reindexedPages;
-    setPages(reindexedPages);
-    setCurrentPageIndex(pageIndex + 1);
-
-    const updatedNotebook = {
-      ...notebook,
-      pageCount: reindexedPages.length,
-      updatedAt: Date.now()
-    };
-    await saveNotebook(updatedNotebook);
-    if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
-
-    if (scrollDirection === 'vertical') {
-      setTimeout(() => {
-        scrollToPageInStage(pageIndex + 1, 'smooth');
-      }, 60);
-    }
+    return changePageStructure({ kind: 'insert', page: newPage, afterPageId: previous.id }, newPage.id);
   };
 
   // Delete Page
-  const handleDeletePage = async (targetIndex = currentPageIndex) => {
+  const handleDeletePage = async (targetIndex = currentPageIndexRef.current) => {
     const currentPagesList = pagesRef.current;
     if (currentPagesList.length <= 1) {
-      alert(t('cannotDeleteOnlyPage', 'ไม่สามารถลบหน้าสุดท้ายของสมุดได้'));
+      alert(t('cannotDeleteOnlyPage', 'Cannot delete the only page'));
       return;
     }
-
-    if (!confirm(t('confirmDeletePageNum', `คุณต้องการลบหน้า ${targetIndex + 1} ใช่หรือไม่?`, { page: targetIndex + 1 }))) {
-      return;
-    }
-
     const pageToDelete = currentPagesList[targetIndex];
-    if (!pageToDelete) return;
-    await deletePage(pageToDelete.id);
-
-    const remainingPages = currentPagesList.filter((_, idx) => idx !== targetIndex)
-      .map((p, idx) => ({ ...p, pageIndex: idx }));
-
-    for (const p of remainingPages) {
-      await savePage(p);
-    }
-
-    pagesRef.current = remainingPages;
-    setPages(remainingPages);
-    const newIndex = Math.min(targetIndex, remainingPages.length - 1);
-    setCurrentPageIndex(newIndex);
-
-    const updatedNotebook = {
-      ...notebook,
-      pageCount: remainingPages.length,
-      updatedAt: Date.now()
-    };
-    await saveNotebook(updatedNotebook);
-    if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
-
-    if (scrollDirection === 'vertical') {
-      setTimeout(() => {
-        scrollToPageInStage(newIndex, 'smooth');
-      }, 60);
-    }
+    if (!pageToDelete || !confirm(t('confirmDeletePageNum', 'Delete page {page}?', { page: targetIndex + 1 }))) return;
+    const activePage = currentPagesList[currentPageIndexRef.current];
+    const selectedPageId = activePage?.id !== pageToDelete.id
+      ? activePage?.id : (currentPagesList[targetIndex + 1] || currentPagesList[targetIndex - 1])?.id;
+    return changePageStructure({ kind: 'delete', pageId: pageToDelete.id }, selectedPageId);
   };
 
   // Change Template for Current Page
-  const handleChangeTemplate = async (templateId) => {
-    if (!currentPage) return;
-    const updatedPage = {
-      ...currentPage,
-      templateId,
-      updatedAt: Date.now()
-    };
-    const newPages = pages.map((p, idx) => idx === currentPageIndex ? updatedPage : p);
-    setPages(newPages);
-    await savePage(updatedPage);
+  const handleChangeTemplate = (templateId, pageId = pagesRef.current[currentPageIndexRef.current]?.id) => {
+    if (historySession.getSnapshot().busy) return historySession.run(() => handleChangeTemplateNow(templateId, pageId));
+    return handleChangeTemplateNow(templateId, pageId);
+  };
+  const handleChangeTemplateNow = (templateId, pageId) => {
+    const target = pagesRef.current.find(page => page.id === pageId);
+    if (!target) return;
+    const updated = { ...target, templateId, updatedAt: Date.now() };
+    const nextPages = pagesRef.current.map(page => page.id === target.id ? updated : page);
+    pagesRef.current = nextPages;
+    setPages(nextPages);
+    return persistPage(updated);
   };
 
   // Toggle Favorite for a specific page (or current page)
-  const handleToggleFavoritePage = async (pageIdxToToggle = currentPageIndex) => {
-    const targetPage = pages[pageIdxToToggle];
-    if (!targetPage) return;
-
-    const newFavStatus = !targetPage.isFavorite;
-    const updatedPage = {
-      ...targetPage,
-      isFavorite: newFavStatus,
-      updatedAt: Date.now()
-    };
-
-    setPages(prevPages => prevPages.map((p, idx) => idx === pageIdxToToggle ? updatedPage : p));
-    await savePage(updatedPage);
+  const handleToggleFavoritePage = (pageIndex = currentPageIndexRef.current) => {
+    const pageId = pagesRef.current[pageIndex]?.id;
+    if (historySession.getSnapshot().busy) return historySession.run(() => handleToggleFavoritePageNow(pageId));
+    return handleToggleFavoritePageNow(pageId);
+  };
+  const handleToggleFavoritePageNow = pageId => {
+    const target = pagesRef.current.find(page => page.id === pageId);
+    if (!target) return;
+    const updated = { ...target, isFavorite: !target.isFavorite, updatedAt: Date.now() };
+    const nextPages = pagesRef.current.map(page => page.id === target.id ? updated : page);
+    pagesRef.current = nextPages;
+    setPages(nextPages);
+    return persistPage(updated);
   };
 
   // Rename Notebook Title
@@ -1285,6 +1157,13 @@ export const NoteEditor = ({
       </div>
     );
   }
+
+  if (loadError) return (
+    <div className="bn-local-load-error" role="alert">
+      <p>{t('localLoadFailed')}</p>
+      <button type="button" onClick={loadPages}>{t('localLoadRetry')}</button>
+    </div>
+  );
 
   return (
     <div className="bn-editor-container">
@@ -1405,10 +1284,10 @@ export const NoteEditor = ({
                   zoom={zoom}
                   onZoomChange={setZoom}
                   onToolChange={setActiveTool}
-                  onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, currentPageIndex)}
-                  onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, currentPageIndex)}
-                  onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPageIndex)}
-                  onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPageIndex)}
+                  onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, currentPage.id)}
+                  onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, currentPage.id)}
+                  onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPage.id)}
+                  onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPage.id)}
                   onSnipComplete={handleSnipComplete}
                   onUndo={handleUndo}
                 />
@@ -1451,10 +1330,10 @@ export const NoteEditor = ({
                         zoom={zoom}
                         onZoomChange={setZoom}
                         onToolChange={setActiveTool}
-                        onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, idx)}
-                        onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, idx)}
-                        onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, idx)}
-                        onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, idx)}
+                        onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, p.id)}
+                        onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, p.id)}
+                        onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, p.id)}
+                        onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, p.id)}
                         onSnipComplete={handleSnipComplete}
                         onUndo={handleUndo}
                       />
@@ -1516,10 +1395,10 @@ export const NoteEditor = ({
                   zoom={zoom}
                   onZoomChange={setZoom}
                   onToolChange={setActiveTool}
-                  onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, currentPageIndex)}
-                  onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, currentPageIndex)}
-                  onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPageIndex)}
-                  onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPageIndex)}
+                  onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, currentPage.id)}
+                  onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, currentPage.id)}
+                  onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPage.id)}
+                  onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPage.id)}
                   onSnipComplete={handleSnipComplete}
                   onUndo={handleUndo}
                 />

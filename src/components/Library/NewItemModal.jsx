@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Book, Folder, Check, FileUp, Sparkles, FileCode2 } from 'lucide-react';
-import { NOTEBOOK_COVERS } from '../../data/covers';
+import { NOTEBOOK_COVERS, THUMBNAIL_COVER_ID } from '../../data/covers';
 import { PAPER_TEMPLATES, PAPER_SIZES, getPaperSize } from '../../data/templates';
 import { PaperTemplatePreview } from '../Common/PaperTemplatePreview';
 import { useLanguage } from '../../services/i18n';
@@ -34,10 +34,12 @@ export const NewItemModal = ({
 
   // Notebook state
   const [notebookName, setNotebookName] = useState('');
-  const [selectedCover, setSelectedCover] = useState(NOTEBOOK_COVERS[0].id);
+  const [selectedCover, setSelectedCover] = useState(THUMBNAIL_COVER_ID);
   const [selectedTemplate, setSelectedTemplate] = useState(PAPER_TEMPLATES[0].id);
   const [selectedSize, setSelectedSize] = useState('A4');
   const [selectedOrientation, setSelectedOrientation] = useState('portrait');
+
+  useEffect(() => { if (isOpen) setSelectedCover(THUMBNAIL_COVER_ID); }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -203,6 +205,15 @@ export const NewItemModal = ({
                   <div className="bn-create-field">
                     <label>{t('coverStyleLabel', 'Cover style')}</label>
                     <div className="bn-create-cover-options">
+                      <button type="button" className={'bn-create-cover-thumbnail ' + (selectedCover === THUMBNAIL_COVER_ID ? 'is-selected' : '')}
+                        aria-label={t('coverThumbnail')} aria-pressed={selectedCover === THUMBNAIL_COVER_ID}
+                        title={t('coverThumbnailDescription')} onClick={() => setSelectedCover(THUMBNAIL_COVER_ID)}>
+                        <div className="bn-create-cover-thumbnail-preview">
+                          <PaperTemplatePreview templateId={selectedTemplate} landscape={!isWhiteboard && selectedOrientation === 'landscape'} />
+                        </div>
+                        <div><strong>{t('coverThumbnail')}</strong><span>{t('coverThumbnailDescription')}</span></div>
+                        {selectedCover === THUMBNAIL_COVER_ID && <Check size={16} className="bn-create-cover-thumbnail-check" />}
+                      </button>
                       {NOTEBOOK_COVERS.slice(0, 8).map(cover => <button key={cover.id} type="button" title={cover.name} aria-label={cover.name}
                         aria-pressed={selectedCover === cover.id} className={`bn-create-cover-option ${selectedCover === cover.id ? 'is-selected' : ''}`}
                         style={{ background: cover.gradient }} onClick={() => setSelectedCover(cover.id)}>

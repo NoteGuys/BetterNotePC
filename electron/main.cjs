@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('elect
 const path = require('path');
 const fs = require('fs');
 const { registerPdfExport } = require('./pdfExport.cjs');
+const { installLocalSaveGuard } = require('./localSaveGuard.cjs');
 
 // Surface Pro Hardware Acceleration, High-DPI & Touch/Stylus Flags
 app.commandLine.appendSwitch('enable-features', 'TouchEvents,VaapiVideoDecoder');
@@ -559,6 +560,8 @@ function createWindow() {
       webSecurity: false
     }
   });
+
+  installLocalSaveGuard({ window: mainWindow, ipcMain, dialog });
 
   // Handle IPC Auto-Backup calls directly from renderer
   ipcMain.handle('save-auto-backup', async (event, data) => {

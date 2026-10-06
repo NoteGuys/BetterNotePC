@@ -3,6 +3,7 @@ import { X, FileText, Image as ImageIcon, Database, Download, CheckCircle2, File
 import { exportNotebookToPdf, exportSinglePageToPdf, exportPageAsImage } from '../../utils/pdfExportEngine';
 import { saveFileToDisk } from '../../services/fileSystemService';
 import { useLanguage } from '../../services/i18n';
+import { localizeNotebookCopyName } from '../../utils/notebookNames';
 
 const EXPORT_ERROR_TRANSLATIONS = {
   "สมุดบันทึกไม่มีหน้าเอกสารให้ส่งออก": "exportDialogEmptyNotebook",
@@ -143,7 +144,7 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, currentPageIndex
         <div className="bn-modal-header">
           <div>
             <h2 className="bn-modal-title">{t('exportDialogTitle')}</h2>
-            <p className="bn-modal-subtitle">{t('notebook')}: {notebook.name}</p>
+            <p className="bn-modal-subtitle">{t('notebook')}: {localizeNotebookCopyName(notebook.name, t('notebookCopySuffix'))}</p>
           </div>
           <button className="bn-modal-close-btn" onClick={onClose} aria-label={t('close')}>
             <X size={20} />

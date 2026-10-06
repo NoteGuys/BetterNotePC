@@ -978,15 +978,17 @@ input, textarea, select {
   color: #60a5fa !important;
 }
 
-/* Tabs List (Max 5 Stacked) */
+/* Up to 9 tabs. Reserve a visible body and close button on every overlap. */
 .bn-tab-list {
   display: flex;
   align-items: flex-end;
   gap: 3px;
   overflow-x: auto;
   overflow-y: hidden;
-  flex-shrink: 1;
+  flex: 1 1 0;
   min-width: 0;
+  position: relative;
+  isolation: isolate;
   scrollbar-width: none;
 }
 
@@ -998,28 +1000,51 @@ input, textarea, select {
 .bn-tab-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   height: 32px;
-  padding: 0 8px 0 10px;
+  padding: 0 calc(6px + var(--bn-tab-tail, 0px)) 0 8px;
+  box-sizing: border-box;
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: #1b2c45;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-bottom: none;
   color: #94a3b8;
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
-  max-width: 220px;
-  min-width: 100px;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  max-width: 180px;
+  min-width: 80px;
   position: relative;
   flex-shrink: 0;
 }
 
 .bn-tab-item:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: #253b5b;
   color: #f1f5f9;
+}
+
+/* The active tab remains in front, but its tail must not cover the next tab. */
+.bn-tabs-stacked .bn-tab-item-active:not(:last-child) {
+  clip-path: inset(0 var(--bn-tab-overlap) 0 0 round 8px 8px 0 0);
+}
+
+.bn-tab-document-icon,
+.bn-tab-chevron {
+  flex-shrink: 0;
+}
+
+.bn-tab-item-compact .bn-tab-document-icon,
+.bn-tab-item-compact .bn-tab-page-badge,
+.bn-tab-item-compact .bn-tab-chevron,
+.bn-tabs-stacked .bn-tab-chevron {
+  display: none;
+}
+
+.bn-tab-item:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: -3px;
 }
 
 /* Active Tab Item */
@@ -1090,8 +1115,8 @@ input, textarea, select {
 
 /* Tab Drag Spacer */
 .bn-tab-spacer {
-  flex: 1;
-  min-width: 24px;
+  flex: 0 0 16px;
+  min-width: 16px;
   -webkit-app-region: drag;
 }
 
@@ -1117,13 +1142,13 @@ input, textarea, select {
 }
 
 [data-theme="light"] .bn-tab-item {
-  background: rgba(0, 0, 0, 0.04);
+  background: #d4deed;
   border-color: rgba(0, 0, 0, 0.08);
   color: #64748b;
 }
 
 [data-theme="light"] .bn-tab-item:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: #c2d4ef;
   color: #0f172a;
 }
 
@@ -7388,3 +7413,55 @@ svg.bn-star-gold {
 .bn-whiteboard-controls > span { display: inline-flex; align-items: center; gap: 6px; }
 .bn-whiteboard-controls button { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 7px; background: #e2e8f0; color: #334155; cursor: pointer; padding: 7px 9px; }
 @media (max-width: 850px) { .bn-whiteboard-hint { display: none !important; } }
+
+/* Local persistence: compact status in the existing document bar. */
+.bn-local-save-status {
+  display: inline-flex; align-items: center; gap: 6px; align-self: center;
+  min-height: 28px; max-width: 290px; flex-shrink: 0; margin-left: auto;
+  padding: 3px 8px; border-radius: 7px; font-size: 11px; line-height: 1.2;
+  color: #94a3b8; -webkit-app-region: no-drag; white-space: nowrap;
+}
+.bn-local-save-status > span { overflow: hidden; text-overflow: ellipsis; }
+.bn-local-save-status > svg { flex-shrink: 0; }
+.bn-local-save-status-saved > svg { color: #6ee7b7; }
+.bn-local-save-status-saving { color: #93c5fd; }
+.bn-local-save-status-error { color: #fecaca; background: rgba(185, 28, 28, 0.22); border: 1px solid rgba(248, 113, 113, 0.35); }
+.bn-local-save-status button {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 26px;
+  padding: 3px 7px; border-radius: 5px; background: rgba(255,255,255,0.1);
+  color: inherit; font-size: inherit; cursor: pointer;
+}
+.bn-local-save-status button:hover { background: rgba(255,255,255,0.2); }
+.bn-local-save-status button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+.bn-local-save-spinner { animation: bn-local-save-spin 1s linear infinite; }
+@keyframes bn-local-save-spin { to { transform: rotate(360deg); } }
+[data-theme="light"] .bn-local-save-status { color: #475569; }
+[data-theme="light"] .bn-local-save-status-saved > svg { color: #047857; }
+[data-theme="light"] .bn-local-save-status-saving { color: #1d4ed8; }
+[data-theme="light"] .bn-local-save-status-error { color: #991b1b; background: #fee2e2; }
+.bn-local-close-overlay {
+  position: fixed; inset: 38px 0 0; z-index: 9999; display: flex;
+  align-items: center; justify-content: center; background: rgba(15,23,42,0.32);
+  backdrop-filter: blur(2px); color: #fff; font-size: 14px;
+}
+.bn-local-close-overlay > span { background: #1e293b; padding: 14px 20px; border-radius: 12px; }
+.bn-local-load-error { display: grid; place-content: center; gap: 16px; padding: 28px; text-align: center; height: 100%; color: var(--text-primary, #e2e8f0); }
+.bn-local-load-error button { padding: 10px 18px; border-radius: 8px; background: #2563eb; color: white; cursor: pointer; }
+@media (max-width: 900px) {
+  .bn-local-save-status { max-width: 180px; font-size: 10px; gap: 4px; padding: 3px 5px; }
+  .bn-local-save-status-error { max-width: 245px; }
+}
+@media (prefers-reduced-motion: reduce) { .bn-local-save-spinner { animation: none; } }
+
+/* First-page covers use cached small images, with the whole page visible. */
+.bn-gn-thumbnail-cover .bn-gn-firstpage-img { object-fit: contain; }
+.bn-gn-thumbnail-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 5px; background: #fff; }
+.bn-gn-thumbnail-placeholder .bn-paper-template-preview { max-width: 100%; max-height: 100%; width: 100%; height: 100%; }
+.bn-create-cover-thumbnail { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; position: relative; min-height: 76px; padding: 10px 30px 10px 12px; text-align: left; color: var(--text-primary); background: rgba(148,163,184,.06); border: 1px solid rgba(148,163,184,.22); border-radius: 10px; cursor: pointer; }
+.bn-create-cover-thumbnail:hover { border-color: #64748b; background: rgba(148,163,184,.1); }
+.bn-create-cover-thumbnail.is-selected { border-color: #60a5fa; background: rgba(59,130,246,.1); box-shadow: 0 0 0 1px #60a5fa; }
+.bn-create-cover-thumbnail strong { display: block; font-size: 12px; margin-bottom: 4px; }
+.bn-create-cover-thumbnail span { display: block; color: var(--text-secondary); font-size: 10px; line-height: 1.4; }
+.bn-create-cover-thumbnail-preview { width: 34px; height: 46px; flex-shrink: 0; }
+.bn-create-cover-thumbnail-preview .bn-paper-template-preview { width: 100%; height: 100%; }
+.bn-create-cover-thumbnail-check { position: absolute; right: 9px; top: 10px; border-radius: 50%; color: #fff; background: #2563eb; padding: 2px; box-sizing: content-box; }

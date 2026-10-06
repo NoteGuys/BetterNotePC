@@ -42,6 +42,7 @@ import BackupStatusModal from './BackupStatusModal';
 import { getAllFavoritePages, savePage } from '../../services/db';
 import { importBnoteFile } from '../../services/fileSystemService';
 import { useLanguage } from '../../services/i18n';
+import { localizeNotebookCopyName } from '../../utils/notebookNames';
 import { autoBackupService } from '../../services/autoBackupService';
 
 export const LibraryView = ({
@@ -455,19 +456,6 @@ export const LibraryView = ({
     showToast(t('toastRestoredNotebook', 'กู้คืนสมุดเรียบร้อยแล้ว ✨'));
   };
 
-  const handleShare = (item) => {
-    showToast(t('toastReadyToShare', 'พร้อมแชร์ "{name}" แล้ว', { name: item.name }));
-  };
-
-  const handleCopyLink = (item) => {
-    try {
-      navigator.clipboard?.writeText(window.location.href);
-      showToast(t('toastLinkCopiedItem', 'คัดลอกลิงก์ของ "{name}" เรียบร้อยแล้ว 🔗', { name: item.name }));
-    } catch (_) {
-      showToast(t('toastLinkCopied', 'คัดลอกลิงก์สำเร็จ 🔗'));
-    }
-  };
-
   // Rename Confirmation
   const handleConfirmRename = (newName) => {
     if (!renameItem) return;
@@ -618,7 +606,7 @@ export const LibraryView = ({
           return;
         }
         for (const f of selectedFolders) {
-          if (onDeleteFolder) await onDeleteFolder(f.id);
+          if (onDeleteFolder) await onDeleteFolder(f.id, { throwOnFailure: true });
         }
         for (const nb of selectedNotebooks) {
           if (onDeleteNotebook) await onDeleteNotebook(nb.id);
@@ -1287,8 +1275,6 @@ export const LibraryView = ({
                                   onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                                   onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                                   onToggleFavorite={handleToggleFavoriteNotebook}
-                                  onShare={handleShare}
-                                  onCopyLink={handleCopyLink}
                                   isSelectMode={isSelectMode}
                                   isSelected={selectedItemIds.has(nb.id)}
                                   onToggleSelect={toggleSelectItem}
@@ -1309,7 +1295,7 @@ export const LibraryView = ({
                           <div className="bn-gn-pages-grid">
                             {favoritePages.map(p => {
                               const parentNb = (notebooks || []).find(n => n && n.id === p.notebookId);
-                              const nbTitle = parentNb ? parentNb.name : t('newNotebook', 'สมุดบันทึก');
+                              const nbTitle = parentNb ? localizeNotebookCopyName(parentNb.name, t('notebookCopySuffix')) : t('newNotebook', 'สมุดบันทึก');
                               return (
                                 <div 
                                   key={p.id} 
@@ -1417,8 +1403,6 @@ export const LibraryView = ({
                             onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                             onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                             onToggleFavorite={handleToggleFavoriteNotebook}
-                            onShare={handleShare}
-                            onCopyLink={handleCopyLink}
                             isSelectMode={isSelectMode}
                             isSelected={selectedItemIds.has(nb.id)}
                             onToggleSelect={toggleSelectItem}
@@ -1444,7 +1428,7 @@ export const LibraryView = ({
                     <div className="bn-gn-pages-grid">
                       {favoritePages.map(p => {
                         const parentNb = (notebooks || []).find(n => n && n.id === p.notebookId);
-                        const nbTitle = parentNb ? parentNb.name : t('newNotebook', 'สมุดบันทึก');
+                        const nbTitle = parentNb ? localizeNotebookCopyName(parentNb.name, t('notebookCopySuffix')) : t('newNotebook', 'สมุดบันทึก');
                         return (
                           <div 
                             key={p.id} 
@@ -1588,8 +1572,6 @@ export const LibraryView = ({
                         onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                         onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                         onToggleFavorite={handleToggleFavoriteNotebook}
-                        onShare={handleShare}
-                        onCopyLink={handleCopyLink}
                         isSelectMode={isSelectMode}
                         isSelected={selectedItemIds.has(nb.id)}
                         onToggleSelect={toggleSelectItem}

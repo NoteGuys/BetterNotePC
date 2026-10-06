@@ -2,6 +2,18 @@ const { contextBridge, ipcRenderer, clipboard } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
+  setLocalSaveGuardReady: (state) => ipcRenderer.send('local-save-ready', state),
+  completeCloseSaveRequest: (result) => ipcRenderer.send('local-save-close-result', result),
+  onCloseSaveRequest: (listener) => {
+    const handler = (_event, request) => listener(request);
+    ipcRenderer.on('local-save-before-close', handler);
+    return () => ipcRenderer.removeListener('local-save-before-close', handler);
+  },
+  onCloseSaveCancelled: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on('local-save-close-cancelled', handler);
+    return () => ipcRenderer.removeListener('local-save-close-cancelled', handler);
+  },
   exportPdfDocument: (html) => ipcRenderer.invoke('export-pdf-document', html),
   saveBackup: (data) => ipcRenderer.invoke('save-auto-backup', data),
   pruneBackupNotebook: (name) => ipcRenderer.invoke('prune-backup-notebook', name),

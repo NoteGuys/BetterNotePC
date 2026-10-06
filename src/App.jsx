@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
 import { GoogleDriveModal } from './components/Common/GoogleDriveModal';
@@ -20,12 +20,16 @@ import {
   savePage
 } from './services/db';
 import { exportFullBackup, importFullBackup, importBnoteFile } from './services/fileSystemService';
+import { flushLocalSaves, getLocalSaveSnapshot } from './services/localSaveService';
 import { autoBackupService } from './services/autoBackupService';
 import { checkForStoreUpdate } from './services/updateService';
 import { exportNotebookToPdf } from './utils/pdfExportEngine';
 import { getPaperSize } from './data/templates';
 import { getAppTheme, setAppTheme, applyThemeToDom } from './services/userPreferences';
 import { useLanguage } from './services/i18n';
+import { MAX_OPEN_NOTEBOOK_TABS } from './utils/documentTabs';
+import { localizeNotebookCopyName } from './utils/notebookNames';
+import { subscribeNotebookCovers, setNotebookCoverLibraryVisible } from './services/notebookCoverService';
 
 export function App() {
   const { language, t } = useLanguage();
@@ -35,6 +39,19 @@ export function App() {
   const [activeNotebookId, setActiveNotebookId] = useState(null);
   const [activeNotebookPageIndex, setActiveNotebookPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isClosingAfterSave, setIsClosingAfterSave] = useState(false);
+
+  const isCoverLibraryVisible = !isLoading && !(activeNotebookId && notebooks.some(item => item.id === activeNotebookId));
+  useLayoutEffect(() => {
+    // Pause previews before an editor becomes interactive; resume only in the library.
+    setNotebookCoverLibraryVisible(isCoverLibraryVisible);
+    return () => setNotebookCoverLibraryVisible(false);
+  }, [isCoverLibraryVisible]);
+
+  useEffect(() => subscribeNotebookCovers(saved => {
+    setNotebooks(items => items.map(item => item.id === saved.id
+      ? { ...item, firstPageThumbnail: saved.firstPageThumbnail } : item));
+  }), []);
 
   // Automatic Daily Microsoft Store Update Check
   const [updateModalData, setUpdateModalData] = useState(null);
@@ -62,13 +79,13 @@ export function App() {
     return () => { isMounted = false; };
   }, []);
 
-  // Multi-Document Tabs (Max 5 Stacked) & Last Opened Page per notebook
+  // Multi-Document Tabs (Max 9) & Last Opened Page per notebook
   const [openTabs, setOpenTabs] = useState(() => {
     try {
       const saved = localStorage.getItem('betternote_open_tabs');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed.slice(0, 5);
+        if (Array.isArray(parsed)) return parsed.slice(0, MAX_OPEN_NOTEBOOK_TABS);
       }
     } catch (_) {}
     return [];
@@ -139,6 +156,40 @@ export function App() {
     return () => unsubscribe();
   }, []);
 
+  // Normal close waits for committed local writes; failures keep this window open.
+  useEffect(() => {
+    const api = window.electronAPI;
+    const labels = {
+      title: 'BetterNote', message: t('localSaveCloseFailed'),
+      keepOpen: t('localSaveKeepOpen'), retry: t('localSaveRetry')
+    };
+    const unsubscribe = api?.onCloseSaveRequest?.(async ({ requestId }) => {
+      setIsClosingAfterSave(true);
+      try {
+        document.activeElement?.blur();
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        await flushLocalSaves({ retry: true });
+        api.completeCloseSaveRequest({ requestId, success: true });
+      } catch (_) {
+        setIsClosingAfterSave(false);
+        api.completeCloseSaveRequest({ requestId, success: false, labels });
+      }
+    });
+    const cancel = api?.onCloseSaveCancelled?.(() => setIsClosingAfterSave(false));
+    api?.setLocalSaveGuardReady?.({ labels });
+    const beforeUnload = event => {
+      if (getLocalSaveSnapshot().status !== 'saved') {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => {
+      unsubscribe?.(); cancel?.();
+      window.removeEventListener('beforeunload', beforeUnload);
+    };
+  }, [t]);
+
   // Load all library data
   const loadData = useCallback(async () => {
     try {
@@ -155,7 +206,7 @@ export function App() {
       setIsDriveConnected(!!connected);
       setDriveEmail(email || '');
       // Prune any stale tabs for notebooks that no longer exist
-      setOpenTabs(prev => prev.filter(tab => allN.some(nb => nb.id === tab.id)).slice(0, 5));
+      setOpenTabs(prev => prev.filter(tab => allN.some(nb => nb.id === tab.id)).slice(0, MAX_OPEN_NOTEBOOK_TABS));
     } catch (err) {
       console.error('Failed to load initial data:', err);
     } finally {
@@ -171,7 +222,9 @@ export function App() {
   const getFolderChain = () => {
     const chain = [];
     let curId = currentFolderId;
-    while (curId) {
+    const visited = new Set();
+    while (curId && !visited.has(curId)) {
+      visited.add(curId);
       const f = folders.find(item => item.id === curId);
       if (!f) break;
       chain.unshift(f);
@@ -191,13 +244,24 @@ export function App() {
     setFolders(prev => prev.map(f => f.id === folder.id ? folder : f));
   };
 
-  const handleDeleteFolder = async (folderId) => {
-    await deleteFolder(folderId);
-    setFolders(prev => prev.filter(f => f.id !== folderId));
+  const handleDeleteFolder = async (folderId, { throwOnFailure = false } = {}) => {
+    try {
+      const result = await deleteFolder(folderId);
+      setFolders(result.folders);
+      const moved = new Map(result.notebooks.map(notebook => [notebook.id, notebook]));
+      setNotebooks(previous => previous.map(notebook => moved.get(notebook.id) || notebook));
+      setCurrentFolderId(current => current === folderId ? result.parentId : current);
+      return true;
+    } catch (error) {
+      console.error('Folder removal failed:', error);
+      alert(t('localSaveFolderDeleteFailed'));
+      if (throwOnFailure) throw error;
+      return false;
+    }
   };
 
   // =========================================================================
-  // MULTI-DOCUMENT TAB OPERATIONS (Max 5 Stacked, Exact Page Retention)
+  // MULTI-DOCUMENT TAB OPERATIONS (Max 9, Exact Page Retention)
   // =========================================================================
 
   // Open Notebook with Tab Support
@@ -242,11 +306,11 @@ export function App() {
         lastAccessed: now
       };
 
-      if (prev.length < 5) {
+      if (prev.length < MAX_OPEN_NOTEBOOK_TABS) {
         return [...prev, newTab];
       }
 
-      // Evict oldest / least-recently accessed tab (strictly cap at 5)
+      // Evict oldest / least-recently accessed tab (strictly cap at 9)
       const sortedByAccess = [...prev].sort((a, b) => (a.lastAccessed || 0) - (b.lastAccessed || 0));
       const evictId = sortedByAccess[0].id;
       const remaining = prev.filter(t => t.id !== evictId);
@@ -370,12 +434,12 @@ export function App() {
 
   const handleDuplicateNotebook = async (notebookId) => {
     try {
-      const cloned = await duplicateNotebook(notebookId);
+      const cloned = await duplicateNotebook(notebookId, { copySuffix: t('notebookCopySuffix') });
       setNotebooks(prev => [cloned, ...prev]);
-      alert(`ทำสำเนาสำเร็จ! สร้างสมุด: "${cloned.name}"`);
+      alert(t('duplicateSuccess') + ' "' + localizeNotebookCopyName(cloned.name, t('notebookCopySuffix')) + '"');
     } catch (err) {
       console.error(err);
-      alert('ไม่สามารถทำสำเนาได้: ' + err.message);
+      alert(t('cannotDuplicate') + ': ' + (err.code === 'NOTEBOOK_NOT_FOUND' ? t('duplicateNotebookNotFound') : err.message));
     }
   };
 
@@ -389,11 +453,14 @@ export function App() {
     }
   };
 
-  const handleNotebookUpdated = async (updated) => {
-    const savedNotebook = await saveNotebook(updated, { ensureUniqueName: true });
+  const handleNotebookCommitted = useCallback(savedNotebook => {
     setNotebooks(prev => prev.map(nb => nb.id === savedNotebook.id ? savedNotebook : nb));
-    // Update title in openTabs immediately
-    setOpenTabs(prev => prev.map(t => t.id === savedNotebook.id ? { ...t, title: savedNotebook.name } : t));
+    setOpenTabs(prev => prev.map(tab => tab.id === savedNotebook.id ? { ...tab, title: savedNotebook.name } : tab));
+  }, []);
+
+  const handleNotebookUpdated = async updated => {
+    const savedNotebook = await saveNotebook(updated, { ensureUniqueName: true });
+    handleNotebookCommitted(savedNotebook);
   };
 
   // Import PDF Success handler (supports single notebook or array from batch import)
@@ -477,7 +544,7 @@ export function App() {
 
   return (
     <div className="bn-app-root">
-      {/* Pro Studio Multi-Document Tab Bar (Max 5 Stacked) */}
+      {/* Pro Studio Multi-Document Tab Bar (Max 9) */}
       <DocumentTabBar 
         tabs={openTabs}
         activeTabId={activeNotebookId}
@@ -495,7 +562,7 @@ export function App() {
             initialPageIndex={activeNotebookPageIndex}
             onPageChanged={handlePageChanged}
             onBackToLibrary={handleBackToLibrary}
-            onNotebookUpdated={handleNotebookUpdated}
+            onNotebookUpdated={handleNotebookCommitted}
           />
         ) : (
           /* Full-Screen Library View */
@@ -533,6 +600,12 @@ export function App() {
           />
         )}
       </div>
+
+      {isClosingAfterSave && (
+        <div className="bn-local-close-overlay" role="status">
+          <span>{t('localSaveClosing')}</span>
+        </div>
+      )}
 
       {/* Google Drive / Cloud Sync Modal */}
       <GoogleDriveModal 
