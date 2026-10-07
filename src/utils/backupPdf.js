@@ -13,7 +13,10 @@ const verifyImage = src => new Promise((resolve, reject) => {
 const pageKey = (note, page) => JSON.stringify([note.id, page.id, page.updatedAt, page.pageIndex,
   note.templateId, note.paperSize, note.orientation, page.templateId, page.pageWidth, page.pageHeight]);
 export const createVerifiedBackupPdfRenderer = ({ maxCacheBytes = 12 * 1024 * 1024,
-  maxCachedPages = 8, maxRetainedDocumentBytes = 16 * 1024 * 1024, idleLifetime = 30000 } = {}) => {
+  maxCachedPages = 8, maxRetainedDocumentBytes = 16 * 1024 * 1024, idleLifetime = 30000,
+  dimensions = getPagePdfDimensions, renderImage = renderExportPageImage, validateImage = verifyImage,
+  yieldForPage = () => new Promise(resolve => setTimeout(resolve, 30)),
+  output = pdf => 'data:application/pdf;base64,' + pdf.output('datauristring').replace(/^data:application\/pdf.*?;base64,/, '') } = {}) => {
   const cache = new Map();
   let bytes = 0, retained = null, cleanupTimer = null;
   const clear = () => { cache.clear(); bytes = 0; retained = null; clearTimeout(cleanupTimer); cleanupTimer = null; };
@@ -31,7 +34,7 @@ export const createVerifiedBackupPdfRenderer = ({ maxCacheBytes = 12 * 1024 * 10
     if (!pages?.length) throw new Error('pdf-backup-empty');
     clearTimeout(cleanupTimer);
     const keys = pages.map(page => pageKey(notebook, page)), key = JSON.stringify(keys);
-    const first = getPagePdfDimensions(pages[0], notebook.templateId);
+    const first = dimensions(pages[0], notebook.templateId);
     let session = !force && retained?.key === key ? retained : {
       key, next: 0, bytes: 0,
       pdf: new jsPDF({ orientation: first.orientation, unit: 'pt', format: [first.pdfW, first.pdfH] })
@@ -39,16 +42,16 @@ export const createVerifiedBackupPdfRenderer = ({ maxCacheBytes = 12 * 1024 * 10
     retained = null;
     try {
       for (let index = session.next; index < pages.length; index++) {
-        await new Promise(resolve => setTimeout(resolve, 30));
+        await yieldForPage({ page: index + 1, totalPages: pages.length });
         check({ page: index + 1, totalPages: pages.length });
-        const page = pages[index], dim = getPagePdfDimensions(page, notebook.templateId);
+        const page = pages[index], dim = dimensions(page, notebook.templateId);
         let image = !force && cache.get(keys[index]);
         if (!image) {
           for (const source of [page.pdfPageImage, ...(page.imageElements || []).map(item => item.src)].filter(Boolean)) {
-            check(); await verifyImage(source);
+            check(); await validateImage(source);
           }
           check();
-          const { blob } = await renderExportPageImage(page, notebook.templateId, getPagePdfDimensions, { format: 'jpeg', dpi: 150 });
+          const { blob } = await renderImage(page, notebook.templateId, dimensions, { format: 'jpeg', dpi: 150 });
           image = new Uint8Array(await blob.arrayBuffer()); remember(keys[index], image);
         }
         check();
@@ -58,7 +61,7 @@ export const createVerifiedBackupPdfRenderer = ({ maxCacheBytes = 12 * 1024 * 10
       }
       check({ page: pages.length, totalPages: pages.length });
       if (session.pdf.getNumberOfPages() !== pages.length) throw new Error('pdf-backup-incomplete');
-      return 'data:application/pdf;base64,' + session.pdf.output('datauristring').replace(/^data:application\/pdf.*?;base64,/, '');
+      return output(session.pdf);
     } catch (error) {
       // Keep one bounded PDF during a short writing pause, never the notebook/media objects.
       if (error.message === 'pdf-backup-deferred' && session.bytes <= maxRetainedDocumentBytes) retained = session;

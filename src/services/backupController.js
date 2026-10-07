@@ -139,7 +139,7 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
           } else {
             const note = await getNotebook(info.id);
             if (!note?.pages?.length) throw new Error('notebook-snapshot-unavailable');
-            saved = await native({ action: 'notebook', jobId, notebook: note, pdfBase64: null,
+            saved = await native({ action: 'notebook', jobId, notebook: note.backupEncoded ? undefined : note, notebookEncoded: note.backupEncoded, pdfBase64: null,
               pdfRevision: notebookPdfRevision(note) });
             writtenInfo = { id: note.id, name: note.name, folderId: note.folderId, updatedAt: note.updatedAt,
               pageCount: note.pageCount, isDeleted: note.isDeleted };
@@ -176,7 +176,7 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
             target.notebooks?.[info.id]?.editable?.revision === notebookBackupRevision(info))) continue;
           if (pathsKey(await readPaths()) !== pathsKey(paths) || generation !== startGeneration && metadataPending) break;
           if (recoveryPauses || !canRenderPdf()) { pdfDeferred = true; break; }
-          const note = await getNotebook(info.id);
+          const note = await getNotebook(info.id, { pdf: true });
           if (!note?.pages?.length || notebookBackupRevision(note) !== notebookBackupRevision(info)) { pdfDeferred = true; continue; }
           pdfProgress = { ...pdfProgress, notebookId: info.id, name: info.name, page: 0, totalPages: note.pages.length }; publish();
           let base64 = null, pdfError = null;
@@ -193,7 +193,8 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
           }
           if (recoveryPauses) { pdfDeferred = true; break; }
           const saved = await native({ action: 'pdf', jobId, ...paths, notebookId: info.id,
-            revision: notebookBackupRevision(info), pdfRevision: notebookPdfRevision(note), pdfBase64: base64, pdfError,
+            revision: notebookBackupRevision(info), pdfRevision: notebookPdfRevision(note), pdfBase64: base64 instanceof ArrayBuffer ? null : base64,
+            pdfBytes: base64 instanceof ArrayBuffer ? base64 : undefined, pdfError,
             blockedNotebookTargets: targets.filter(target => Object.hasOwn(target.notebookIssues || {}, info.id)).map(target => target.targetDir),
             driveSyncGuard: options.driveSyncGuard ? (() => {
               const target = targets.find(item => rolesOf(item).includes('drive'));

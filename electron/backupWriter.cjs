@@ -288,9 +288,15 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   return{success:session.targets.some(target=>!target.error),targets:session.targets.map(targetResult)};
  };
  const notebook=async command=>{
-  const note=command.notebook;
+  let bytes, note=command.notebook;
+  if(command.notebookEncoded !== undefined){
+   if(!(command.notebookEncoded instanceof ArrayBuffer)||!command.notebookEncoded.byteLength||command.notebookEncoded.byteLength>272*1048576)throw fault('invalid-notebook-snapshot');
+   bytes=Buffer.from(command.notebookEncoded);
+   try{note=parse(bytes);}catch(_){throw fault('invalid-notebook-snapshot');}
+  }
   if(!session||command.jobId!==session.id||!noteValid(note)||!note.pages.length)throw fault('invalid-notebook-snapshot');
-  const token=revision(note),bytes=Buffer.from(JSON.stringify(note)),incomingHash=hash(bytes);
+  bytes ||= Buffer.from(JSON.stringify(note));
+  const token=revision(note),incomingHash=hash(bytes);
   session.incoming.set(note.id,header(note));
   for(const target of session.targets)await targetAction(target,async current=>{
    const old=entryFor(target,note.id)||{};
@@ -424,7 +430,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
    if(command.blockedNotebookTargets?.includes(target.root))return;
    if(entry?.editable?.revision!==command.revision)throw fault('pdf-backup-superseded');
    if(command.pdfError){setEntry(target,command.notebookId,{...entry,pdfError:command.pdfError});target.pdfError=command.pdfError;await saveManifest(target,current);return;}
-   const bytes=pdfBuffer(command.pdfBase64);if(!bytes)throw fault('invalid-pdf');
+   const bytes=command.pdfBytes instanceof ArrayBuffer ? Buffer.from(command.pdfBytes) : pdfBuffer(command.pdfBase64);if(!bytes||bytes.length>272*1048576||!bytes.subarray(0,5).equals(Buffer.from('%PDF-'))||!bytes.subarray(-1024).includes(Buffer.from('%%EOF')))throw fault('invalid-pdf');
    const stem='Notebook-'+cleanName(entry.name)+'--'+hash(command.notebookId).slice(0,32);
    const saved=await atomic(target.root,entry.pdf?.path||path.join('PDF_Documents',stem+'.pdf'),bytes,
     buffer=>buffer.subarray(0,5).equals(Buffer.from('%PDF-')),current);

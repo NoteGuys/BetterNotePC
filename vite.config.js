@@ -94,6 +94,8 @@ function autoBackupPlugin() {
 
 export default defineConfig({
   base: './',
+  // Inline workers must contain their optional PDF dependencies for offline file:// use.
+  worker: { rollupOptions: { output: { inlineDynamicImports: true } } },
   plugins: [react(), autoBackupPlugin()],
   optimizeDeps: {
     include: ['pdfjs-dist', 'jspdf', 'idb', 'lucide-react']

@@ -85,11 +85,11 @@ app.on('will-quit',()=>{writer.close();reader.close();});
    const nodes=new Map(profile.nodes.map(n=>[n.id,n.callFrame])),hot=new Map();profile.samples.forEach((id,i)=>{const node=nodes.get(id),key=node.functionName||('(anonymous) '+node.url.split('/').at(-1)+':'+(node.lineNumber+1));hot.set(key,(hot.get(key)||0)+(profile.timeDeltas[i]||0)/1000);});
    metrics.receiveHotFunctions=Array.from(hot,([name,sampledMs])=>({name,sampledMs})).sort((a,b)=>b.sampledMs-a.sampledMs).slice(0,10);await session.detach();
    assert.equal(result.success,true,JSON.stringify(result));assert.equal(await b.page.evaluate(()=>qa.hash()),sourceHash);
-   assert.ok(metrics.receiveAndSave.ticks>0);assert.ok(metrics.receiveAndSave.maxGap<5000);assert.equal((await b.page.evaluate(()=>qa.backup.getSnapshot())).cloudUploadVerified,false);
+   assert.ok(metrics.receiveAndSave.ticks>0);assert.ok(metrics.receiveAndSave.maxGap<150);assert.equal((await b.page.evaluate(()=>qa.backup.getSnapshot())).cloudUploadVerified,false);
   });
   await check('Native PDF backup is measured separately after the editable data is confirmed',async()=>{
    await b.page.evaluate(()=>qa.measure());const result=await b.page.evaluate(()=>qa.backup.runAutoBackup());metrics.pdfBackup=await b.page.evaluate(()=>qa.endMeasure());
-   assert.equal(result.success,true,JSON.stringify(result));assert.equal((await b.page.evaluate(()=>qa.backup.getSnapshot())).allPdfsCurrent,true);assert.ok(metrics.pdfBackup.maxGap<5000);
+   assert.equal(result.success,true,JSON.stringify(result));assert.equal((await b.page.evaluate(()=>qa.backup.getSnapshot())).allPdfsCurrent,true);assert.ok(metrics.pdfBackup.maxGap<150);
   });
   await check('Native receiver remains on disk after closing Electron and relaunching its isolated profile',async()=>{
    const hash=await b.page.evaluate(()=>qa.hash());await b.page.evaluate(()=>{qa.backup.stopScheduledSync();qa.renderer.unmount();});await b.application.close();

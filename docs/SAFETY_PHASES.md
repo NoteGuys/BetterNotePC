@@ -431,3 +431,8 @@ core-js-banners และ node-compile-cache/ เป็นไฟล์ชั่�
 - ใช้เฉพาะ child ใหม่ I:/My Drive/BetterNote.AppPC/BetterNote-Phase3-Test-AZq0Y9: .bnote 3 + PDF 3 + full snapshot/manifest ตรวจอ่านกลับและ fresh profile ผ่าน ผู้ใช้ยืนยัน “เห็นไฟล์ครบแล้ว” บนเว็บ Drive ไม่เปลี่ยน cloudUploadVerified ของแอปจาก filesystem ไม่อ่าน/แก้สำรองจริง
 - สมุด Electron 24 หน้า/144,000 จุดปากกา/4.49 MiB รับและเซฟข้อมูล 1.19 วินาที สร้าง PDF อีก 5.12 วินาที แต่ heartbeat ยังสะดุดสูงสุด 358 ms ระหว่างข้อมูล/173 ms ระหว่าง PDF (รอบก่อน profiler PDF เคย 401 ms) จึงไม่อ้างว่าไม่ lag ทุกจังหวะ
 - สถานะ: ทดสอบด้านข้อมูลและ Drive เสร็จ รอผู้ใช้ตรวจรายงาน docs/PHASE3_4_REVIEW.md; ต้องปรับต้นทุนส่งสมุดใหญ่ผ่าน IPC และงาน PDF สำรองก่อนปิดเป้าหมายความลื่นเต็มรูปแบบ ยังไม่ลงมือปรับ ไม่เริ่มเฟสอื่น และยังไม่ commit/push
+
+
+## 7 ตุลาคม 2026 — เฟส 3 ปรับงานสำรองเบื้องหลังและความลื่น
+
+ย้าย metadata/snapshot และ PDF สำรองไป worker เดียว ส่ง JSON/PDF เป็น binary ผ่าน IPC คงการป้องกันเขียนทับ/ตรวจ hash/revision/atomic restore เดิม โหลดแบบ lazy คืน memory เมื่อว่าง รักษา SVG และการพัก/ทำต่อเมื่อเริ่มเขียน ผล Electron สมุด 24 หน้า: ช่วงสะดุดรับ/สำรอง 358.2 → 21.8 ms และ PDF 172.5 → 21.0 ms รายละเอียดและผลตรวจ 431 กรณีอยู่ใน PHASE3_PERFORMANCE_REVIEW.md รอผู้ใช้ตรวจและอนุมัติ Git; การย้ายด้วยคอมพิวเตอร์สองเครื่องจริงยังต้องตรวจเพิ่มเติม

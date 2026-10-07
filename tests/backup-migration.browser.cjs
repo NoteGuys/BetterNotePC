@@ -11,7 +11,7 @@ const root = fs.realpathSync(path.resolve(__dirname, '..')), qaRoot = process.en
 if (!qaRoot || !path.isAbsolute(qaRoot)) throw Error('An isolated QA directory is required');
 if (process.env.BETTERNOTE_QA_BUILT_WORKER !== '1') throw Error('Build production workers before this check');
 const passed = [], metrics = {}, errors = [];
-const entry = String.raw`
+const entry = "const qaEncodeBackupCommand = " + require('./helpers/recovery-worker.cjs').encodeBinaryCommand.toString() + ";" + String.raw`
 import React from 'react'; import {createRoot} from 'react-dom/client'; import {App} from './src/App.jsx';
 import * as db from './src/services/db.js'; import * as local from './src/services/localSaveService.js';
 import {autoBackupService as backup} from './src/services/autoBackupService.js';
@@ -22,7 +22,7 @@ window.alert = message => qa.alerts.push(message); window.confirm = () => true;
 const getAll = IDBObjectStore.prototype.getAll;
 IDBObjectStore.prototype.getAll = function(...args) {if(this.name === 'pages') throw Error('A migration must not load the entire pages store');return getAll.apply(this,args);};
 window.electronAPI = {isElectron:true, getDriveSyncCapabilities:async()=>({protocol:1}),
- saveBackup:async command=>{qa.actions.push(command.action);return writeBridge(JSON.stringify(command));},
+ saveBackup:async command=>{qa.actions.push(command.action);return writeBridge(JSON.stringify(await qaEncodeBackupCommand(command)));},
  scanBackupFolder:async(folder,options)=>{qa.reads.push(options);if(qa.holdRead && options?.syncMode === 'note') await qa.readGate;
   const result=await readBridge(folder,options);if(result.encodedBase64){const raw=atob(result.encodedBase64);result.encoded=Uint8Array.from(raw,x=>x.charCodeAt(0));delete result.encodedBase64;}return result;},
  onCloseSaveRequest:f=>{qa.closeRequest=f;return()=>{qa.closeRequest=null;};},onCloseSaveCancelled:()=>()=>{},
@@ -91,7 +91,7 @@ qa.endMeasure=()=>{clearInterval(qa.measureTimer);qa.observer.disconnect();retur
    const context=await chromium.launchPersistentContext(device.profile,{headless:true,executablePath:process.env.BETTERNOTE_QA_BROWSER,
     viewport:{width:1440,height:1000},env:{...process.env,TEMP:qaRoot,TMP:qaRoot}});device.context=context;
    await context.route(/^https?:\/\//,route=>route.abort());
-   await context.exposeBinding('writeBridge',async(_,text)=>{const command=JSON.parse(text);
+   await context.exposeBinding('writeBridge',async(_,text)=>{const command=require('./helpers/recovery-worker.cjs').decodeBinaryCommand(JSON.parse(text));
     for(const target of [command.localBackupPath,command.driveBackupPath].filter(Boolean))assert.ok(target===device.local||allowed.has(path.resolve(target)),'Outside QA destinations');
     return device.client.execute(command);
    });

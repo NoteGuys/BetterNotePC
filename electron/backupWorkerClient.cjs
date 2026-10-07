@@ -29,7 +29,7 @@ const createBackupWorkerClient = config => {
           item.timer = setTimeout(() => { pending.delete(requestId); resolve({ success: false, reason: 'backup-worker-timeout' }); }, 120000);
         };
         item.arm(); pending.set(requestId, item);
-        try { worker.postMessage({ requestId, command }); }
+        try { worker.postMessage({ requestId, command }, [command.notebookEncoded, command.pdfBytes].filter(value => value instanceof ArrayBuffer)); }
         catch (_) { clearTimeout(item.timer); pending.delete(requestId); resolve({ success: false, reason: 'backup-worker-unavailable' }); }
       });
     },

@@ -8,14 +8,14 @@ const root=fs.realpathSync(path.resolve(__dirname,'..')),qaRoot=process.env.BETT
 if(!qaRoot||!path.isAbsolute(qaRoot))throw Error('Use isolated QA storage');
 const origin='https://betternote-drive-sync.invalid/',passed=[];
 const note=(id,time=10,text='initial')=>({id,name:id,updatedAt:time,pageCount:1,coverId:'deep-ocean',pages:[{id:id+'-p',notebookId:id,pageIndex:0,updatedAt:time,strokes:[{points:[{x:12,y:34},{x:40,y:56}]}],textElements:[{id:'text',text,x:2,y:3}],imageElements:[{id:'image',src:'data:image/png;base64,c3ludGhldGlj',locked:true}],pdfPageImage:'data:image/png;base64,c3ludGhldGlj',pageWidth:1200,pageHeight:1697,templateId:'dotted'}]});
-const entry=String.raw`
+const entry="const qaEncodeBackupCommand = " + require('./helpers/recovery-worker.cjs').encodeBinaryCommand.toString() + ";" + String.raw`
 import React from 'react';import {createRoot}from'react-dom/client';import{App}from'./src/App.jsx';
 import * as db from './src/services/db.js';import * as recovery from './src/services/backupRecoveryService.js';
 import{autoBackupService as backup}from'./src/services/autoBackupService.js';import*as lang from'./src/services/i18n.js';
 import{notebookHistoryStore as history}from'./src/services/notebookHistoryService.js';
 import{prepareBackup}from'./electron/backupValidation.js';
 window.qa={db,recovery,backup,lang,history,native:[],reads:[],errors:[]};window.alert=text=>qa.errors.push(text);window.confirm=()=>true;
-window.electronAPI={isElectron:true,getDriveSyncCapabilities:async()=>({protocol:1}),saveBackup:async command=>{qa.native.push(command.action);return writeBridge(command);},
+window.electronAPI={isElectron:true,getDriveSyncCapabilities:async()=>({protocol:1}),saveBackup:async command=>{qa.native.push(command.action);return writeBridge(await qaEncodeBackupCommand(command));},
  scanBackupFolder:async(folder,options)=>{qa.reads.push(options);if(qa.holdRead&&options?.syncMode==='note')await qa.readGate;
  const result=await readBridge(folder,options);if(result.encoded)result.encoded=Uint8Array.from(result.encoded);return result;},
  onCloseSaveRequest:()=>()=>{},onCloseSaveCancelled:()=>()=>{},setLocalSaveGuardReady:()=>{},completeCloseSaveRequest:()=>{}};
@@ -48,7 +48,7 @@ qa.gate=()=>{qa.holdRead=true;qa.readGate=new Promise(resolve=>qa.releaseRead=()
   for(let i=0;i<2;i++){
    const context=await browser.newContext({viewport:{width:1360,height:900}});await context.route('**/*',r=>r.request().url()===origin?r.fulfill({status:200,contentType:'text/html',body:'<!doctype html><div id="root"></div>'}):r.abort());
    const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
-   await page.exposeFunction('writeBridge',command=>{for(const p of [command.localBackupPath,command.driveBackupPath].filter(Boolean))assert.ok(path.resolve(p).startsWith(fixture+path.sep));return clients[i].execute(command);});
+   await page.exposeFunction('writeBridge',command=>{command=require('./helpers/recovery-worker.cjs').decodeBinaryCommand(command);for(const p of [command.localBackupPath,command.driveBackupPath].filter(Boolean))assert.ok(path.resolve(p).startsWith(fixture+path.sep));return clients[i].execute(command);});
    await page.exposeFunction('readBridge',async(folder,options)=>{assert.equal(path.resolve(folder),path.resolve(drive));const result=await reader.execute({folderPath:folder,...options});if(result.encoded)result.encoded=Array.from(result.encoded);return result;});
    await page.goto(origin);await page.addScriptTag({content:bundle.outputFiles[0].text});pages.push(page);
   }

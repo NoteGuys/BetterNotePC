@@ -1,6 +1,6 @@
-import { getBackupMetadata, getBackupNotebookSnapshot, getSetting, saveSetting, subscribeBackupChanges } from './db.js';
+import { getSetting, saveSetting, subscribeBackupChanges } from './db.js';
 import { flushLocalSaves, getLocalSaveSnapshot, subscribeLocalSaves } from './localSaveService.js';
-import { generateVerifiedBackupPdf } from '../utils/backupPdf.js';
+import { createBackupPreparationService } from './backupPreparationService.js';
 import { createBackupController } from './backupController.js';
 import { resolveBackupReadFolder, backupReadErrorKey } from './backupReadStatus.js';
 import { t } from './i18n';
@@ -14,11 +14,12 @@ class AutoBackupService {
     this.canvasPointerIds = new Set();
     this.lastInput = 0;
     this.driveSync = createDriveSyncService();
+    this.preparation = createBackupPreparationService();
     this.controller = createBackupController({
       beforeBackup: options => this.driveSync.beforeBackup(options),
       beforePrune: ids => this.driveSync.beforePrune(ids),
       onDataBackup: result => this.driveSync.acknowledged(result),
-      getMetadata: getBackupMetadata, getNotebook: getBackupNotebookSnapshot,
+      getMetadata: () => this.preparation.getMetadata(), getNotebook: (id, options) => this.preparation.getNotebook(id, options),
       waitForLocalSaves: () => flushLocalSaves(), getLocalState: getLocalSaveSnapshot,
       native: command => typeof window !== 'undefined' && window.electronAPI?.saveBackup
         ? window.electronAPI.saveBackup(command) : Promise.resolve({ success: false, reason: 'unsupported-environment' }),
@@ -27,7 +28,7 @@ class AutoBackupService {
         driveBackupPath: (await getSetting('gdrive_backup_method')) === 'desktop'
           ? (await getSetting('gdrive_backup_path')) || null : null
       }),
-      makePdf: (note, check, options) => generateVerifiedBackupPdf(note, check, options),
+      makePdf: (note, check, options) => this.preparation.makePdf(note, check, options),
       canRenderPdf: () => this.pointerIds.size === 0 && getLocalSaveSnapshot().status === 'saved' && Date.now() - this.lastInput > 700,
       persist: data => saveSetting('backup_v2_checkpoint', data)
     });

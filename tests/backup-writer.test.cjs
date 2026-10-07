@@ -368,3 +368,25 @@ test('A large full-snapshot budget does not shrink when its small manifest is pu
  const result=await run(writer,[n]);assert.equal(result.success,true);const m=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));assert.equal(m.fullSize,(await fs.stat(fullFile(root))).size);
  const {createBackupReader}=require('../electron/backupReader.cjs');assert.equal((await createBackupReader().execute({folderPath:root})).success,true);
 });
+
+test('Binary worker snapshot keeps exact note data and attaches a complete binary PDF', async () => {
+ const root=await fixture(),writer=createBackupWriter({localDir:root}),n=note(),jobId='binary-qa';
+ assert.equal((await writer.execute({action:'begin',jobId,metadata:meta([n]),metadataRevision:'binary',phase:'data'})).success,true);
+ const notebookEncoded=new TextEncoder().encode(JSON.stringify(n)).buffer;
+ assert.equal((await writer.execute({action:'notebook',jobId,notebookEncoded,pdfRevision:'binary-pages'})).success,true);
+ assert.equal((await writer.execute({action:'finish',jobId,metadataRevision:'binary'})).success,true);
+ const pdfBytes=new TextEncoder().encode('%PDF-1.7\nsynthetic\n%%EOF').buffer;
+ assert.equal((await writer.execute({action:'pdf',jobId,notebookId:n.id,revision:notebookBackupRevision(n),pdfRevision:'binary-pages',pdfBytes})).success,true);
+ assert.deepEqual(JSON.parse(await fs.readFile(fullFile(root))).notebooks[0],n);
+ const inspected=await writer.execute({action:'inspect',deepVerify:true});assert.equal(inspected.targets[0].notebooks[n.id].pdf.contentRevision,'binary-pages');
+});
+test('Invalid encoded snapshots and truncated binary PDFs cannot acknowledge or replace valid data', async () => {
+ const root=await fixture(),writer=createBackupWriter({localDir:root}),n=note();await run(writer,[n]);
+ const before=await fs.readFile(fullFile(root)),jobId='binary-bad';
+ await writer.execute({action:'begin',jobId,metadata:meta([n]),metadataRevision:'bad'});
+ for(const notebookEncoded of [new ArrayBuffer(0),new TextEncoder().encode('{invalid').buffer,new TextEncoder().encode('{}').buffer,'not-binary'])
+  assert.equal((await writer.execute({action:'notebook',jobId,notebookEncoded})).success,false);
+ await writer.execute({action:'abort',jobId});
+ assert.equal((await writer.execute({action:'pdf',notebookId:n.id,revision:notebookBackupRevision(n),pdfRevision:'bad',pdfBytes:new TextEncoder().encode('%PDF-truncated').buffer})).success,false);
+ assert.deepEqual(await fs.readFile(fullFile(root)),before);
+});
