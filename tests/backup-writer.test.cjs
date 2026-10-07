@@ -21,7 +21,7 @@ const run = async (writer, notes, extra = {}) => {
 const fullFile = root => path.join(root, 'Full_System', 'BetterNote_Latest_Backup.json');
 test('A successful backup round keeps every editable field and verifies each destination', async () => {
   const local = await fixture(), drive = await fixture(), writer = createBackupWriter({ localDir: local });
-  const n = note(), result = await run(writer, [n], { customBackupPath: drive });
+  const n = note(), result = await run(writer, [n], { driveBackupPath: drive });
   assert.equal(result.success, true); assert.equal(result.targets.length, 2); assert.equal(result.cloudUploadVerified, false);
   for (const dir of [local, drive]) {
     const full = JSON.parse(await fs.readFile(fullFile(dir)));
@@ -76,10 +76,10 @@ test('Disk-full failure cannot overwrite the previous full-system snapshot or ad
   assert.equal(result.success,false);assert.deepEqual(await fs.readFile(fullFile(root)),before);
   assert.equal((await writer.execute({action:'inspect'})).targets[0].lastSuccess,oldTime);
 });
-test('An unreachable selected target reports partial results while local backup succeeds', async () => {
+test('An unreachable explicit Drive target reports partial results while local backup succeeds', async () => {
   const root=await fixture(), destination=await fixture();
   await fs.writeFile(path.join(destination,'blocked'),'not a directory');
-  const result=await run(createBackupWriter({localDir:root}),[note()],{customBackupPath:path.join(destination,'blocked')});
+  const result=await run(createBackupWriter({localDir:root}),[note()],{driveBackupPath:path.join(destination,'blocked')});
   assert.equal(result.success,false);assert.equal(result.targets[0].success,true);assert.equal(result.targets[1].success,false);
   assert.equal(JSON.parse(await fs.readFile(fullFile(root))).notebooks.length,1);
 });
@@ -223,14 +223,103 @@ test('Inspecting a file selected as a folder reports its destination error hones
 });
 test('Windows path letter-case cannot bypass quarantine of a timed-out destination',async()=>{
  const local=await fixture(),drive=await fixture(),writer=createBackupWriter({localDir:local});
- await run(writer,[note()],{customBackupPath:drive});const before=await fs.readFile(fullFile(drive));
+ await run(writer,[note()],{driveBackupPath:drive});const before=await fs.readFile(fullFile(drive));
  let release;const gate=new Promise(resolve=>release=resolve);
  const slow=createBackupWriter({localDir:local,deadlineMs:150,beforeReplace:async({file,relative})=>{
   if(file.toLowerCase().startsWith(drive.toLowerCase()+path.sep)&&relative.endsWith('.bnote'))await gate;
  }});
- const changed=note('n1','Example',20);await slow.execute({action:'begin',jobId:'case-job',metadata:meta([changed]),customBackupPath:drive});
+ const changed=note('n1','Example',20);await slow.execute({action:'begin',jobId:'case-job',metadata:meta([changed]),driveBackupPath:drive});
  await slow.execute({action:'notebook',jobId:'case-job',notebook:changed,pdfBase64:pdf});
- const inspected=await slow.execute({action:'inspect',customBackupPath:drive.toUpperCase()});
+ const inspected=await slow.execute({action:'inspect',driveBackupPath:drive.toUpperCase()});
  assert.equal(inspected.targets[1].error,'destination-busy');release();await new Promise(resolve=>setTimeout(resolve,60));
  assert.deepEqual(await fs.readFile(fullFile(drive)),before);await slow.execute({action:'abort',jobId:'case-job'});
+});
+
+test('Selecting a local folder replaces the default instead of writing two local copies',async()=>{
+ const root=await fixture(),defaultFolder=path.join(root,'default'),selected=path.join(root,'chosen');
+ const writer=createBackupWriter({localDir:defaultFolder});
+ const result=await run(writer,[note()],{localBackupPath:selected});
+ assert.equal(result.success,true);assert.equal(result.targets.length,1);assert.deepEqual(result.targets[0].roles,['local']);
+ assert.deepEqual(JSON.parse(await fs.readFile(fullFile(selected))).notebooks[0],note());
+ await assert.rejects(fs.stat(defaultFolder),{code:'ENOENT'});
+});
+test('Local and Desktop Drive roles share one physical write when they select the same folder',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});
+ const result=await run(writer,[note()],{localBackupPath:root,driveBackupPath:root.toUpperCase()});
+ assert.equal(result.targets.length,1);assert.deepEqual(new Set(result.targets[0].roles),new Set(['local','drive']));
+});
+test('A data-first round confirms recovery data before any PDF is generated',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root}),n=note();
+ assert.equal((await writer.execute({action:'begin',phase:'data',jobId:'data-first',metadata:meta([n]),metadataRevision:'data-version'})).success,true);
+ await writer.execute({action:'notebook',jobId:'data-first',notebook:n,pdfRevision:'p',pdfBase64:null});
+ const saved=await writer.execute({action:'finish',jobId:'data-first',metadataRevision:'data-version'});
+ assert.equal(saved.success,true);assert.equal(saved.dataSuccess,true);assert.equal(saved.pdfComplete,false);
+ assert.ok(saved.targets[0].lastDataSuccess);assert.equal(saved.targets[0].lastSuccess,null);
+ assert.deepEqual(JSON.parse(await fs.readFile(fullFile(root))).notebooks[0],n);
+ const rendered=await writer.execute({action:'pdf',notebookId:n.id,revision:notebookBackupRevision(n),pdfRevision:'p',pdfBase64:pdf});
+ assert.equal(rendered.success,true);assert.ok(rendered.targets[0].lastSuccess);
+});
+test('A failed PDF after data completion never clears the confirmed recovery snapshot',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root}),n=note();
+ await writer.execute({action:'begin',phase:'data',jobId:'ready',metadata:meta([n]),metadataRevision:'ready'});
+ await writer.execute({action:'notebook',jobId:'ready',notebook:n,pdfRevision:'p'});
+ await writer.execute({action:'finish',jobId:'ready'});const before=await fs.readFile(fullFile(root));
+ const result=await writer.execute({action:'pdf',notebookId:n.id,revision:notebookBackupRevision(n),pdfRevision:'p',pdfError:'pdf-backup-image-invalid'});
+ assert.equal(result.success,false);assert.equal(result.targets[0].dataSuccess,true);assert.ok(result.targets[0].lastDataSuccess);
+ assert.deepEqual(await fs.readFile(fullFile(root)),before);
+});
+test('A stale PDF cannot attach itself to a newer editable notebook',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note('n1','Example',20)]);
+ const result=await writer.execute({action:'pdf',notebookId:'n1',revision:notebookBackupRevision(note()),pdfBase64:pdf});
+ assert.equal(result.success,false);assert.equal(result.targets[0].pdfError,'pdf-backup-superseded');
+});
+test('Unchanged files reuse their verified hashes, while deep verification rechecks the bytes',async()=>{
+ const root=await fixture();let reads=0;
+ const writer=createBackupWriter({localDir:root,fs:{...fs,readFile:async(...args)=>{reads++;return fs.readFile(...args);}}});
+ await run(writer,[note()]);reads=0;await writer.execute({action:'inspect'});const cached=reads;
+ reads=0;await writer.execute({action:'inspect',deepVerify:true});
+ assert.ok(reads>cached);assert.equal(cached,1);
+});
+test('Native progress reports actual write bytes and file verification',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root}),n=note(),events=[];
+ n.pdfBase64='x'.repeat(2200000);
+ await writer.execute({action:'begin',phase:'data',jobId:'progress',metadata:meta([n])});
+ await writer.execute({action:'notebook',jobId:'progress',notebook:n},event=>events.push(event));
+ assert.ok(events.some(event=>event.stage==='writing'&&event.bytesDone>0&&event.bytesDone<event.totalBytes));
+ assert.ok(events.some(event=>event.stage==='verified'&&event.bytesDone===event.totalBytes));
+ await writer.execute({action:'abort',jobId:'progress'});
+});
+
+test('A conflicting notebook does not stop later notebooks in the same destination',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});
+ const originals=Array.from({length:11},(_,i)=>note('n'+i,'Book '+i,10));
+ await run(writer,originals);const previous=await fs.readFile(fullFile(root));
+ const incoming=originals.map((n,i)=>note(n.id,n.name,i===1?10:20));
+ incoming[1].pages[0].strokes[0].points[0].x=999;
+ const result=await run(writer,incoming);
+ assert.equal(result.success,false);
+ const target=result.targets[0];
+ assert.equal(target.error,null);
+ assert.equal(target.notebookIssues.n1.error,'conflicting-backup-revision');
+ assert.equal(target.notebookIssues.n1.incomingUpdatedAt,10);
+ assert.equal(target.notebookIssues.n1.backupUpdatedAt,10);
+ assert.equal(target.notebookIssues.n1.name,'Book 1');
+ for(let i=0;i<11;i++)assert.equal(target.notebooks['n'+i].editable.revision,notebookBackupRevision(i===1?originals[i]:incoming[i]));
+ const blocked=JSON.parse(await fs.readFile(path.join(root,target.notebooks.n1.editable.path)));
+ assert.deepEqual(blocked,originals[1]);assert.deepEqual(await fs.readFile(fullFile(root)),previous);
+ assert.equal(target.dataSuccess,false);
+ assert.equal((await run(writer,originals.map(n=>note(n.id,n.name,30)))).success,true);
+});
+
+test('An older notebook is reported by ID and keeps its backup while other notebooks advance',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});
+ const original=[note('old','Old device',100),note('healthy','Healthy',10)];
+ await run(writer,original);const prior=await fs.readFile(fullFile(root));
+ const result=await run(writer,[note('old','Old device',50),note('healthy','Healthy',20)]);
+ assert.equal(result.success,false);
+ const target=result.targets[0];assert.equal(target.notebookIssues.old.error,'newer-backup-exists');
+ assert.equal(target.notebookIssues.old.backupUpdatedAt,100);
+ assert.equal(target.notebookIssues.old.incomingUpdatedAt,50);
+ assert.equal(target.notebooks.healthy.editable.revision,notebookBackupRevision(note('healthy','Healthy',20)));
+ assert.deepEqual(await fs.readFile(fullFile(root)),prior);
 });

@@ -28,3 +28,10 @@ Thumbs.db
 *.local
 .vscode/
 
+
+# Google credentials and private user data
+.env
+.env.*
+client_secret*.json
+*.bnote
+BetterNote_Latest_Backup.json

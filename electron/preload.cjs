@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   exportPdfDocument: (html) => ipcRenderer.invoke('export-pdf-document', html),
   saveBackup: (data) => ipcRenderer.invoke('save-auto-backup', data),
+  onBackupProgress: (handler) => {
+    const listener = (_event, progress) => handler(progress);
+    ipcRenderer.on('backup-progress', listener);
+    return () => ipcRenderer.removeListener('backup-progress', listener);
+  },
   pruneBackupNotebook: (notebookId, customBackupPath) => ipcRenderer.invoke('prune-backup-notebook', { notebookId, customBackupPath }),
   pruneBackupNotebooksBatch: (notebookIds, customBackupPath) => ipcRenderer.invoke('prune-backup-notebooks-batch', { notebookIds, customBackupPath }),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
@@ -26,6 +31,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   revealBackupFile: (filePath) => ipcRenderer.invoke('reveal-backup-file', filePath),
   readClipboardImage: () => ipcRenderer.invoke('read-clipboard-image'),
   selectImage: (options) => ipcRenderer.invoke('select-image', options),
+  openDriveDesktop: () => ipcRenderer.invoke('open-drive-desktop'),
+  connectGoogleAccount: (clientId) => ipcRenderer.invoke('connect-google-account', { clientId }),
+  cancelGoogleAccountConnection: () => ipcRenderer.invoke('cancel-google-account-connection'),
   openGoogleSignIn: () => ipcRenderer.invoke('open-google-signin'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url)
 });

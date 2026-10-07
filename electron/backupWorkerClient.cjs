@@ -8,20 +8,29 @@ const createBackupWorkerClient = config => {
   const start = () => {
     worker = new Worker(path.join(__dirname, 'backup.worker.cjs'), { workerData: config });
     const instance = worker;
-    worker.on('message', ({ requestId, result }) => { const item = pending.get(requestId); if (item) { clearTimeout(item.timer); pending.delete(requestId); item.resolve(result); } });
+    worker.on('message', ({ requestId, result, progress }) => {
+      const item = pending.get(requestId);
+      if (!item) return;
+      if (progress) { item.arm(); try { item.onProgress?.(progress); } catch (_) {} return; }
+      clearTimeout(item.timer); pending.delete(requestId); item.resolve(result);
+    });
     const failed = () => { if (worker !== instance) return; for (const item of pending.values()) { clearTimeout(item.timer); item.resolve({ success: false, reason: 'backup-worker-unavailable' }); } pending.clear(); worker = null; };
     worker.on('error', failed);
     worker.on('exit', failed);
     worker.unref();
   };
   return {
-    execute: command => {
+    execute: (command, onProgress) => {
       if (!worker) start();
       return new Promise(resolve => {
-        const requestId = ++counter;
-        const timer = setTimeout(() => { pending.delete(requestId); resolve({ success: false, reason: 'backup-worker-timeout' }); }, 120000);
-        pending.set(requestId, { resolve, timer });
-        worker.postMessage({ requestId, command });
+        const requestId = ++counter, item = { resolve, onProgress };
+        item.arm = () => {
+          clearTimeout(item.timer);
+          item.timer = setTimeout(() => { pending.delete(requestId); resolve({ success: false, reason: 'backup-worker-timeout' }); }, 120000);
+        };
+        item.arm(); pending.set(requestId, item);
+        try { worker.postMessage({ requestId, command }); }
+        catch (_) { clearTimeout(item.timer); pending.delete(requestId); resolve({ success: false, reason: 'backup-worker-unavailable' }); }
       });
     },
     close: async () => {

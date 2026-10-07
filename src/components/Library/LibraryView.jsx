@@ -65,6 +65,7 @@ export const LibraryView = ({
   onImportPdfSuccess,
   onImportBnoteSuccess,
   onOpenDriveModal,
+  onOpenBackupStatus,
   onOpenUpdateModal,
   isDriveConnected,
   isSyncing,
@@ -90,6 +91,7 @@ export const LibraryView = ({
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [isBackupStatusModalOpen, setIsBackupStatusModalOpen] = useState(false);
+  const [backupInitialTab, setBackupInitialTab] = useState('local');
   const [toastMessage, setToastMessage] = useState(null);
   const backupFileInputRef = React.useRef(null);
   const bnoteFileInputRef = React.useRef(null);
@@ -154,6 +156,11 @@ export const LibraryView = ({
     } finally {
       setIsAutoRestoring(false);
     }
+  };
+
+  const openBackupHub = (tab = 'local') => {
+    if (onOpenBackupStatus) onOpenBackupStatus(tab, handleExecuteCloudRestore);
+    else { setBackupInitialTab(tab); setIsBackupStatusModalOpen(true); }
   };
 
   // Clear selection on view or folder change
@@ -716,7 +723,7 @@ export const LibraryView = ({
               <kbd className="hidden md:inline text-[10px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 ml-1">Ctrl+K</kbd>
             </button>
 
-            <BackupStatusIndicator onClick={() => setIsBackupStatusModalOpen(true)} />
+            <BackupStatusIndicator onClick={() => openBackupHub('local')} />
 
             {/* Settings Button - Opens Full SettingsModal */}
             <button
@@ -841,7 +848,7 @@ export const LibraryView = ({
                     className="bn-gn-popover-item"
                     onClick={() => {
                       setShowNewMenu(false);
-                      setIsBackupStatusModalOpen(true);
+                      openBackupHub('local');
                     }}
                   >
                     <ShieldCheck size={16} className="text-emerald-400" />
@@ -1663,18 +1670,19 @@ export const LibraryView = ({
         onTriggerAutoSync={onTriggerAutoSync}
         onExportBackup={onExportBackup}
         onImportBackup={onImportBackup}
-        onOpenDriveModal={onOpenDriveModal}
+        onOpenDriveModal={() => openBackupHub('drive')}
+        onOpenBackupStatus={() => openBackupHub('local')}
         onOpenUpdateModal={onOpenUpdateModal}
       />
 
       {/* Backup Inspection & Status Modal */}
-      <BackupStatusModal 
-        isOpen={isBackupStatusModalOpen}
+      {!onOpenBackupStatus && <BackupStatusModal
+        initialTab={backupInitialTab} isOpen={isBackupStatusModalOpen}
         onClose={() => setIsBackupStatusModalOpen(false)}
         notebooks={notebooks}
         onTriggerSync={onTriggerAutoSync}
         onRestoreBackup={handleExecuteCloudRestore}
-      />
+      />}
     </div>
   );
 };

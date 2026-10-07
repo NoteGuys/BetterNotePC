@@ -2,91 +2,125 @@
 import { getAllFolders, getAllNotebooks, getPagesByNotebookId, saveFolder, saveNotebook, savePage, getSetting, saveSetting } from './db';
 import { DEFAULT_GOOGLE_CLIENT_ID } from '../config/googleConfig';
 
-const SCOPES = 'https://www.googleapis.com/auth/drive.file';
-const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
-
+const SCOPES = 'openid email https://www.googleapis.com/auth/drive.file';
 class GoogleDriveService {
   constructor() {
     this.tokenClient = null;
     this.accessToken = null;
     this.userEmail = null;
     this.isInitialized = false;
+    this.clientId = null;
+    this.nativeAuth = false;
+    this.tokenExpiresAt = null;
+    this.lastAuthError = null;
+    this.pendingAuthorization = null;
+    this.authorizedAccount = null;
+    this.nativeRequest = null;
   }
 
   async init(clientId = null) {
-    const idToUse = clientId || DEFAULT_GOOGLE_CLIENT_ID;
-    if (!idToUse) return false;
-
-    return new Promise((resolve) => {
-      if (typeof window === 'undefined' || !window.google) {
-        console.warn('Google Identity Services not loaded yet.');
-        resolve(false);
-        return;
-      }
-
-      try {
-        this.tokenClient = window.google.accounts.oauth2.initTokenClient({
-          client_id: idToUse,
-          scope: SCOPES,
-          callback: async (resp) => {
-            if (resp.error) {
-              console.error('Google Auth Error:', resp.error);
-              return;
-            }
-            this.accessToken = resp.access_token;
-            await saveSetting('gdrive_token', resp.access_token);
-            await saveSetting('gdrive_connected', true);
-            // Fetch user info
-            await this.fetchUserInfo();
-          }
-        });
-
-        this.isInitialized = true;
-        resolve(true);
-      } catch (err) {
-        console.error('Error initializing Google Drive token client:', err);
-        resolve(false);
-      }
-    });
+    const configured = clientId || DEFAULT_GOOGLE_CLIENT_ID;
+    this.clientId = typeof configured === 'string' ? configured.trim() : '';
+    this.lastAuthError = null;
+    if (!this.clientId) { this.lastAuthError = 'client-not-configured'; return false; }
+    if (typeof window !== 'undefined' && window.electronAPI?.connectGoogleAccount) {
+      this.nativeAuth = true;
+      this.isInitialized = true;
+      return true;
+    }
+    this.nativeAuth = false;
+    if (typeof window === 'undefined' || !window.google?.accounts?.oauth2?.initTokenClient) {
+      this.lastAuthError = 'google-library-unavailable'; return false;
+    }
+    try {
+      this.tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: this.clientId, scope: SCOPES, callback: () => {},
+        error_callback: response => this.pendingAuthorization?.reject(new Error(
+          response?.type === 'popup_closed' ? 'cancelled' : 'browser-open-failed'))
+      });
+      this.isInitialized = true;
+      return true;
+    } catch (_) { this.lastAuthError = 'client-initialization-failed'; return false; }
   }
 
   async fetchUserInfo() {
-    if (!this.accessToken) return null;
+    if (!this.accessToken || this.tokenExpiresAt && this.tokenExpiresAt <= Date.now()) return null;
+    if (this.nativeAuth && this.authorizedAccount) return this.authorizedAccount;
     try {
       const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${this.accessToken}` }
+        headers: { Authorization: 'Bearer ' + this.accessToken }
       });
       if (res.ok) {
         const info = await res.json();
-        this.userEmail = info.email;
-        await saveSetting('gdrive_user_email', info.email);
+        this.userEmail = info.email || '';
         return info;
       }
-    } catch (e) {
-      console.warn('Failed to fetch user info', e);
-    }
+    } catch (_) {}
     return null;
   }
 
-  requestToken() {
-    return new Promise((resolve, reject) => {
-      if (!this.tokenClient) {
-        reject(new Error('Google Client not initialized. Please provide Client ID.'));
-        return;
-      }
-      this.tokenClient.callback = async (resp) => {
-        if (resp.error) {
-          reject(resp);
-          return;
+  async requestToken() {
+    if (this.nativeAuth) {
+      const request = { cancelled: false };
+      this.nativeRequest = request;
+      try {
+        const result = await window.electronAPI.connectGoogleAccount(this.clientId);
+        if (request.cancelled) throw new Error('cancelled');
+        if (!result?.success || !result.authorized || !result.accessToken) throw new Error(result?.reason || 'authorization-failed');
+        this.accessToken = result.accessToken;
+        this.userEmail = result.email || '';
+        this.tokenExpiresAt = result.expiresAt || null;
+        this.authorizedAccount = { email: this.userEmail };
+        try {
+          await saveSetting('gdrive_connected', true);
+          await saveSetting('gdrive_user_email', this.userEmail);
+        } catch (_) {
+          this.accessToken = null; this.userEmail = null; this.tokenExpiresAt = null; this.authorizedAccount = null;
+          throw new Error('connection-state-not-saved');
         }
-        this.accessToken = resp.access_token;
-        await saveSetting('gdrive_token', resp.access_token);
+        if (request.cancelled) throw new Error('cancelled');
+        // Access tokens stay in memory; no token is written into the notebook database.
+        return { token: this.accessToken, email: this.userEmail };
+      } finally { if (this.nativeRequest === request) this.nativeRequest = null; }
+    }
+    if (!this.tokenClient) throw new Error(this.lastAuthError || 'client-not-initialized');
+    if (this.pendingAuthorization) return this.pendingAuthorization.promise;
+    let resolve, reject;
+    const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+    let timer;
+    const pending = {
+      promise,
+      reject: error => { if (this.pendingAuthorization !== pending) return; clearTimeout(timer); this.pendingAuthorization = null; reject(error); }
+    };
+    this.pendingAuthorization = pending;
+    timer = setTimeout(() => pending.reject(new Error('authentication-timeout')), 120000);
+    this.tokenClient.callback = async response => {
+      if (this.pendingAuthorization !== pending) return;
+      if (response?.error || !response?.access_token) { pending.reject(new Error(response?.error === 'access_denied' ? 'access-denied' : 'authorization-failed')); return; }
+      this.accessToken = response.access_token;
+      this.tokenExpiresAt = response.expires_in ? Date.now() + Number(response.expires_in) * 1000 : null;
+      try {
+        const account = await this.fetchUserInfo();
+        if (this.pendingAuthorization !== pending) return;
         await saveSetting('gdrive_connected', true);
-        const userInfo = await this.fetchUserInfo();
-        resolve({ token: resp.access_token, email: userInfo?.email });
-      };
-      this.tokenClient.requestAccessToken({ prompt: 'consent' });
-    });
+        await saveSetting('gdrive_user_email', account?.email || '');
+        if (this.pendingAuthorization !== pending) return;
+        clearTimeout(timer); this.pendingAuthorization = null;
+        resolve({ token: this.accessToken, email: account?.email });
+      } catch (_) { this.accessToken = null; pending.reject(new Error('connection-state-not-saved')); }
+    };
+    try { this.tokenClient.requestAccessToken({ prompt: 'select_account consent' }); }
+    catch (_) { pending.reject(new Error('browser-open-failed')); }
+    return promise;
+  }
+
+  async cancelConnection() {
+    const pending = !!this.nativeRequest || !!this.pendingAuthorization;
+    if (this.nativeRequest) this.nativeRequest.cancelled = true;
+    this.pendingAuthorization?.reject(new Error('cancelled'));
+    if (pending) { this.accessToken = null; this.userEmail = null; this.authorizedAccount = null; this.tokenExpiresAt = null; }
+    if (typeof window !== 'undefined') await window.electronAPI?.cancelGoogleAccountConnection?.();
+    if (pending) await saveSetting('gdrive_connected', false);
   }
 
   async getAppFolderId() {

@@ -20,10 +20,12 @@ import {
   HelpCircle,
   Sparkles,
   RefreshCw,
+  ShieldCheck,
   ExternalLink
 } from 'lucide-react';
 import { PAPER_SIZES } from '../../data/templates';
 import { getSetting, saveSetting } from '../../services/db';
+import { useBackupSnapshot, backupStateKey } from '../Common/BackupStatusIndicator';
 import { appCacheService } from '../../services/appCacheService';
 import { useLanguage } from '../../services/i18n';
 import { 
@@ -47,9 +49,11 @@ export const SettingsModal = ({
   onExportBackup,
   onImportBackup,
   onOpenDriveModal,
+  onOpenBackupStatus,
   onOpenUpdateModal
 }) => {
   const { language, setLanguage, t } = useLanguage();
+  const backupState = useBackupSnapshot();
   const [activeTab, setActiveTab] = useState('drive'); // 'drive', 'backup', 'defaults', 'theme', 'updates'
   const fileInputRef = useRef(null);
   const [backupPath, setBackupPath] = useState(
@@ -152,42 +156,8 @@ export const SettingsModal = ({
   };
 
   useEffect(() => {
-    async function loadBackupPath() {
-      try {
-        let currentVal = null;
-        const val = await getSetting('local_backup_path');
-        if (val && typeof val === 'string' && val.trim()) {
-          currentVal = val.trim();
-        } else if (typeof window !== 'undefined' && window.localStorage?.getItem('local_backup_path')) {
-          currentVal = window.localStorage.getItem('local_backup_path');
-        }
-
-        try {
-          const { autoBackupService } = await import('../../services/autoBackupService');
-          const details = await autoBackupService.getBackupStatusDetails(currentVal);
-          if (details?.documentsDir) {
-            setDocsPresetPath(details.documentsDir);
-          }
-          if (!currentVal && details?.targetDir) {
-            currentVal = details.targetDir;
-          }
-        } catch (_) {}
-
-        if (currentVal) {
-          setBackupPath(currentVal);
-        } else if (driveUserEmail) {
-          setBackupPath(driveUserEmail);
-        }
-      } catch (err) {
-        console.warn(err);
-      }
-    }
-    if (isOpen) {
-      loadBackupPath();
-      setShowFolderHelp(false);
-      setShowMigrationHelp(false);
-    }
-  }, [isOpen, driveUserEmail]);
+    if (isOpen) { setShowFolderHelp(false); setShowMigrationHelp(false); }
+  }, [isOpen]);
 
   const handleSaveBackupPath = async (newPath) => {
     const target = (newPath || backupPath || '').trim();
@@ -274,7 +244,7 @@ export const SettingsModal = ({
             onClick={() => setActiveTab('drive')}
           >
             <Cloud size={16} className={activeTab === 'drive' ? 'text-emerald-400' : 'text-zinc-400'} />
-            <span>Google Drive</span>
+            <span>{t('backupHubTitle')}</span>
           </button>
 
           <button
@@ -320,227 +290,25 @@ export const SettingsModal = ({
 
         {/* Body */}
         <div className="bn-settings-body">
-          {/* Tab 1: Google Drive & Local Storage */}
+          {/* One entry opens the shared Backup & Sync window. */}
           {activeTab === 'drive' && (
-            <>
-              {/* Cloud / Sync Status Card */}
-              <div className="bn-settings-card">
-                <div className="bn-settings-card-header">
-                  <div 
-                    className="bn-settings-icon-circle"
-                    style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399' }}
-                  >
-                    <CheckCircle2 size={24} />
-                  </div>
-                  <div className="bn-settings-card-text">
-                    <div className="bn-settings-card-title-row">
-                      <h4 className="bn-settings-card-h4">{t('backupStatus', 'สถานะระบบสำรองข้อมูลอัตโนมัติ')}</h4>
-                      <span className="bn-settings-status-tag">ACTIVE</span>
-                    </div>
-                    <p className="bn-settings-path-label">
-                      {t('backupPathLabel', 'ตำแหน่งโฟลเดอร์ปัจจุบัน:')} {backupPath}
-                    </p>
-                    <p className="bn-settings-card-hint">
-                      {t('backupHint', 'ระบบจะสำรองข้อมูลอัตโนมัติทุกๆ 1 ชั่วโมง และสำรองก่อนปิดแอปพลิเคชัน (ทั้ง PDF และ .bnote)')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bn-settings-btn-row">
-                  <button
-                    type="button"
-                    className="bn-settings-btn-sync"
-                    onClick={onTriggerAutoSync}
-                    disabled={isSyncing}
-                  >
-                    <FolderSync size={16} className={isSyncing ? 'animate-spin' : ''} />
-                    <span>{isSyncing ? t('syncing', 'กำลังซิงค์ข้อมูล...') : t('syncNow', 'ซิงค์และสำรองข้อมูลทันที')}</span>
-                  </button>
-
-                  {onOpenDriveModal && (
-                    <button
-                      type="button"
-                      className="bn-settings-btn-alt"
-                      onClick={() => {
-                        onClose();
-                        onOpenDriveModal();
-                      }}
-                      title={t('gdriveModalTitle', 'เชื่อมต่อ Google Drive & Cloud Sync')}
-                    >
-                      <Cloud size={15} className="text-blue-400" />
-                      <span>{t('gdriveConnectButtonLabel', 'เชื่อมต่อ Google Drive (Sign in)')}</span>
-                    </button>
-                  )}
+            <div className="bn-settings-card">
+              <div className="bn-settings-card-header">
+                <div className="bn-settings-icon-circle" style={{ background: 'rgba(59,130,246,.12)', color: '#60a5fa' }}><ShieldCheck size={24} /></div>
+                <div className="bn-settings-card-text">
+                  <h4 className="bn-settings-card-h4">{t('backupHubTitle')}</h4>
+                  <p className="bn-settings-card-hint">{t('backupHubSubtitle')}</p>
+                  <strong className="bn-backup-settings-state" data-backup-state={backupState.status}>{t(backupStateKey(backupState))}</strong>
                 </div>
               </div>
-
-              {/* Local & Drive Backup Directory Configuration Card */}
-              <div className="bn-settings-card">
-                <div className="bn-settings-card-header">
-                  <div 
-                    className="bn-settings-icon-circle"
-                    style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8' }}
-                  >
-                    <FolderOpen size={22} />
-                  </div>
-                  <div className="bn-settings-card-text">
-                    <div className="bn-settings-card-title-row">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <h4 className="bn-settings-card-h4">{t('localBackupDirTitle', 'ตำแหน่งโฟลเดอร์สำรองข้อมูลภายในเครื่อง')}</h4>
-                        <button
-                          type="button"
-                          onClick={() => setShowFolderHelp(true)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: '2px',
-                            cursor: 'pointer',
-                            color: '#94a3b8',
-                            display: 'flex',
-                            alignItems: 'center'
-                          }}
-                          title={t('backupTargetFolderHelpTitle', 'โฟลเดอร์สำรองข้อมูล')}
-                        >
-                          <HelpCircle size={14} className="hover:text-blue-400 transition" />
-                        </button>
-                      </div>
-                      {pathSavedToast && (
-                        <span className="bn-settings-status-tag" style={{ background: 'rgba(16, 185, 129, 0.25)', color: '#34d399' }}>
-                          {t('pathSavedSuccess', '✓ บันทึกสำเร็จ')}
-                        </span>
-                      )}
-                    </div>
-                    <p className="bn-settings-card-hint">
-                      {t('localBackupDirHint', 'เลือกโฟลเดอร์ในเครื่องที่คุณต้องการให้ไฟล์ที่เขียน อัปโหลด หรือแก้ไข ถูกสำรองไว้ที่นี่ (PDF, .bnote และระบบเต็ม)')}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Path input with Browse & Save */}
-                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                  <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
-                    <Folder size={15} style={{ position: 'absolute', left: '12px', color: '#94a3b8', pointerEvents: 'none' }} />
-                    <input
-                      type="text"
-                      className="bn-folder-path-input"
-                      value={backupPath}
-                      onChange={(e) => setBackupPath(e.target.value)}
-                      placeholder={t('backupPathPlaceholder', 'เช่น H:\\My Drive\\BetterNote.AppPC หรือ G:\\My Drive\\...')}
-                      style={{
-                        width: '100%',
-                        padding: '9px 12px 9px 36px',
-                        background: 'rgba(15, 15, 20, 0.75)',
-                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                        borderRadius: '8px',
-                        color: '#f1f5f9',
-                        fontSize: '12px',
-                        fontFamily: 'Consolas, monospace',
-                        outline: 'none',
-                        transition: 'border-color 0.15s ease'
-                      }}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="bn-settings-btn-alt"
-                    onClick={handleBrowseFolder}
-                    title={t('browseFolder', 'เปิดหน้าต่างเลือกโฟลเดอร์ในเครื่อง')}
-                    style={{ whiteSpace: 'nowrap' }}
-                  >
-                    <FolderOpen size={15} />
-                    <span>{t('browseFolder', 'เลือกโฟลเดอร์...')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="bn-settings-btn-sync"
-                    onClick={() => handleSaveBackupPath(backupPath)}
-                    style={{ padding: '0 16px', flex: 'none', whiteSpace: 'nowrap' }}
-                  >
-                    <Save size={15} />
-                    <span>{t('saveLocation', 'บันทึกตำแหน่ง')}</span>
-                  </button>
-                </div>
-
-                {/* Preset shortcuts */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
-                  <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>
-                    {t('presetShortcuts', 'ตำแหน่งโฟลเดอร์แนะนำ (คลิกเพื่อเลือกทันที):')}
-                  </span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    <button
-                      type="button"
-                      className="bn-preset-chip"
-                      onClick={() => handleSaveBackupPath('H:\\My Drive\\BetterNote.AppPC')}
-                      title="Google Drive Desktop App Directory (H:)"
-                    >
-                      ☁️ H:\My Drive\BetterNote.AppPC
-                    </button>
-                    <button
-                      type="button"
-                      className="bn-preset-chip"
-                      onClick={() => handleSaveBackupPath('G:\\My Drive\\BetterNote.AppPC')}
-                      title="Google Drive Desktop App Directory (G:)"
-                    >
-                      ☁️ G:\My Drive\BetterNote.AppPC
-                    </button>
-                    <button
-                      type="button"
-                      className="bn-preset-chip"
-                      onClick={() => handleSaveBackupPath(docsPresetPath || 'Documents\\BetterNote.AppPC')}
-                      title="Documents Folder"
-                    >
-                      📁 {docsPresetPath ? (docsPresetPath.includes('\\Documents\\') ? docsPresetPath.substring(docsPresetPath.lastIndexOf('Documents')) : docsPresetPath) : 'Documents\\BetterNote.AppPC'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Cloud Restore / Migration Card */}
-                <div style={{ marginTop: '16px', padding: '14px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '10px', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#93c5fd', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <FolderSync size={16} />
-                        <span>{t('migrationTitle', 'กู้คืนข้อมูลเมื่อย้ายเครื่องใหม่ (New PC Migration)')}</span>
-                        <button
-                          type="button"
-                          onClick={() => setShowMigrationHelp(true)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: '2px',
-                            cursor: 'pointer',
-                            color: '#93c5fd',
-                            display: 'flex',
-                            alignItems: 'center'
-                          }}
-                          title={t('migrationHelpTitle', 'ขั้นตอนการกู้คืนข้อมูลเมื่อย้ายเครื่องใหม่')}
-                        >
-                          <HelpCircle size={14} className="hover:text-white transition" />
-                        </button>
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '3px' }}>
-                        {t('migrationDesc', 'เมื่อติดตั้ง BetterNote บนเครื่องใหม่ หรือเชื่อม Google Drive เข้ามา สามารถกดปุ่มนี้เพื่อดึงสมุดโน้ตทั้งหมดกลับเข้าแอปทันที')}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="bn-settings-btn-sync"
-                      onClick={handleRestoreFromFolder}
-                      disabled={isRestoringCloud}
-                      style={{ background: '#2563eb', padding: '8px 18px', fontSize: '12px', whiteSpace: 'nowrap', fontWeight: 600 }}
-                    >
-                      <FolderSync size={15} className={isRestoringCloud ? 'animate-spin' : ''} />
-                      <span>{isRestoringCloud ? t('cloudRestoring', 'กำลังดึงข้อมูล...') : t('restoreAllDataBtn', 'ดึงและกู้คืนสมุดโน้ตทั้งหมด')}</span>
-                    </button>
-                  </div>
-                  {restoreMessage && (
-                    <div style={{ marginTop: '8px', fontSize: '12px', color: restoreMessage.startsWith('✓') ? '#34d399' : '#f87171', fontWeight: 600 }}>
-                      {restoreMessage}
-                    </div>
-                  )}
-                </div>
+              <div className="bn-settings-btn-row">
+                <button type="button" className="bn-settings-btn-sync" onClick={() => {
+                  onClose(); (onOpenBackupStatus || onOpenDriveModal)?.();
+                }} disabled={!onOpenBackupStatus && !onOpenDriveModal}>
+                  <FolderSync size={16} /><span>{t('backupHubTitle')}</span>
+                </button>
               </div>
-            </>
+            </div>
           )}
 
           {/* Tab 2: สำรอง & กู้คืน */}

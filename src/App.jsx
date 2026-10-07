@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
-import { GoogleDriveModal } from './components/Common/GoogleDriveModal';
 import BackupStatusModal from './components/Library/BackupStatusModal';
 import { UpdateNotificationModal } from './components/Common/UpdateNotificationModal';
 import { LibraryView } from './components/Library/LibraryView';
@@ -143,9 +142,8 @@ export function App() {
   };
 
   // Cloud & Google Drive auto-sync state
-  const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
-  const [isBackupStatusOpen, setIsBackupStatusOpen] = useState(false);
-  const [isDriveConnected, setIsDriveConnected] = useState(true); // G: drive local sync is connected!
+  const [backupHub, setBackupHub] = useState({ open: false, tab: 'local', restore: null });
+  const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [driveEmail, setDriveEmail] = useState('G:\\My Drive');
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
 
@@ -550,7 +548,7 @@ export function App() {
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
         onGoHome={handleBackToLibrary}
-        onOpenBackupStatus={() => setIsBackupStatusOpen(true)}
+        onOpenBackupStatus={() => setBackupHub({ open: true, tab: 'local', restore: null })}
       />
 
       {/* Main Workspace: NoteEditor or LibraryView */}
@@ -584,7 +582,8 @@ export function App() {
             onDeleteNotebook={handleDeleteNotebook}
             onImportPdfSuccess={handleImportPdfSuccess}
             onImportBnoteSuccess={handleImportBnoteSuccess}
-            onOpenDriveModal={() => setIsDriveModalOpen(true)}
+            onOpenDriveModal={() => setBackupHub({ open: true, tab: 'drive', restore: null })}
+            onOpenBackupStatus={(tab = 'local', restore = null) => setBackupHub({ open: true, tab, restore })}
             isDriveConnected={isDriveConnected}
             isSyncing={isAutoSyncing}
             currentTheme={theme}
@@ -607,15 +606,10 @@ export function App() {
         </div>
       )}
 
-      <BackupStatusModal isOpen={isBackupStatusOpen} onClose={() => setIsBackupStatusOpen(false)}
-        notebooks={notebooks} onTriggerSync={opts => autoBackupService.runAutoBackup(opts)} />
-
-      {/* Google Drive / Cloud Sync Modal */}
-      <GoogleDriveModal 
-        isOpen={isDriveModalOpen}
-        onClose={() => setIsDriveModalOpen(false)}
-        onSyncComplete={loadData}
-      />
+      <BackupStatusModal isOpen={backupHub.open} initialTab={backupHub.tab}
+        onClose={() => setBackupHub({ open: false, tab: 'local', restore: null })}
+        notebooks={notebooks} onTriggerSync={opts => autoBackupService.runAutoBackup(opts)}
+        onRestoreBackup={backupHub.restore} />
 
       {/* Microsoft Store Update Notification Modal */}
       <UpdateNotificationModal 

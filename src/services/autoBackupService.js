@@ -14,8 +14,12 @@ class AutoBackupService {
       waitForLocalSaves: () => flushLocalSaves(), getLocalState: getLocalSaveSnapshot,
       native: command => typeof window !== 'undefined' && window.electronAPI?.saveBackup
         ? window.electronAPI.saveBackup(command) : Promise.resolve({ success: false, reason: 'unsupported-environment' }),
-      getPath: async () => (await getSetting('local_backup_path')) || null,
-      makePdf: (note, check) => generateVerifiedBackupPdf(note, check),
+      getPath: async () => ({
+        localBackupPath: (await getSetting('local_backup_path')) || null,
+        driveBackupPath: (await getSetting('gdrive_backup_method')) === 'desktop'
+          ? (await getSetting('gdrive_backup_path')) || null : null
+      }),
+      makePdf: (note, check, options) => generateVerifiedBackupPdf(note, check, options),
       canRenderPdf: () => this.pointerIds.size === 0 && getLocalSaveSnapshot().status === 'saved' && Date.now() - this.lastInput > 700,
       persist: data => saveSetting('backup_v2_checkpoint', data)
     });
@@ -33,10 +37,25 @@ class AutoBackupService {
   notify(status) { for (const fn of this.listeners) { try { fn(status); } catch (_) {} } }
   runAutoBackup(options = {}) { return this.controller.run(options); }
   destinationChanged() { return this.controller.destinationChanged(); }
+  getCachedDetails() { return this.controller.getCachedDetails(); }
+  async setLocalBackupPath(folder) {
+    if (typeof folder !== 'string' || !folder.trim()) return;
+    await saveSetting('local_backup_path', folder.trim());
+    if (typeof window !== 'undefined') window.localStorage?.setItem('local_backup_path', folder.trim());
+    await this.destinationChanged();
+  }
+  async setDriveDesktopPath(folder) {
+    if (typeof folder !== 'string' || !folder.trim()) return;
+    await saveSetting('gdrive_backup_path', folder.trim());
+    await saveSetting('gdrive_backup_method', 'desktop');
+    await this.destinationChanged();
+  }
   startScheduledSync() {
     if (this.stopSubscriptions) return;
     const offData = subscribeBackupChanges(() => this.controller.markDirty());
     const offLocal = subscribeLocalSaves(() => this.controller.localStateChanged());
+    const offProgress = typeof window !== 'undefined' && window.electronAPI?.onBackupProgress
+      ? window.electronAPI.onBackupProgress(event => this.controller.nativeProgress(event)) : () => {};
     const down = e => {
       this.pointerIds.add(e.pointerId);
       if (e.target?.closest?.('canvas')) { this.canvasPointerIds.add(e.pointerId); this.lastInput = Date.now(); }
@@ -52,7 +71,7 @@ class AutoBackupService {
       ['lostpointercapture', up], ['pointermove', move], ['blur', blur], ['keydown', key]];
     if (typeof window !== 'undefined') events.forEach(([event, handler]) => window.addEventListener(event, handler, { capture: true, passive: true }));
     this.stopSubscriptions = () => {
-      offData(); offLocal();
+      offData(); offLocal(); offProgress();
       if (typeof window !== 'undefined') events.forEach(([event, handler]) => window.removeEventListener(event, handler, true));
       this.pointerIds.clear(); this.canvasPointerIds.clear();
     };
@@ -117,8 +136,9 @@ class AutoBackupService {
   /**
    * Fetch comprehensive backup manifest, file details, timestamps, and destination folder
    */
-  async getBackupStatusDetails() {
-    const details = await this.controller.refresh({ inspect: true, includeFiles: true });
+  async getBackupStatusDetails(options = {}) {
+    const settings = options && typeof options === 'object' ? options : {};
+    const details = await this.controller.refresh({ inspect: true, includeFiles: true, ...settings });
     return { ...(details || { success: false, files: [], lastSync: null }), snapshot: this.getSnapshot() };
   }
 

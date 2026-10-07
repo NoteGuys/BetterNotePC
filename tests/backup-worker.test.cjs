@@ -9,11 +9,11 @@ test('Actual native worker writes and verifies synthetic artifacts at both desti
  try{
   const note={id:'worker-note',name:'Synthetic',updatedAt:2,pageCount:1,pages:[{id:'page',pageIndex:0,strokes:[],textElements:[],imageElements:[]}]};
   const metadata={folders:[],notebooks:[{...note,pages:undefined}]};
-  assert.equal((await client.execute({action:'inspect',customBackupPath:drive})).lastSync,null);
-  assert.equal((await client.execute({action:'begin',jobId:'worker-job',metadata,metadataRevision:'m',customBackupPath:drive})).success,true);
+  assert.equal((await client.execute({action:'inspect',driveBackupPath:drive})).lastSync,null);
+  assert.equal((await client.execute({action:'begin',jobId:'worker-job',metadata,metadataRevision:'m',driveBackupPath:drive})).success,true);
   assert.equal((await client.execute({action:'notebook',jobId:'worker-job',notebook:note,pdfRevision:'p',pdfBase64:Buffer.from('%PDF-1.7\nworker fixture\n%%EOF').toString('base64')})).success,true);
   assert.equal((await client.execute({action:'finish',jobId:'worker-job',metadataRevision:'m'})).success,true);
-  const inspected=await client.execute({action:'inspect',customBackupPath:drive,includeFiles:true});
+  const inspected=await client.execute({action:'inspect',driveBackupPath:drive,includeFiles:true});
   assert.equal(inspected.files.length,6);assert.equal(inspected.targets.length,2);assert.equal(inspected.cloudUploadVerified,false);
   for(const destination of [local,drive])assert.deepEqual(JSON.parse(await fs.readFile(path.join(destination,'Full_System','BetterNote_Latest_Backup.json'))).notebooks[0],note);
  }finally{await client.close();}

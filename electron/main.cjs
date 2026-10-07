@@ -3,6 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const { registerPdfExport } = require('./pdfExport.cjs');
 const { installLocalSaveGuard } = require('./localSaveGuard.cjs');
+const { registerDriveDesktop } = require('./driveDesktop.cjs');
+const { registerGoogleDesktopAuth } = require('./googleDesktopAuth.cjs');
+const { createGoogleTokenExchange } = require('./googleTokenExchange.cjs');
+const { GOOGLE_TOKEN_BROKER_URL } = require('./googleOAuthConfig.cjs');
 
 // Surface Pro Hardware Acceleration, High-DPI & Touch/Stylus Flags
 app.commandLine.appendSwitch('enable-features', 'TouchEvents,VaapiVideoDecoder');
@@ -30,7 +34,16 @@ async function getBackupTargetDir(customPath = null) {
   const status = await getBackupClient().execute({ action: 'inspect', customBackupPath: customPath });
   return status.targetDir || path.join(app.getPath('documents'), 'BetterNote.AppPC');
 }
-async function writeBackupData(data) { return getBackupClient().execute(data); }
+async function writeBackupData(data, sender) {
+  let lastProgress = 0;
+  return getBackupClient().execute(data, progress => {
+    if (!sender || sender.isDestroyed()) return;
+    const current = Date.now();
+    if (current - lastProgress < 100 && progress.stage === 'writing' && progress.bytesDone < progress.totalBytes) return;
+    lastProgress = current;
+    sender.send('backup-progress', progress);
+  });
+}
 async function pruneNotebookFromBackups(request) {
   return getBackupClient().execute({ action: 'prune', notebookIds: [request?.notebookId], customBackupPath: request?.customBackupPath });
 }
@@ -164,10 +177,18 @@ function createWindow() {
   });
 
   installLocalSaveGuard({ window: mainWindow, ipcMain, dialog });
+  registerDriveDesktop({ ipcMain, shell, getWindow: () => mainWindow });
+  registerGoogleDesktopAuth({ ipcMain, shell, getWindow: () => mainWindow,
+    exchangeToken: createGoogleTokenExchange({
+      brokerUrl: process.env.BETTERNOTE_GOOGLE_TOKEN_ENDPOINT || GOOGLE_TOKEN_BROKER_URL,
+      credentialFile: app.isPackaged ? '' : process.env.BETTERNOTE_GOOGLE_OAUTH_FILE || ''
+    }),
+    onComplete: () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.restore(); mainWindow.focus(); } }
+  });
 
   // Handle IPC Auto-Backup calls directly from renderer
   ipcMain.handle('save-auto-backup', async (event, data) => {
-    return await writeBackupData(data);
+    return await writeBackupData(data, event.sender);
   });
 
   // Handle immediate pruning of a deleted notebook from backups
