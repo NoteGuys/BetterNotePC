@@ -34,15 +34,8 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
 import { localizeNotebookCopyName } from '../../utils/notebookNames';
-import { DEFAULT_TOOL_WIDTH_SLOTS } from '../../services/userPreferences';
-
-const DEFAULT_PRESET_COLORS = [
-  '#1e293b', // Midnight Black
-  '#2563eb', // Royal Blue
-  '#dc2626', // Crimson Red
-  '#16a34a', // Emerald Green
-  '#ea580c'  // Sunset Orange
-];
+import { DEFAULT_TOOL_WIDTH_SLOTS, DEFAULT_QUICK_COLORS } from '../../services/userPreferences';
+import { ColorWheelPicker } from '../Common/ColorWheelPicker';
 
 const TOOL_PRESET_WIDTHS = {
   pen: [
@@ -76,6 +69,8 @@ export const EditorToolbar = ({
   setActiveTool,
   activeColor,
   setActiveColor,
+  colorSlots = DEFAULT_QUICK_COLORS,
+  onCustomColorChange,
   activeWidth,
   setActiveWidth,
   toolWidths = {},
@@ -84,6 +79,8 @@ export const EditorToolbar = ({
   setActiveShape,
   penNib,
   setPenNib,
+  highlighterTip = 'square',
+  setHighlighterTip,
   isTapered,
   setIsTapered,
   usePressure = true,
@@ -123,6 +120,7 @@ export const EditorToolbar = ({
   const [tempTitle, setTempTitle] = useState(notebookTitle);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showPenSettings, setShowPenSettings] = useState(false);
+  const [showHighlighterSettings, setShowHighlighterSettings] = useState(false);
   const [showEraserMenu, setShowEraserMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showWidthSlider, setShowWidthSlider] = useState(false);
@@ -196,47 +194,7 @@ export const EditorToolbar = ({
     }
   };
 
-  // 5 Quick Color Slots (Persisted in localStorage for Studio style palette)
-  const [colorSlots, setColorSlots] = useState(() => {
-    try {
-      const saved = localStorage.getItem('betternote_quick_color_slots');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          if (parsed.length >= 5) return parsed.slice(0, 5);
-          // If previously saved with fewer slots (e.g. 3), pad with defaults up to 5
-          const merged = [...parsed];
-          for (let i = merged.length; i < 5; i++) {
-            merged.push(DEFAULT_PRESET_COLORS[i]);
-          }
-          return merged;
-        }
-      }
-    } catch (_) {}
-    return DEFAULT_PRESET_COLORS;
-  });
-
-  const handleSelectSlotColor = (col) => {
-    setActiveColor(col);
-  };
-
-  const handleCustomColorChange = (newColor) => {
-    setActiveColor(newColor);
-    // Replace the slot closest to or currently active, or the last (5th) slot
-    setColorSlots(prev => {
-      const updated = [...prev];
-      const matchIdx = updated.findIndex(c => c.toLowerCase() === activeColor.toLowerCase());
-      if (matchIdx !== -1) {
-        updated[matchIdx] = newColor;
-      } else {
-        updated[updated.length - 1] = newColor; // update last slot (5th slot)
-      }
-      try {
-        localStorage.setItem('betternote_quick_color_slots', JSON.stringify(updated));
-      } catch (_) {}
-      return updated;
-    });
-  };
+  const handleSelectSlotColor = (color) => setActiveColor(color);
 
   const handleTitleSubmit = (e) => {
     e.preventDefault();
@@ -248,6 +206,7 @@ export const EditorToolbar = ({
 
   // Close menus when clicking outside
   const closeAllPopovers = () => {
+    setShowHighlighterSettings(false);
     setShowPenSettings(false);
     setShowShapeMenu(false);
     setShowEraserMenu(false);
@@ -479,14 +438,54 @@ export const EditorToolbar = ({
             )}
           </div>
 
-          {/* Highlighter */}
-          <button 
-            className={`bn-tool-btn ${activeTool === 'highlighter' ? 'bn-tool-btn-active' : ''}`}
-            onClick={() => { setActiveTool('highlighter'); closeAllPopovers(); }}
-            title={t('highlighter', 'ปากกาไฮไลท์ (Highlighter)')}
-          >
-            <Highlighter size={17} />
-          </button>
+          {/* Highlighter: tap again for its two tip choices. */}
+          <div className="bn-pen-tool">
+            <button
+              className={`bn-tool-btn ${activeTool === 'highlighter' ? 'bn-tool-btn-active' : ''}`}
+              onClick={event => {
+                event.stopPropagation();
+                const open = activeTool === 'highlighter' && !showHighlighterSettings;
+                closeAllPopovers();
+                setActiveTool('highlighter');
+                setShowHighlighterSettings(open);
+              }}
+              title={t('highlighter', 'ปากกาไฮไลท์ (Highlighter)')}
+              aria-label={t('highlighter', 'ปากกาไฮไลท์ (Highlighter)')}
+              aria-expanded={showHighlighterSettings && activeTool === 'highlighter'}
+            >
+              <Highlighter size={17} />
+            </button>
+            {showHighlighterSettings && activeTool === 'highlighter' && (
+              <div className="bn-pen-settings-dropdown bn-highlighter-settings"
+                role="dialog" aria-label={t('highlighterSettings', 'ตั้งค่าหัวไฮไลต์')}
+                onClick={event => event.stopPropagation()}>
+                <div className="bn-pen-settings-header">
+                  <div className="bn-pen-settings-title">
+                    <SlidersHorizontal size={14} />
+                    <span>{t('highlighterSettings', 'ตั้งค่าหัวไฮไลต์')}</span>
+                  </div>
+                </div>
+                <div className="bn-pen-settings-section">
+                  <div className="bn-pen-settings-choices">
+                    {['round', 'square'].map(tip => (
+                      <button key={tip} type="button" aria-pressed={highlighterTip === tip}
+                        className={`bn-nib-choice-btn ${highlighterTip === tip ? 'bn-nib-choice-active' : ''}`}
+                        onClick={() => setHighlighterTip?.(tip)}>
+                        <span aria-hidden="true" style={{width:24,height:8,background:activeColor,
+                          borderRadius:tip === 'round' ? 8 : 0,display:'inline-block'}} />
+                        <span>{tip === 'round' ? t('highlighterTipRound', 'หัวกลม') : t('highlighterTipSquare', 'หัวเหลี่ยม')}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <span className="bn-pen-settings-description">{t('highlighterHoldHint', 'ลากเส้นแล้วค้างปลายปากกาเพื่อปรับเป็นเส้นตรง')}</span>
+                </div>
+                <div className="bn-pen-settings-footer">
+                  <button className="bn-btn-primary bn-btn-sm bn-pen-settings-done"
+                    onClick={() => setShowHighlighterSettings(false)}>{t('done', 'เรียบร้อย')}</button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Eraser */}
           <div className="relative">
@@ -649,8 +648,8 @@ export const EditorToolbar = ({
           {/* Divider */}
           <div className="w-[1px] h-4 bg-white/15 mx-1" />
 
-          {/* Quick 5-Color Swatches + Custom (+) Picker (Studio style) */}
-          <div className="bn-quick-colors flex items-center gap-1.5 px-1">
+          {/* Quick 5-Color Swatches + Rainbow Picker */}
+          <div className="bn-quick-colors bn-color-wheel-group flex items-center gap-1.5 px-1">
             {colorSlots.map((col, idx) => {
               const isSelected = activeColor.toLowerCase() === col.toLowerCase();
               return (
@@ -664,19 +663,8 @@ export const EditorToolbar = ({
               );
             })}
 
-            {/* Custom Color (+) Button */}
-            <div 
-              className="relative w-5 h-5 rounded-full flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-white/20 cursor-pointer flex-shrink-0 transition-transform hover:scale-110" 
-              title={t('chooseCustomColor', 'เลือกสีเพิ่มเติม (อัปเดตสล็อตสีอัตโนมัติ)')}
-            >
-              <span className="text-[11px] font-bold text-zinc-300 pointer-events-none leading-none">+</span>
-              <input 
-                type="color"
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                value={activeColor}
-                onChange={(e) => handleCustomColorChange(e.target.value)}
-              />
-            </div>
+            <ColorWheelPicker value={activeColor} onChange={onCustomColorChange || setActiveColor}
+              label={t('chooseColorWheel', 'เลือกสีจากวงล้อสี')} />
           </div>
 
           {/* Divider */}

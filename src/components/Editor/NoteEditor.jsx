@@ -17,7 +17,7 @@ import { pageSaveQueue } from '../../services/localSaveService';
 import { pageContentSnapshot, findHistoryPageIndex } from '../../utils/pageHistory';
 import { notebookHistoryStore } from '../../services/notebookHistoryService';
 import { renderPageToCanvasDataUrl, exportSinglePageToPdf } from '../../utils/pdfExportEngine';
-import { loadEditorPreferences, saveEditorPreferences } from '../../services/userPreferences';
+import { loadEditorPreferences, saveEditorPreferences, loadQuickColorSlots } from '../../services/userPreferences';
 import { AddPageModal } from './AddPageModal';
 import { getPaperSize } from '../../data/templates';
 import { RotateCcw } from 'lucide-react';
@@ -72,6 +72,19 @@ export const NoteEditor = ({
   // Tools state (Restored from persistent preferences)
   const [activeTool, setActiveTool] = useState(initialPrefs.activeTool || 'pen');
   const [activeColor, setActiveColor] = useState(initialPrefs.activeColor || '#2563eb');
+
+  const [colorSlots, setColorSlots] = useState(loadQuickColorSlots);
+  const handleCustomColorChange = (newColor) => {
+    const updated = [...colorSlots];
+    const matchIdx = updated.findIndex(color => color.toLowerCase() === activeColor.toLowerCase());
+    updated[matchIdx === -1 ? updated.length - 1 : matchIdx] = newColor;
+    setActiveColor(newColor);
+    setColorSlots(updated);
+    try {
+      localStorage.setItem('betternote_quick_color_slots', JSON.stringify(updated));
+    } catch (_) {}
+  };
+
   const [toolWidths, setToolWidths] = useState(() => initialPrefs.toolWidths || {
     pen: 4,
     highlighter: 18,
@@ -90,6 +103,7 @@ export const NoteEditor = ({
 
   const [activeShape, setActiveShape] = useState(initialPrefs.activeShape || 'rectangle');
   const [penNib, setPenNib] = useState(initialPrefs.penNib || 'fountain');
+  const [highlighterTip, setHighlighterTip] = useState(initialPrefs.highlighterTip === 'round' ? 'round' : 'square');
   const [isTapered, setIsTapered] = useState(initialPrefs.isTapered ?? true);
   const [usePressure, setUsePressure] = useState(initialPrefs.usePressure ?? true);
   const [pressureSensitivity, setPressureSensitivity] = useState(initialPrefs.pressureSensitivity || 'medium');
@@ -108,6 +122,7 @@ export const NoteEditor = ({
       toolWidths,
       activeShape,
       penNib,
+      highlighterTip,
       isTapered,
       usePressure,
       pressureSensitivity,
@@ -124,6 +139,7 @@ export const NoteEditor = ({
     toolWidths,
     activeShape,
     penNib,
+    highlighterTip,
     isTapered,
     usePressure,
     pressureSensitivity,
@@ -1183,6 +1199,8 @@ export const NoteEditor = ({
         activeTool={activeTool}
         setActiveTool={setActiveTool}
         activeColor={activeColor}
+        colorSlots={colorSlots}
+        onCustomColorChange={handleCustomColorChange}
         setActiveColor={setActiveColor}
         activeWidth={activeWidth}
         setActiveWidth={(w) => handleToolWidthChange(activeTool, w)}
@@ -1191,7 +1209,9 @@ export const NoteEditor = ({
         activeShape={activeShape}
         setActiveShape={setActiveShape}
         penNib={penNib}
+        highlighterTip={highlighterTip}
         setPenNib={setPenNib}
+        setHighlighterTip={setHighlighterTip}
         isTapered={isTapered}
         setIsTapered={setIsTapered}
         usePressure={usePressure}
@@ -1272,9 +1292,13 @@ export const NoteEditor = ({
                   templateId={notebook.templateId}
                   activeTool={activeTool}
                   activeColor={activeColor}
+                  colorSlots={colorSlots}
+                  onColorChange={setActiveColor}
+                  onCustomColorChange={handleCustomColorChange}
                   activeWidth={activeWidth}
                   activeShape={activeShape}
                   penNib={penNib}
+                  highlighterTip={highlighterTip}
                   isTapered={isTapered}
                   usePressure={usePressure}
                   pressureSensitivity={pressureSensitivity}
@@ -1318,9 +1342,13 @@ export const NoteEditor = ({
                         templateId={notebook.templateId}
                         activeTool={activeTool}
                         activeColor={activeColor}
+                        colorSlots={colorSlots}
+                        onColorChange={setActiveColor}
+                        onCustomColorChange={handleCustomColorChange}
                         activeWidth={activeWidth}
                         activeShape={activeShape}
                         penNib={penNib}
+                        highlighterTip={highlighterTip}
                         isTapered={isTapered}
                         usePressure={usePressure}
                         pressureSensitivity={pressureSensitivity}
@@ -1383,9 +1411,13 @@ export const NoteEditor = ({
                   templateId={notebook.templateId}
                   activeTool={activeTool}
                   activeColor={activeColor}
+                  colorSlots={colorSlots}
+                  onColorChange={setActiveColor}
+                  onCustomColorChange={handleCustomColorChange}
                   activeWidth={activeWidth}
                   activeShape={activeShape}
                   penNib={penNib}
+                  highlighterTip={highlighterTip}
                   isTapered={isTapered}
                   usePressure={usePressure}
                   pressureSensitivity={pressureSensitivity}

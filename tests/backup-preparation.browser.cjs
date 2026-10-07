@@ -12,7 +12,9 @@ const service=createBackupPreparationService();window.qa={db,service};
 qa.seed=async()=>{
  const c=document.createElement('canvas');c.width=c.height=24;const ctx=c.getContext('2d');ctx.fillStyle='#22c55e';ctx.fillRect(0,0,24,24);const png=c.toDataURL();
  const pages=['dotted','blank','whiteboard'].map((templateId,i)=>({id:'p'+i,notebookId:'n',pageIndex:i,updatedAt:10,templateId,pageWidth:480,pageHeight:620,
-  strokes:[{id:'ink',tool:'pen',color:'#ef2222',width:8,points:[{x:i===2?-80:20,y:30,pressure:.6},{x:180,y:150,pressure:.6}]}],
+  strokes:[{id:'ink',tool:'pen',color:'#ef2222',width:8,points:[{x:i===2?-80:20,y:30,pressure:.6},{x:180,y:150,pressure:.6}]},
+   {id:'round-highlight',tool:'highlighter',highlighterTip:'round',color:'#0044ff',width:8,points:[{x:40,y:330,pressure:.6},{x:150,y:330,pressure:.6}]},
+   {id:'square-highlight',tool:'highlighter',highlighterTip:'square',color:'#ffff00',width:8,points:[{x:40,y:390,pressure:.6}]}],
   imageElements:[{id:'green',src:png,x:30,y:240,width:80,height:60,locked:true},{id:'over',src:png,x:130,y:100,width:35,height:35,layer:'over'}],
   textElements:[{id:'thai',text:'BetterNote ทดสอบภาษาไทย\nEngineering notes',x:20,y:180,fontSize:20,fontFamily:'Segoe UI',color:'#111111'}],
   ...(i===1?{pdfPageImage:png}:{})}));

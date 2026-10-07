@@ -79,7 +79,8 @@ export const renderStroke = (ctx, stroke) => {
     nibType = 'fountain',
     isTapered = true,
     usePressure = true,
-    pressureSensitivity = 'medium'
+    pressureSensitivity = 'medium',
+    highlighterTip = 'square'
   } = stroke;
 
   if (!points || points.length === 0) return;
@@ -91,8 +92,9 @@ export const renderStroke = (ctx, stroke) => {
     ctx.strokeStyle = color;
     ctx.globalAlpha = 0.38;
     ctx.lineWidth = width * 3.5;
-    ctx.lineCap = 'square';
-    ctx.lineJoin = 'miter';
+    ctx.lineCap = highlighterTip === 'round' ? 'round' : 'square';
+    ctx.lineJoin = highlighterTip === 'round' ? 'round' : 'miter';
+    if (stroke.highlighterTip) ctx.fillStyle = color;
   } else if (tool === 'eraser') {
     ctx.globalCompositeOperation = 'destination-out';
     ctx.lineWidth = width * 4;
@@ -106,6 +108,28 @@ export const renderStroke = (ctx, stroke) => {
     ctx.globalAlpha = 1.0;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+  }
+
+  // Highlighter taps and short strokes keep the same width and tip as long ones.
+  if (tool === 'highlighter' && stroke.highlighterTip && points.length === 1) {
+    const point = points[0], radius = ctx.lineWidth / 2;
+    if (highlighterTip === 'round') {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
+    }
+    ctx.restore();
+    return;
+  }
+  if (tool === 'highlighter' && stroke.highlighterTip && points.length === 2) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(points[1].x, points[1].y);
+    ctx.stroke();
+    ctx.restore();
+    return;
   }
 
   // Single tap dot
@@ -566,6 +590,22 @@ export const snapAngle = (angleRad, snapThresholdDeg = 6) => {
     }
   }
   return angleRad;
+};
+
+// Highlighter hold recognizes only a nearly straight open stroke. Avoid running
+// the polygon/circle classifier or converting handwriting into other shapes.
+export const recognizeHighlighterLine = (points) => {
+  if (!points || points.length < 2) return null;
+  const startPt = points[0], endPt = points[points.length - 1];
+  let length = 0;
+  for (let i = 1; i < points.length; i++) {
+    length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  }
+  const distance = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+  if (length <= 18 || distance / length < 0.84) return null;
+  const angle = snapAngle(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x), 8);
+  return {type:'line',startPt:{x:startPt.x,y:startPt.y},
+    endPt:{x:startPt.x + distance * Math.cos(angle),y:startPt.y + distance * Math.sin(angle)}};
 };
 
 /**

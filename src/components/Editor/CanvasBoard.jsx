@@ -4,6 +4,7 @@ import {
   renderStroke, 
   renderAllStrokes, 
   classifyGeometricShape,
+  recognizeHighlighterLine,
   generateVectorShapePoints,
   renderShapePreview,
   isStrokeHitByEraser, 
@@ -39,11 +40,29 @@ import {
 import { useLanguage } from '../../services/i18n';
 import { ImageCropModal } from './ImageCropModal';
 import { SnipModal } from './SnipModal';
+import { ColorWheelPicker } from '../Common/ColorWheelPicker';
+import { DEFAULT_QUICK_COLORS } from '../../services/userPreferences';
 
 const PAGE_WIDTH = 1200;
 const PAGE_HEIGHT = 1600;
 const PASTE_HOLD_DELAY = 1200;
 const PASTE_HOLD_FEEDBACK_DELAY = 600;
+
+// React wraps PointerEvent; intermediate digitizer samples live on nativeEvent.
+// Include the parent event: devices can return no samples or omit its endpoint.
+const getInkSamples = (event) => {
+  const nativeEvent = event.nativeEvent || event;
+  let samples = [];
+  try {
+    if (typeof nativeEvent.getCoalescedEvents === 'function') {
+      samples = Array.from(nativeEvent.getCoalescedEvents() || []);
+    }
+  } catch (_) {
+    // A device/browser without usable coalesced data still supplies this event.
+  }
+  samples.push(nativeEvent);
+  return samples;
+};
 
 export const CanvasBoard = ({
   page,
@@ -51,9 +70,13 @@ export const CanvasBoard = ({
   templateId,
   activeTool,
   activeColor,
+  colorSlots = DEFAULT_QUICK_COLORS,
+  onColorChange,
+  onCustomColorChange,
   activeWidth,
   activeShape,
   penNib = 'fountain',
+  highlighterTip = 'square',
   isTapered = true,
   usePressure = true,
   pressureSensitivity = 'medium',
@@ -80,6 +103,11 @@ export const CanvasBoard = ({
   // Inking state
   const isDrawingRef = useRef(false);
   const currentPointsRef = useRef([]);
+  const inkFrameRef = useRef(null);
+  const cancelInkPreview = useCallback(() => {
+    if (inkFrameRef.current !== null) cancelAnimationFrame(inkFrameRef.current);
+    inkFrameRef.current = null;
+  }, []);
   const strokeStartTimeRef = useRef(0);
   const startPointRef = useRef(null);
   const [activeTextId, setActiveTextId] = useState(null);
@@ -306,11 +334,11 @@ export const CanvasBoard = ({
   }, [canvasWidth, canvasHeight]);
 
   // Transform client coordinates to canvas internal coordinates
-  const getCanvasCoordinates = useCallback((e) => {
+  const getCanvasCoordinates = useCallback((e, bounds) => {
     const activeCanvas = activeCanvasRef.current;
     if (!activeCanvas) return { x: 0, y: 0, pressure: 0.5 };
 
-    const rect = activeCanvas.getBoundingClientRect();
+    const rect = bounds || activeCanvas.getBoundingClientRect();
     const scaleX = canvasWidth / rect.width;
     const scaleY = canvasHeight / rect.height;
 
@@ -320,6 +348,50 @@ export const CanvasBoard = ({
 
     return { x, y, pressure };
   }, [canvasWidth, canvasHeight]);
+
+  // Collect immediately, independently of preview timing. Read layout once for
+  // the whole input batch, including the final point delivered on pointer-up.
+  const appendInkSamples = (event, releasing = false) => {
+    const canvas = activeCanvasRef.current;
+    if (!canvas) return;
+    const bounds = canvas.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    for (const sample of getInkSamples(event)) {
+      if (!Number.isFinite(sample.clientX) || !Number.isFinite(sample.clientY)) continue;
+      const point = getCanvasCoordinates(sample, bounds);
+      const previous = currentPointsRef.current[currentPointsRef.current.length - 1];
+      // Pointer-up pressure is normally zero. Keep the last contact pressure
+      // rather than introducing a 0.5-pressure dot at the end of the line.
+      if (releasing && !(sample.pressure > 0) && previous) point.pressure = previous.pressure;
+      if (previous && previous.x === point.x && previous.y === point.y &&
+          previous.pressure === point.pressure) continue;
+      currentPointsRef.current.push(point);
+    }
+  };
+
+  // Paint at most once per display frame; retain every input sample above.
+  // Keep the established nib/taper renderer so saved and preview ink match.
+  const scheduleInkPreview = () => {
+    if (inkFrameRef.current !== null) return;
+    inkFrameRef.current = requestAnimationFrame(() => {
+      inkFrameRef.current = null;
+      if (!isDrawingRef.current || heldShapeRef.current) return;
+      const canvas = activeCanvasRef.current;
+      if (!canvas) return;
+      const dpr = getDpr();
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      renderStroke(ctx, {
+        tool: activeTool, color: activeColor, width: activeWidth,
+        points: currentPointsRef.current, nibType: penNib, highlighterTip,
+        isTapered, usePressure, pressureSensitivity
+      });
+    });
+  };
+
+  useEffect(() => () => cancelInkPreview(),
+    [page?.id, activeTool, canvasWidth, canvasHeight, cancelInkPreview]);
 
   // Touch Start: Strict Isolation between Pen, Snip, Touch Panning & Pinch-to-Zoom
   const handleTouchStart = (e) => {
@@ -718,6 +790,7 @@ export const CanvasBoard = ({
     e.preventDefault();
     e.stopPropagation();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+    cancelInkPreview();
     isDrawingRef.current = true;
     strokeStartTimeRef.current = Date.now();
     heldShapeRef.current = null;
@@ -745,6 +818,7 @@ export const CanvasBoard = ({
         width: activeWidth,
         points: currentPointsRef.current,
         nibType: penNib,
+        highlighterTip,
         isTapered,
         usePressure,
         pressureSensitivity
@@ -757,8 +831,7 @@ export const CanvasBoard = ({
     // Cancel on drawing movement, including coalesced samples that return to the start.
     const hold = pasteHoldRef.current;
     if (hold?.pointerId === e.pointerId) {
-      const nativeEvent = e.nativeEvent || e;
-      const samples = nativeEvent.getCoalescedEvents ? [...nativeEvent.getCoalescedEvents(), e] : [e];
+      const samples = getInkSamples(e);
       if (samples.some(sample => Math.hypot(
         sample.clientX - hold.clientX, sample.clientY - hold.clientY
       ) > hold.movementLimit)) {
@@ -852,7 +925,7 @@ export const CanvasBoard = ({
 
     // DRAW & HOLD QUICKSHAPE DYNAMIC RESIZE:
     // If shape is already held and user is still dragging pen, dynamically resize/rotate the shape
-    if (activeTool === 'pen' && heldShapeRef.current) {
+    if ((activeTool === 'pen' || activeTool === 'highlighter') && heldShapeRef.current) {
       const currentCoords = getCanvasCoordinates(e);
       heldShapeRef.current.endPt = currentCoords;
       if (heldShapeRef.current.type === 'circle' || heldShapeRef.current.type === 'ellipse') {
@@ -898,29 +971,21 @@ export const CanvasBoard = ({
         heldShapeRef.current.vertices[heldShapeRef.current.vertices.length - 1] = currentCoords;
       }
       ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      renderShapePreview(ctx, heldShapeRef.current, activeColor, activeWidth);
+      if (activeTool === 'highlighter') {
+        renderStroke(ctx, {tool:'highlighter',color:activeColor,width:activeWidth,highlighterTip,
+          points:generateVectorShapePoints(heldShapeRef.current)});
+      } else {
+        renderShapePreview(ctx, heldShapeRef.current, activeColor, activeWidth);
+      }
       return;
     }
 
     if (activeTool === 'pen' || activeTool === 'highlighter') {
-      for (const ev of events) {
-        const coords = getCanvasCoordinates(ev);
-        currentPointsRef.current.push(coords);
-      }
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      renderStroke(ctx, {
-        tool: activeTool,
-        color: activeColor,
-        width: activeWidth,
-        points: currentPointsRef.current,
-        nibType: penNib,
-        isTapered,
-        usePressure,
-        pressureSensitivity
-      });
+      appendInkSamples(e);
+      scheduleInkPreview();
 
       // QuickShape Hold Detection: 380ms pause check
-      if (activeTool === 'pen') {
+      if (activeTool === 'pen' || activeTool === 'highlighter') {
         const latestCoord = currentPointsRef.current[currentPointsRef.current.length - 1];
         const distFromLastHold = Math.hypot(latestCoord.x - lastHoldPosRef.current.x, latestCoord.y - lastHoldPosRef.current.y);
 
@@ -929,7 +994,9 @@ export const CanvasBoard = ({
           if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
           holdTimerRef.current = setTimeout(() => {
             if (!isDrawingRef.current || heldShapeRef.current) return;
-            const recognized = classifyGeometricShape(currentPointsRef.current);
+            const recognized = activeTool === 'highlighter'
+              ? recognizeHighlighterLine(currentPointsRef.current)
+              : classifyGeometricShape(currentPointsRef.current);
             if (recognized) {
               const holdCoord = currentPointsRef.current[currentPointsRef.current.length - 1];
               recognized.holdPt = { ...holdCoord };
@@ -941,10 +1008,18 @@ export const CanvasBoard = ({
               if (recognized.vertices) {
                 recognized.origVertices = recognized.vertices.map(pt => ({ ...pt }));
               }
+              cancelInkPreview();
               heldShapeRef.current = recognized;
-              showToast(t('autoShapeToast', 'ปรับรูปทรงอัตโนมัติ: {shape} 📐', { shape: recognized.label }));
+              showToast(activeTool === 'highlighter'
+                ? t('highlighterStraightToast', 'ปรับไฮไลต์เป็นเส้นตรงแล้ว')
+                : t('autoShapeToast', 'ปรับรูปทรงอัตโนมัติ: {shape} 📐', { shape: recognized.label }));
               ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-              renderShapePreview(ctx, recognized, activeColor, activeWidth);
+              if (activeTool === 'highlighter') {
+                renderStroke(ctx, {tool:'highlighter',color:activeColor,width:activeWidth,highlighterTip,
+                  points:generateVectorShapePoints(recognized)});
+              } else {
+                renderShapePreview(ctx, recognized, activeColor, activeWidth);
+              }
             }
           }, 380);
         }
@@ -1118,6 +1193,13 @@ export const CanvasBoard = ({
     if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
 
     if (!isDrawingRef.current) return;
+    // Collected input is complete even if its preview frame has not run yet.
+    // Cancelled pointers can have meaningless coordinates; do not append those.
+    if (e.type === 'pointerup' && !heldShapeRef.current &&
+        (activeTool === 'pen' || activeTool === 'highlighter')) {
+      appendInkSamples(e, true);
+    }
+    cancelInkPreview();
     isDrawingRef.current = false;
 
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
@@ -1187,15 +1269,20 @@ export const CanvasBoard = ({
         onStrokesChange([...strokes, newStroke]);
       }
     } else if (activeTool === 'highlighter') {
-      if (currentPointsRef.current.length > 0) {
+      const points = heldShapeRef.current
+        ? generateVectorShapePoints(heldShapeRef.current)
+        : [...currentPointsRef.current];
+      if (points.length > 0) {
         const newStroke = {
           tool: 'highlighter',
           color: activeColor,
           width: activeWidth,
-          points: [...currentPointsRef.current]
+          highlighterTip,
+          points
         };
         onStrokesChange([...strokes, newStroke]);
       }
+      heldShapeRef.current = null;
     } else if (activeTool === 'shape' && startPointRef.current) {
       const endCoords = getCanvasCoordinates(e);
       const shapeInfo = {
@@ -2162,6 +2249,7 @@ export const CanvasBoard = ({
   // Lasso Quick Actions: Recolor, Duplicate, Delete
   const handleLassoRecolor = (colorToApply = activeColor) => {
     if (!lassoSelection) return;
+    onColorChange?.(colorToApply);
     const currentStrokes = latestStrokesRef.current || strokes;
     const newStrokes = currentStrokes.map((s, idx) => {
       if (lassoSelection.strokeIndices.includes(idx)) {
@@ -2659,10 +2747,12 @@ export const CanvasBoard = ({
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {['#1e293b', '#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#eab308'].map(col => (
+                    {colorSlots.map((col, index) => (
                       <button
-                        key={col}
-                        className="w-5 h-5 rounded-full border border-white/40 hover:scale-125 transition flex-shrink-0"
+                        key={`${col}-${index}`}
+                        className="bn-lasso-color-swatch"
+                        aria-pressed={activeColor.toLowerCase() === col.toLowerCase()}
+                        aria-label={t('colorSlotTitle', `สีสล็อต #${index + 1}: ${col}`, { slot: index + 1, color: col })}
                         style={{ backgroundColor: col }}
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => { 
@@ -2672,19 +2762,11 @@ export const CanvasBoard = ({
                         title={language === 'en' ? `Change to ${col}` : `เปลี่ยนเป็นสี ${col}`}
                       />
                     ))}
-                    <div className="relative w-5 h-5 rounded-full flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 border border-white/40 cursor-pointer overflow-hidden flex-shrink-0" title={language === 'en' ? 'Choose custom color...' : 'เลือกสีอื่น...'}>
-                      <span className="text-[10px] font-bold text-white pointer-events-none">+</span>
-                      <input 
-                        type="color"
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        value={activeColor}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation(); 
-                          handleLassoRecolor(e.target.value);
-                        }}
-                      />
-                    </div>
+                    <ColorWheelPicker value={activeColor} onChange={color => {
+                      onCustomColorChange?.(color);
+                      handleLassoRecolor(color);
+                    }}
+                      label={t('chooseColorWheel', 'เลือกสีจากวงล้อสี')} />
                   </div>
                 )}
               </div>

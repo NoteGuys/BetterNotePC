@@ -120,6 +120,11 @@ const entry = [
       await page.evaluate(() => qa.toolbar.setShowThumbnails(true));
       await page.waitForFunction(() => !!qa.thumbnails);
     };
+    if(process.env.BETTERNOTE_QA_HIGHLIGHTER_ONLY==='1') {
+      await require('./highlighter-ui.browser.cjs')({page,fixture,mount,flush,check,preview});
+      assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
+      console.log(JSON.stringify({tests:results.length,passed:results.length,rendererErrors:errors,syntheticDatabaseOnly:true}));return;
+    }
     await check('Fresh database is seeded once, with complete sample records', async () => {
       assert.deepEqual(await page.evaluate(async () => {
         await qa.db.seedInitialData(); const nb=await qa.db.getNotebookById('nb-welcome-1');
@@ -405,14 +410,30 @@ const entry = [
       await page.waitForSelector('.bn-layer-active');
       await page.evaluate(()=>{
         const canvas=document.querySelector('.bn-layer-active'),rect=canvas.getBoundingClientRect();
-        for(const[type,x,y]of[['pointerdown',50,50],['pointermove',100,100],['pointerup',100,100]]){
-          canvas.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerType:'pen',pointerId:1,button:0,buttons:type==='pointerup'?0:1,pressure:type==='pointerup'?0:0.5,clientX:rect.left+x,clientY:rect.top+y}));
-        }
+        const pointer=(type,x,y,pressure)=>new PointerEvent(type,{bubbles:true,cancelable:true,pointerType:'pen',pointerId:1,button:0,
+          buttons:type==='pointerup'?0:1,pressure,clientX:rect.left+x*rect.width/480,clientY:rect.top+y*rect.height/620});
+        canvas.dispatchEvent(pointer('pointerdown',50,50,.5));
+        const move=pointer('pointermove',100,100,.5);
+        Object.defineProperty(move,'getCoalescedEvents',{value:()=>[pointer('pointermove',70,60,.3),pointer('pointermove',90,80,.7)]});
+        canvas.dispatchEvent(move);
+        canvas.dispatchEvent(pointer('pointerup',120,110,0));
       });
       await page.waitForFunction(async()=>(await qa.db.getPage('editor-pointer-p0')).strokes.length===1);
       await flush();
+      const saved=await page.evaluate(async()=>(await qa.db.getPage('editor-pointer-p0')).strokes);
+      const expected=[[50,50,.5],[70,60,.3],[90,80,.7],[100,100,.5],[120,110,.5]];
+      assert.equal(saved[0].points.length,expected.length);
+      saved[0].points.forEach((point,i)=>{
+        assert.ok(Math.abs(point.x-expected[i][0])<.001);
+        assert.ok(Math.abs(point.y-expected[i][1])<.001);
+        assert.ok(Math.abs(point.pressure-expected[i][2])<.001);
+      });
       await page.evaluate(()=>qa.toolbar.onUndo());await flush();
       assert.equal(await page.evaluate(async()=>(await qa.db.getPage('editor-pointer-p0')).strokes.length),0);
+      await page.evaluate(()=>qa.toolbar.onRedo());await flush();
+      assert.deepEqual(await page.evaluate(async()=>(await qa.db.getPage('editor-pointer-p0')).strokes),saved);
+      await mount(nb);
+      assert.deepEqual(await page.evaluate(async()=>(await qa.db.getPage('editor-pointer-p0')).strokes),saved);
     });
     await check('Undo/Redo of insertion and earlier ink keeps exact page order and count',async()=>{
       const nb=await fixture('editor-insert');await mount(nb,1);await showThumbnails();
@@ -745,6 +766,7 @@ const entry = [
 
     await require('./language-tabs.browser.cjs')({page, fixture, mount, flush, check, preview});
     await require('./thumbnail-cover.browser.cjs')({page, fixture, mount, flush, check, preview});
+    await require('./highlighter-ui.browser.cjs')({page, fixture, mount, flush, check, preview});
     assert.deepEqual(errors,[], 'Unexpected renderer errors');
     await page.evaluate(()=>qa.unmount());await flush();
     await context.close();
