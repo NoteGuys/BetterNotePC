@@ -2,6 +2,8 @@ import { getBackupMetadata, getBackupNotebookSnapshot, getSetting, saveSetting, 
 import { flushLocalSaves, getLocalSaveSnapshot, subscribeLocalSaves } from './localSaveService.js';
 import { generateVerifiedBackupPdf } from '../utils/backupPdf.js';
 import { createBackupController } from './backupController.js';
+import { resolveBackupReadFolder, backupReadErrorKey } from './backupReadStatus.js';
+import { t } from './i18n';
 
 class AutoBackupService {
   constructor() {
@@ -90,15 +92,16 @@ class AutoBackupService {
   /**
    * Scan Google Drive or local disk for existing backup archives
    */
-  async scanAvailableBackups(customPath = null) {
-    try {
-      if (typeof window !== 'undefined' && window.electronAPI?.scanBackupFolder) {
-        return await window.electronAPI.scanBackupFolder(customPath);
-      }
-    } catch (err) {
-      console.warn('Scan backups error:', err.message);
+  async scanAvailableBackups(customPath = null, options = {}) {
+    if (typeof window === 'undefined' || !window.electronAPI?.scanBackupFolder) {
+      return { success: false, reason: 'unsupported-environment' };
     }
-    return { success: false, reason: 'unsupported-environment' };
+    try {
+      const folder = await resolveBackupReadFolder(getSetting, customPath);
+      return await window.electronAPI.scanBackupFolder(folder, { previewOnly: options.previewOnly === true });
+    } catch (_) {
+      return { success: false, reason: 'backup-read-failed' };
+    }
   }
 
   /**
@@ -106,11 +109,11 @@ class AutoBackupService {
    */
   async restoreFromCloudBackup(customPath = null) {
     try {
-      this.notify({ syncing: true, message: 'กำลังค้นหาและกู้คืนข้อมูลจาก Google Drive...' });
+      this.notify({ syncing: true, message: t('backupReadRestoring') });
       const scanResult = await this.scanAvailableBackups(customPath);
       if (!scanResult || !scanResult.success || !scanResult.data) {
-        this.notify({ syncing: false, success: false, message: 'ไม่พบไฟล์สำรองในโฟลเดอร์ Google Drive / Local' });
-        return { success: false, reason: 'not-found' };
+        this.notify({ syncing: false, success: false, message: t(backupReadErrorKey(scanResult?.reason)) });
+        return { ...scanResult, success: false, reason: scanResult?.reason || 'backup-read-failed' };
       }
 
       const { restoreFullBackup } = await import('./fileSystemService');
@@ -118,7 +121,7 @@ class AutoBackupService {
       this.notify({
         syncing: false,
         success: true,
-        message: `กู้คืนข้อมูลสำเร็จ! นำเข้าแล้ว ${restoreResult.notebooksCount} เล่ม`,
+        message: t('backupReadRestored', '', { count: restoreResult.notebooksCount }),
         lastSyncTime: this.lastSyncTime
       });
       return { 
@@ -128,8 +131,8 @@ class AutoBackupService {
         source: scanResult.source 
       };
     } catch (err) {
-      this.notify({ syncing: false, success: false, message: `การกู้คืนล้มเหลว: ${err.message}` });
-      return { success: false, error: err.message };
+      this.notify({ syncing: false, success: false, message: t('backupReadUnavailable') });
+      return { success: false, reason: 'backup-read-failed' };
     }
   }
 

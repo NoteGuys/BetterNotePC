@@ -51,91 +51,22 @@ async function pruneNotebooksBatchFromBackups(request) {
   return getBackupClient().execute({ action: 'prune', notebookIds: request?.notebookIds, customBackupPath: request?.customBackupPath });
 }
 
-// Smart Cloud Sync & Auto-Restore Reader: Scan and load backups from Google Drive or local folders
-async function scanAndLoadBackups(customPath = null) {
-  const candidates = [];
-  if (customPath && typeof customPath === 'string' && customPath.trim()) {
-    candidates.push(customPath.trim());
+// Scan a selected destination only. Discovery never combines different backup folders.
+let backupReaderClient;
+async function scanAndLoadBackups(customPath = null, previewOnly = false) {
+  if (!backupReaderClient) {
+    const { createBackupReaderClient } = require('./backupReaderClient.cjs');
+    backupReaderClient = createBackupReaderClient();
   }
-  candidates.push('H:\\My Drive\\BetterNote.AppPC');
-  candidates.push('G:\\My Drive\\BetterNote.AppPC');
-  candidates.push('I:\\My Drive\\BetterNote.AppPC');
-  candidates.push('D:\\My Drive\\BetterNote.AppPC');
-  try {
-    candidates.push(path.join(app.getPath('documents'), 'BetterNote.AppPC'));
-  } catch (_) {}
-  candidates.push(path.resolve(process.env.USERPROFILE || '', 'Documents', 'BetterNote.AppPC'));
-  candidates.push(path.resolve(process.env.USERPROFILE || '', 'BetterNote_Backups'));
-  candidates.push(path.resolve(process.cwd(), 'BetterNote_Backups'));
-
-  for (const dir of candidates) {
-    try {
-      const stat = await fs.promises.stat(dir).catch(() => null);
-      if (!stat || !stat.isDirectory()) continue;
-
-      const notebooksMap = new Map();
-      let folders = [];
-
-      // 1. Try Full_System/BetterNote_Latest_Backup.json
-      const fullSystemFile = path.join(dir, 'Full_System', 'BetterNote_Latest_Backup.json');
-      const hasFull = await fs.promises.stat(fullSystemFile).catch(() => null);
-      if (hasFull && hasFull.isFile()) {
-        try {
-          const raw = await fs.promises.readFile(fullSystemFile, 'utf-8');
-          const parsed = JSON.parse(raw);
-          if (parsed) {
-            if (Array.isArray(parsed.folders)) folders = parsed.folders;
-            if (Array.isArray(parsed.notebooks)) {
-              for (const nb of parsed.notebooks) {
-                const key = nb.id || nb.name;
-                if (key) notebooksMap.set(key, nb);
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      // 2. Also scan Editable_Notes/*.bnote (to seamlessly include all individual notebooks)
-      const editDir = path.join(dir, 'Editable_Notes');
-      const hasEdit = await fs.promises.stat(editDir).catch(() => null);
-      if (hasEdit && hasEdit.isDirectory()) {
-        try {
-          const files = await fs.promises.readdir(editDir);
-          const bnoteFiles = files.filter(f => f.endsWith('.bnote'));
-          for (const bf of bnoteFiles) {
-            try {
-              const rawNote = await fs.promises.readFile(path.join(editDir, bf), 'utf-8');
-              const parsedNote = JSON.parse(rawNote);
-              if (parsedNote && (parsedNote.id || parsedNote.name)) {
-                const key = parsedNote.id || parsedNote.name;
-                if (!notebooksMap.has(key)) {
-                  notebooksMap.set(key, parsedNote);
-                }
-              }
-            } catch (_) {}
-          }
-        } catch (_) {}
-      }
-
-      if (notebooksMap.size > 0) {
-        return {
-          success: true,
-          folder: dir,
-          source: 'merged_backup',
-          count: notebooksMap.size,
-          data: {
-            version: 1,
-            appName: 'BetterNote',
-            exportDate: new Date().toISOString(),
-            folders,
-            notebooks: Array.from(notebooksMap.values())
-          }
-        };
-      }
-    } catch (_) {}
-  }
-
-  return { success: false, reason: 'not-found' };
+  const candidates = customPath == null ? [
+    'H:\\My Drive\\BetterNote.AppPC', 'G:\\My Drive\\BetterNote.AppPC',
+    'I:\\My Drive\\BetterNote.AppPC', 'D:\\My Drive\\BetterNote.AppPC',
+    path.join(app.getPath('documents'), 'BetterNote.AppPC'),
+    path.resolve(process.env.USERPROFILE || '', 'Documents', 'BetterNote.AppPC'),
+    path.resolve(process.env.USERPROFILE || '', 'BetterNote_Backups'),
+    path.resolve(process.cwd(), 'BetterNote_Backups')
+  ] : [];
+  return backupReaderClient.execute({ folderPath: customPath, candidates, previewOnly });
 }
 
 function formatBytes(bytes) {
@@ -202,8 +133,8 @@ function createWindow() {
   });
 
   // Handle scanning and restoring from Google Drive or local backup folder
-  ipcMain.handle('scan-backup-folder', async (event, customPath) => {
-    return await scanAndLoadBackups(customPath);
+  ipcMain.handle('scan-backup-folder', async (event, customPath, options) => {
+    return await scanAndLoadBackups(customPath, options?.previewOnly === true);
   });
 
   ipcMain.handle('restore-backup-from-folder', async (event, customPath) => {

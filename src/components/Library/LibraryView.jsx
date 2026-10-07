@@ -45,6 +45,7 @@ import { importBnoteFile } from '../../services/fileSystemService';
 import { useLanguage } from '../../services/i18n';
 import { localizeNotebookCopyName } from '../../utils/notebookNames';
 import { autoBackupService } from '../../services/autoBackupService';
+import { backupReadErrorKey } from '../../services/backupReadStatus';
 
 export const LibraryView = ({
   folders = [],
@@ -107,37 +108,28 @@ export const LibraryView = ({
   const [cloudBackupDetected, setCloudBackupDetected] = useState(null);
   const [isAutoRestoring, setIsAutoRestoring] = useState(false);
 
+  // Only ID membership affects discovery. Thumbnail/name/time changes do not rescan media.
+  const backupNotebookIds = JSON.stringify(notebooks.map(note => note.id).sort());
   React.useEffect(() => {
-    let isCancelled = false;
+    let isCancelled = false, idleHandle = null;
     async function checkCloudBackups() {
       try {
-        const { autoBackupService } = await import('../../services/autoBackupService');
-        const scan = await autoBackupService.scanAvailableBackups();
-        if (!isCancelled && scan && scan.success && scan.count > 0 && scan.data?.notebooks) {
-          const cloudNotebooks = scan.data.notebooks;
-          // Check if cloud backup has any notebook not present locally
-          const hasUnsynced = cloudNotebooks.some(cloudNb => {
-            const cleanCloudName = (cloudNb.name || '').trim();
-            return !notebooks.some(localNb => 
-              localNb.id === cloudNb.id || (cleanCloudName && (localNb.name || '').trim() === cleanCloudName)
-            );
-          });
-          if (hasUnsynced) {
-            setCloudBackupDetected(scan);
-          } else {
-            setCloudBackupDetected(null);
-          }
-        } else if (!isCancelled) {
-          setCloudBackupDetected(null);
-        }
-      } catch (_) {}
+        const scan = await autoBackupService.scanAvailableBackups(null, { previewOnly: true });
+        if (isCancelled) return;
+        const localIds = new Set(JSON.parse(backupNotebookIds));
+        const missing = scan?.success && scan.notebooks?.some(note => !localIds.has(note.id));
+        setCloudBackupDetected(missing ? scan : null);
+      } catch (_) { if (!isCancelled) setCloudBackupDetected(null); }
     }
-    const timer = setTimeout(checkCloudBackups, 800);
-    return () => { 
-      isCancelled = true;
-      clearTimeout(timer);
+    const timer = setTimeout(() => {
+      if (window.requestIdleCallback) idleHandle = window.requestIdleCallback(checkCloudBackups, { timeout: 1500 });
+      else checkCloudBackups();
+    }, 800);
+    return () => {
+      isCancelled = true; clearTimeout(timer);
+      if (idleHandle !== null) window.cancelIdleCallback?.(idleHandle);
     };
-  }, [notebooks]);
+  }, [backupNotebookIds]);
 
   const handleExecuteCloudRestore = async (folderPath = null) => {
     setIsAutoRestoring(true);
@@ -149,7 +141,7 @@ export const LibraryView = ({
         setCloudBackupDetected(null);
         window.location.reload();
       } else {
-        alert(t('cloudRestoreFailed', 'กู้คืนไม่สำเร็จ: {reason}', { reason: res.reason || t('backupNotFound', 'ไม่พบไฟล์สำรอง') }));
+        alert(t('cloudRestoreFailed', 'กู้คืนไม่สำเร็จ: {reason}', { reason: t(backupReadErrorKey(res.reason)) }));
       }
     } catch (err) {
       alert(t('cloudRestoreError', 'เกิดข้อผิดพลาดในการกู้คืน: {error}', { error: err.message }));

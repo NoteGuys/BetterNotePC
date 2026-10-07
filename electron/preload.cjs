@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pruneBackupNotebook: (notebookId, customBackupPath) => ipcRenderer.invoke('prune-backup-notebook', { notebookId, customBackupPath }),
   pruneBackupNotebooksBatch: (notebookIds, customBackupPath) => ipcRenderer.invoke('prune-backup-notebooks-batch', { notebookIds, customBackupPath }),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
-  scanBackupFolder: (folderPath) => ipcRenderer.invoke('scan-backup-folder', folderPath),
+  scanBackupFolder: (folderPath, options) => ipcRenderer.invoke('scan-backup-folder', folderPath, options),
   restoreBackupFromFolder: (folderPath) => ipcRenderer.invoke('restore-backup-from-folder', folderPath),
   getBackupStatusDetails: (customPath) => ipcRenderer.invoke('get-backup-status-details', customPath),
   openBackupFolder: (folderPath) => ipcRenderer.invoke('open-backup-folder', folderPath),
