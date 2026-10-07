@@ -9,6 +9,15 @@ const LANGUAGE_EVENT_NAME = 'betternote_language_changed';
 
 export const TRANSLATIONS = {
   "en": {
+    "driveSyncChecking": "Checking updates from Drive…",
+    "driveSyncReceiving": "Receiving notebook updates…",
+    "driveSyncWaiting": "Updates are waiting. Return to Documents after saving your work.",
+    "driveSyncRestart": "Restart BetterNote to enable safe Drive updates. Local backup remains available.",
+    "driveSyncPending": "Waiting for a complete, readable Drive backup. Your local notes are kept.",
+    "driveSyncReceived": "Updated {count} notebooks from Drive.",
+    "driveSyncConflicts": "Kept both versions of {count} notebooks. Copies from this device appear in Documents.",
+    "driveSyncLegacy": "For an older backup, restore it first, then choose a new empty Drive backup folder to enable automatic updates.",
+    "driveSyncCopyLabel": "Copy from this device",
     "backupRecoveryRetiredEntries": "The current backup was restored. Skipped {count} outdated list entries that are not in the latest backup.",
     "backupRecoveryMissingFolders": "Restored {count} notebooks to Documents because their previous folders no longer exist. All notebook content was kept.",
     "backupRecoveryUnconfirmed": "Recovery could not be confirmed. Reopen BetterNote and check the notebooks before retrying.",
@@ -964,6 +973,15 @@ export const TRANSLATIONS = {
     "setLocalBackupFolderPrompt": "Set local backup folder path (e.g. H:\\My Drive\\BetterNote.AppPC or C:\\Users\\...):"
   },
   "th": {
+    "driveSyncChecking": "กำลังตรวจงานใหม่จาก Drive…",
+    "driveSyncReceiving": "กำลังรับงานที่แก้ไขจากอีกเครื่อง…",
+    "driveSyncWaiting": "มีงานใหม่รออยู่ เซฟงานแล้วกลับหน้า Documents เพื่อรับข้อมูล",
+    "driveSyncRestart": "ปิดและเปิด BetterNote ใหม่เพื่อเปิดการรับงาน Drive อย่างปลอดภัย ยังสำรองในเครื่องได้ตามปกติ",
+    "driveSyncPending": "กำลังรอชุดสำรอง Drive ที่ครบและอ่านได้ งานในเครื่องยังอยู่ครบ",
+    "driveSyncReceived": "อัปเดตสมุดจาก Drive แล้ว {count} เล่ม",
+    "driveSyncConflicts": "เก็บงานทั้งสองฉบับของ {count} เล่มแล้ว ดูสำเนาจากเครื่องนี้ใน Documents",
+    "driveSyncLegacy": "สำหรับสำรองรุ่นเก่า ให้กู้คืนก่อน แล้วเลือกโฟลเดอร์ Drive ว่างใหม่เพื่อเปิดการรับงานอัตโนมัติ",
+    "driveSyncCopyLabel": "สำเนาจากเครื่องนี้",
     "backupRecoveryRetiredEntries": "กู้คืนชุดสำรองปัจจุบันแล้ว ข้ามรายการเก่า {count} รายการที่ไม่มีอยู่ในชุดสำรองล่าสุด",
     "backupRecoveryMissingFolders": "กู้คืนสมุด {count} เล่มไว้ที่หน้าเอกสาร เพราะโฟลเดอร์เดิมไม่มีอยู่แล้ว เนื้อหาในสมุดยังอยู่ครบ",
     "backupRecoveryUnconfirmed": "ยังยืนยันผลการกู้คืนไม่ได้ กรุณาเปิด BetterNote ใหม่แล้วตรวจสมุดก่อนลองอีกครั้ง",
@@ -1919,6 +1937,15 @@ export const TRANSLATIONS = {
     "setLocalBackupFolderPrompt": "กำหนดตำแหน่งโฟลเดอร์ในเครื่องที่ต้องการสำรองข้อมูล (เช่น H:\\My Drive\\BetterNote.AppPC หรือ C:\\Users\\...):"
   },
   "zh": {
+    "driveSyncChecking": "正在检查 Drive 更新…",
+    "driveSyncReceiving": "正在接收笔记本更新…",
+    "driveSyncWaiting": "有更新等待接收。保存后返回 Documents。",
+    "driveSyncRestart": "请重启 BetterNote 以启用安全的 Drive 更新。本地备份仍可使用。",
+    "driveSyncPending": "正在等待完整且可读的 Drive 备份。本地笔记已保留。",
+    "driveSyncReceived": "已从 Drive 更新 {count} 个笔记本。",
+    "driveSyncConflicts": "已保留 {count} 个笔记本的两个版本。本机副本显示在 Documents 中。",
+    "driveSyncLegacy": "旧版备份请先恢复，再选择一个新的空 Drive 文件夹以启用自动更新。",
+    "driveSyncCopyLabel": "本机副本",
     "backupRecoveryRetiredEntries": "当前备份已恢复。已跳过不在最新备份中的 {count} 条过时列表记录。",
     "backupRecoveryMissingFolders": "由于原文件夹已不存在，已将 {count} 本笔记恢复到文档列表。笔记内容全部保留。",
     "backupRecoveryUnconfirmed": "尚无法确认恢复结果。请重新打开 BetterNote 并检查笔记后再重试。",
@@ -2874,6 +2901,15 @@ export const TRANSLATIONS = {
     "setLocalBackupFolderPrompt": "设置本地备份文件夹路径（例如 H:\\My Drive\\BetterNote.AppPC 或 C:\\Users\\...）："
   },
   "ru": {
+    "driveSyncChecking": "Проверка обновлений Drive…",
+    "driveSyncReceiving": "Получение обновлений блокнотов…",
+    "driveSyncWaiting": "Обновления ожидают. Сохраните работу и вернитесь в Documents.",
+    "driveSyncRestart": "Перезапустите BetterNote для безопасного обновления из Drive. Локальное резервирование доступно.",
+    "driveSyncPending": "Ожидание полного доступного резервного набора Drive. Локальные заметки сохранены.",
+    "driveSyncReceived": "Обновлено {count} блокнотов из Drive.",
+    "driveSyncConflicts": "Оба варианта {count} блокнотов сохранены. Копии с этого устройства доступны в Documents.",
+    "driveSyncLegacy": "Сначала восстановите старую резервную копию, затем выберите новую пустую папку Drive для автоматических обновлений.",
+    "driveSyncCopyLabel": "Копия с этого устройства",
     "backupRecoveryRetiredEntries": "Текущая резервная копия восстановлена. Пропущено устаревших записей списка, которых нет в последней копии: {count}.",
     "backupRecoveryMissingFolders": "Блокнотов восстановлено в список документов: {count}. Прежние папки больше не существуют. Всё содержимое сохранено.",
     "backupRecoveryUnconfirmed": "Не удалось подтвердить восстановление. Откройте BetterNote заново и проверьте блокноты перед повторной попыткой.",

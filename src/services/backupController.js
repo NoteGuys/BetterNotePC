@@ -6,9 +6,9 @@ const pathsKey = paths => JSON.stringify([paths.localBackupPath || null, paths.d
 export const createBackupController = ({ getMetadata, getNotebook, waitForLocalSaves, native,
   makePdf, getPath = async () => null, getLocalState = () => ({ status: 'saved' }),
   canRenderPdf = () => true, yieldTask = () => new Promise(resolve => setTimeout(resolve, 0)),
-  now = Date.now, scheduleDelay = 10000, persist = async () => {} }) => {
+  now = Date.now, scheduleDelay = 10000, persist = async () => {}, beforeBackup = null, beforePrune = null, onDataBackup = async () => {} }) => {
   let metadata = { folders: [], notebooks: [] }, targets = [], cachedDetails = null;
-  let running = null, dirtyTimer, interval, initialTimer, generation = 0, initialized = false, disposed = false;
+  let running = null, preparing = null, dirtyTimer, interval, initialTimer, generation = 0, initialized = false, disposed = false;
   let recoveryPauses = 0;
   const pruning = new Set();
   let syncing = false, phase = 'idle', metadataPending = false, lastFailure = null, pdfDeferred = false, activeJob = null;
@@ -95,13 +95,15 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
     try { await refresh({ inspect: true }); }
     catch (error) { lastFailure = error.message || 'backup-inspection-failed'; initialized = true; publish(); }
   };
-  const updateMetadata = async paths => {
+  const updateMetadata = async (paths, excludeDrive = false) => {
     const readGeneration = generation;
     metadata = await getMetadata(); metadataPending = generation !== readGeneration;
-    if (pathsKey(await readPaths()) !== pathsKey(paths)) { targets = []; cachedDetails = null; metadataPending = true; }
+    const selected = await readPaths();
+    if (excludeDrive) selected.driveBackupPath = null;
+    if (pathsKey(selected) !== pathsKey(paths)) { targets = []; cachedDetails = null; metadataPending = true; }
     publish();
   };
-  const run = (options = {}) => {
+  const performRun = (options = {}) => {
     if (recoveryPauses) return Promise.resolve({ success: false, reason: 'backup-recovery-busy' });
     if (running) return running;
     const startGeneration = generation;
@@ -113,13 +115,15 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
         await waitForLocalSaves();
         if (recoveryPauses) return { success: false, reason: 'backup-recovery-busy' };
         paths = await readPaths();
+        if (options.excludeDrive) paths = { ...paths, driveBackupPath: null };
         metadata = await getMetadata(); metadataPending = false;
         const original = metadata;
         if (!original.notebooks.length && !original.folders.length) return { success: false, reason: 'empty-library' };
         jobId = 'backup-' + now() + '-' + Math.random().toString(36).slice(2); activeJob = jobId;
         progress = { ...progress, stage: 'checking', total: original.notebooks.length }; publish();
         const begun = await native({ action: 'begin', phase: 'data', jobId, ...paths,
-          metadata: original, metadataRevision: backupMetadataRevision(original), forcePdf: !!options.forcePdf });
+          metadata: original, metadataRevision: backupMetadataRevision(original), forcePdf: !!options.forcePdf,
+          driveSyncGuard: options.driveSyncGuard, acceptedReceives: options.acceptedReceives });
         updateTargets(begun);
         if (!begun?.success) throw new Error(begun?.reason || 'backup-destination-unavailable');
         const captured = [];
@@ -148,7 +152,8 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
         progress = { ...progress, stage: 'saving-snapshot', name: null }; publish();
         const dataResult = await native({ action: 'finish', jobId, metadataRevision: writtenRevision });
         dataCompleted = true; updateTargets(dataResult);
-        await updateMetadata(paths);
+        await onDataBackup({ paths, targets, notebooks: captured });
+        await updateMetadata(paths, options.excludeDrive);
         progress = { ...progress, stage: 'data-complete', done: captured.length, total: captured.length }; publish();
         const localTargets = snapshot.targets.filter(target => target.roles.includes('local'));
         if (!localTargets.length || localTargets.some(target => !target.dataCurrent)) {
@@ -189,12 +194,18 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
           if (recoveryPauses) { pdfDeferred = true; break; }
           const saved = await native({ action: 'pdf', jobId, ...paths, notebookId: info.id,
             revision: notebookBackupRevision(info), pdfRevision: notebookPdfRevision(note), pdfBase64: base64, pdfError,
-            blockedNotebookTargets: targets.filter(target => Object.hasOwn(target.notebookIssues || {}, info.id)).map(target => target.targetDir) });
+            blockedNotebookTargets: targets.filter(target => Object.hasOwn(target.notebookIssues || {}, info.id)).map(target => target.targetDir),
+            driveSyncGuard: options.driveSyncGuard ? (() => {
+              const target = targets.find(item => rolesOf(item).includes('drive'));
+              return target && !target.error && target.syncManifestHash ? { ready: true, manifestHash: target.syncManifestHash,
+                entries: Object.fromEntries(Object.entries(target.notebooks || {}).map(([id,note]) => [id,note.editable?.hash || null])) }
+                : { ready: false, reason: 'drive-sync-pending' };
+            })() : undefined });
           updateTargets(saved, true); pdfProgress = { ...pdfProgress, done: pdfProgress.done + 1 }; publish();
           if (pdfError === 'pdf-backup-deferred') break;
           await yieldTask();
         }
-        await updateMetadata(paths);
+        await updateMetadata(paths, options.excludeDrive);
         await persist({ targets, metadataRevision: writtenRevision, lastSuccess: snapshot.lastSuccess }).catch(() => {});
         return { success: snapshot.status === 'current', localSuccess: snapshot.status === 'current',
           pdfComplete: snapshot.allPdfsCurrent, newerEditsPending: snapshot.status !== 'current',
@@ -212,6 +223,20 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
     })();
     running.then(() => { running = null; }, () => { running = null; });
     return running;
+  };
+  const run = (options = {}) => {
+    if (recoveryPauses) return Promise.resolve({ success: false, reason: 'backup-recovery-busy' });
+    if (running) return running;
+    if (!beforeBackup) return performRun(options);
+    if (preparing) return preparing;
+    preparing = Promise.resolve().then(async () => {
+      const prepared = await beforeBackup(options);
+      if (prepared?.skipBackup) return { success: true, checkOnly: true, cloudUploadVerified: false };
+      if (recoveryPauses) return { success: false, reason: 'backup-recovery-busy' };
+      return performRun({ ...options, ...prepared });
+    });
+    preparing.then(() => { preparing = null; }, () => { preparing = null; });
+    return preparing;
   };
   const schedule = () => {
     clearTimeout(dirtyTimer); if (disposed || recoveryPauses) return;
@@ -242,12 +267,16 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
   };
   const stop = () => { disposed = true; clearTimeout(dirtyTimer); clearTimeout(initialTimer); clearInterval(interval); interval = null; };
   const prune = ids => {
+    // A queued prune must not enter the recovery lease's drain set while preflight owns it.
+    if (preparing) return preparing.then(() => prune(ids));
     if (recoveryPauses) return Promise.resolve({ success: false, reason: 'backup-recovery-busy' });
     const job = (async () => {
       if (running) await running;
       const paths = await readPaths();
       if (recoveryPauses) return { success: false, reason: 'backup-recovery-busy' };
-      const result = await native({ action: 'prune', notebookIds: ids, ...paths }); updateTargets(result);
+      const prepared=beforePrune?await beforePrune(ids):{};
+      const destinations=prepared.excludeDrive?{...paths,driveBackupPath:null}:paths;
+      const result = await native({ action: 'prune', notebookIds: ids, ...destinations, driveSyncGuard:prepared.driveSyncGuard }); updateTargets(result);
       if (!result?.success) lastFailure = result?.reason || 'backup-delete-incomplete';
       await refresh(); return result;
     })();
@@ -269,5 +298,5 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
   return { run, pauseForRecovery, start, stop, initialize, refresh, markDirty, localStateChanged, destinationChanged, prune, nativeProgress,
     getCachedDetails: () => cachedDetails, getSnapshot: () => snapshot,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
-    waitForRunning: () => running || Promise.resolve() };
+    waitForRunning: () => preparing || running || Promise.resolve() };
 };

@@ -53,7 +53,7 @@ async function pruneNotebooksBatchFromBackups(request) {
 
 // Scan a selected destination only. Discovery never combines different backup folders.
 let backupReaderClient;
-async function scanAndLoadBackups(customPath = null, previewOnly = false) {
+async function scanAndLoadBackups(customPath = null, previewOnly = false, syncOptions = {}) {
   if (!backupReaderClient) {
     const { createBackupReaderClient } = require('./backupReaderClient.cjs');
     backupReaderClient = createBackupReaderClient();
@@ -66,7 +66,7 @@ async function scanAndLoadBackups(customPath = null, previewOnly = false) {
     path.resolve(process.env.USERPROFILE || '', 'BetterNote_Backups'),
     path.resolve(process.cwd(), 'BetterNote_Backups')
   ] : [];
-  return backupReaderClient.execute({ folderPath: customPath, candidates, previewOnly });
+  return backupReaderClient.execute({ folderPath: customPath, candidates, previewOnly, ...syncOptions });
 }
 
 function formatBytes(bytes) {
@@ -133,7 +133,21 @@ function createWindow() {
   });
 
   // Handle scanning and restoring from Google Drive or local backup folder
+  ipcMain.handle('drive-sync-capabilities', async event => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
+        event.senderFrame !== mainWindow.webContents.mainFrame) return { protocol: 0 };
+    return { protocol: 1 };
+  });
+
   ipcMain.handle('scan-backup-folder', async (event, customPath, options) => {
+    if (options?.syncMode) {
+      if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
+          event.senderFrame !== mainWindow.webContents.mainFrame || typeof customPath !== 'string') {
+        return { success: false, reason: 'untrusted-window' };
+      }
+      return scanAndLoadBackups(customPath, false, { syncMode: options.syncMode,
+        syncNotebookId: options.syncNotebookId, manifestHash: options.manifestHash, syncDeviceId: options.syncDeviceId });
+    }
     return await scanAndLoadBackups(customPath, options?.previewOnly === true);
   });
 

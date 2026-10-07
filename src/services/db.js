@@ -1,5 +1,6 @@
 import { NOTEBOOK_COPY_LABELS, localizeNotebookCopyName } from '../utils/notebookNames.js';
 import { THUMBNAIL_COVER_ID } from '../data/covers.js';
+import { syncPathKey, syncRevision } from '../../electron/backupSyncProtocol.js';
 
 // High-Performance IndexedDB Storage for BetterNote
 const DB_NAME = 'BetterNoteDB';
@@ -119,15 +120,16 @@ const nextUpdatedAt = (...timestamps) => Math.max(Date.now(), ...timestamps.map(
 
 // Recovery only: one transaction; retain incoming timestamps and unrelated notebooks.
 // Called in the bundled worker so rich pages are never cloned through the UI.
-export const restoreBackupAtomic = (data, operationId) => writeTransaction(
+export const restoreBackupAtomic = (data, operationId, syncOptions = null) => writeTransaction(
   ['folders', 'notebooks', 'pages', 'settings'], (tx, done, abort) => {
     const pageStore = tx.objectStore('pages'), notebookStore = tx.objectStore('notebooks');
-    const result = { foldersCount: data.folders.length, notebooksCount: data.notebooks.length,
+    const result = { ...(syncOptions?.resultExtras || {}), foldersCount: data.folders.length, notebooksCount: data.notebooks.length,
       notebooks: data.notebooks.map(note => ({ id: note.id, name: note.name, pageCount: note.pages.length })) };
     const fail = code => abort(Object.assign(new Error(code), { code }));
     const saveNextNotebook = index => {
       try {
         if (index >= data.notebooks.length) {
+          for (const setting of syncOptions?.settingsUpdates || []) tx.objectStore('settings').put(setting);
           tx.objectStore('settings').put({ key: 'backup_recovery_receipt', value: { operationId, result } });
           done(result); return;
         }
@@ -162,8 +164,28 @@ export const restoreBackupAtomic = (data, operationId) => writeTransaction(
         } catch (error) { abort(error); }
       };
     };
-    for (const folder of data.folders) tx.objectStore('folders').put(folder);
-    deleteNextNotebook(0);
+    const begin = () => {
+      for (const folder of data.folders) tx.objectStore('folders').put(folder);
+      deleteNextNotebook(0);
+    };
+    if (!syncOptions) { begin(); return; }
+    // Compare versions and the selected destination in the SAME transaction as incoming pages.
+    const expected = syncOptions.expectedRevisions || [];
+    let remaining = expected.length + 2;
+    const checked = () => { if (--remaining === 0) begin(); };
+    for (const item of expected) {
+      const request = notebookStore.get(item.id);
+      request.onsuccess = () => {
+        if (item.revision === null ? !!request.result : !request.result || syncRevision(request.result) !== item.revision) {
+          fail('drive-sync-local-changed'); return;
+        }
+        checked();
+      };
+    }
+    const method = tx.objectStore('settings').get('gdrive_backup_method');
+    method.onsuccess = () => { if (method.result?.value !== 'desktop') { fail('drive-sync-destination-changed'); return; } checked(); };
+    const folder = tx.objectStore('settings').get('gdrive_backup_path');
+    folder.onsuccess = () => { if (syncPathKey(folder.result?.value) !== syncPathKey(syncOptions.path)) { fail('drive-sync-destination-changed'); return; } checked(); };
   }
 );
 export const getBackupRecoveryReceipt = async () => {

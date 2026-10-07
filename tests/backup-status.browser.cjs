@@ -3,16 +3,17 @@ const fs=require('node:fs'),fsp=fs.promises,path=require('node:path'),assert=req
 const esbuild=require('esbuild');
 const {chromium}=require(process.env.BETTERNOTE_PLAYWRIGHT_PATH||'playwright');
 const {createBackupWorkerClient}=require('../electron/backupWorkerClient.cjs');
+const {createBackupReaderClient}=require('../electron/backupReaderClient.cjs');
 const root=fs.realpathSync(path.resolve(__dirname,'..')),preview=process.env.BETTERNOTE_QA_TEMP;
 if(!preview||!path.isAbsolute(preview)||!fs.statSync(preview).isDirectory())throw Error('Set BETTERNOTE_QA_TEMP to the isolated QA folder.');
 const origin='https://betternote-phase2.invalid/';
 const results=[],screenshots=[];
-const entry="\nimport React,{useState} from 'react';import{createRoot}from'react-dom/client';\nimport * as db from './src/services/db.js';import * as local from './src/services/localSaveService.js';\nimport * as lang from './src/services/i18n.js';import{autoBackupService as backup}from'./src/services/autoBackupService.js';\nimport{DocumentTabBar}from'./src/components/Common/DocumentTabBar.jsx';\nimport{LibraryView}from'./src/components/Library/LibraryView.jsx';\nimport BackupStatusModal from'./src/components/Library/BackupStatusModal.jsx';\nimport{googleDrive}from'./src/services/googleDriveService.js';\nimport{createVerifiedBackupPdfRenderer,getBackupPdfCacheStats}from'./src/utils/backupPdf.js';\nwindow.qa={db,local,lang,backup,googleDrive,createVerifiedBackupPdfRenderer,getBackupPdfCacheStats,calls:[],clicks:[],closed:[],notes:[],renderCount:0,alerts:[],progressEvents:[]};\nwindow.electronAPI={isElectron:true,\n saveBackup:async command=>{qa.calls.push(command.action);return window.backupBridge(command);},\n onBackupProgress:handler=>{qa.nativeProgress=event=>{qa.progressEvents.push({stage:event.stage,totalBytes:event.totalBytes});handler(event);};return()=>{qa.nativeProgress=null;};},\n openDriveDesktop:async()=>{qa.desktopOpenCount=(qa.desktopOpenCount||0)+1;return{success:true,opened:true,connected:false,cloudUploadVerified:false};},\n connectGoogleAccount:async clientId=>{qa.lastNativeClientId=clientId;qa.nativeAuthCalls=(qa.nativeAuthCalls||0)+1;\n  if(qa.authHold)return new Promise(resolve=>{qa.authResolver=resolve;});\n  return qa.authResponse||{success:false,authorized:false,reason:'access-denied'};},\n cancelGoogleAccountConnection:async()=>{qa.authResolver?.({success:false,authorized:false,reason:'cancelled'});qa.authResolver=null;return{success:true};},\n selectFolder:async()=>qa.nextFolder||null,openBackupFolder:async()=>({success:true}),revealBackupFile:async()=>({success:true}),openExternal:async url=>{qa.externalUrl=url;return{success:true};}};\nwindow.alert=message=>qa.alerts.push(message);window.confirm=()=>true;\nconst originalBlob=HTMLCanvasElement.prototype.toBlob;HTMLCanvasElement.prototype.toBlob=function(...args){qa.renderCount++;return originalBlob.apply(this,args);};\nconst renderer=createRoot(document.getElementById('root'));\nfunction Harness(){\n const[mode,setMode]=useState('tabs'),[open,setOpen]=useState(false),[hubTab,setHubTab]=useState('local');\n const[active,setActive]=useState('tab-1'),[tabs,setTabs]=useState(Array.from({length:9},(_,i)=>({id:'tab-'+(i+1),title:'Synthetic notebook '+(i+1),pageIndex:i})));\n qa.resetTabs=()=>{setTabs(Array.from({length:9},(_,i)=>({id:'tab-'+(i+1),title:'Synthetic notebook '+(i+1),pageIndex:i})));setActive('tab-1');setMode('tabs');};\n qa.showLibrary=()=>setMode('library');qa.openHub=(tab='local')=>{setHubTab(tab);setOpen(true);};qa.openGoogle=()=>qa.openHub('drive');qa.closeGoogle=()=>setOpen(false);qa.closeDetails=()=>setOpen(false);\n return <><DocumentTabBar tabs={tabs} activeTabId={active}\n onSelectTab={id=>{qa.clicks.push(id);setActive(id);}}onCloseTab={id=>{qa.closed.push(id);setTabs(old=>old.filter(tab=>tab.id!==id));setActive(old=>old===id?null:old);}}\n onGoHome={()=>setMode('library')}onOpenBackupStatus={()=>qa.openHub('local')}/>\n {mode==='library'?<LibraryView notebooks={qa.notes}folders={[]}currentTheme=\"dark\"currentFolderId={null}folderChain={[]}\n onTriggerAutoSync={options=>backup.runAutoBackup(options)} onOpenBackupStatus={tab=>qa.openHub(tab)} onOpenDriveModal={()=>qa.openHub('drive')}\n onNavigateFolder={()=>{}}onOpenNotebook={()=>{}}onUpdateNotebook={()=>{}}/>:<canvas id=\"qa-writing-surface\"width=\"480\"height=\"100\"style={{margin:24,background:'#fff'}}/>}\n <BackupStatusModal isOpen={open}onClose={()=>setOpen(false)}initialTab={hubTab}notebooks={qa.notes}onTriggerSync={options=>backup.runAutoBackup(options)}/>\n </>;\n}\nrenderer.render(<Harness/>);\nqa.fixture=async()=>{const tiny=document.createElement('canvas');tiny.width=40;tiny.height=30;const ctx=tiny.getContext('2d');ctx.fillStyle='#22c55e';ctx.fillRect(0,0,40,30);qa.image=tiny.toDataURL();\n for(const[id,count,template]of[['a',2,'dotted'],['b',1,'whiteboard']]){\n  await db.saveNotebook({id,name:'Same name',pageCount:count,templateId:template,pdfBase64:'synthetic-original-file',updatedAt:1});\n  for(let i=0;i<count;i++)await db.savePage({id:id+'-p'+i,notebookId:id,pageIndex:i,templateId:template,pageWidth:480,pageHeight:620,updatedAt:1,\n   strokes:[{id:'stroke-'+i,tool:'pen',color:'#2563eb',width:3,points:[{x:template==='whiteboard'?-100:20,y:20,pressure:.6},{x:180,y:170,pressure:.8}]}],\n   textElements:[{id:'text-'+i,text:'Synthetic notes ทดสอบ',x:30,y:190,fontSize:18,color:'#111827'}],\n   imageElements:[{id:'image-'+i,src:qa.image,x:30,y:250,width:100,height:75,locked:true}]});\n }qa.notes=await db.getAllNotebooks();};\nqa.edit=async(id='a-p0',extra={})=>{const page=await db.getPage(id);await db.savePage({...page,...extra,strokes:[...page.strokes,{id:'edit-'+Date.now(),tool:'pen',color:'#ef4444',width:3,points:[{x:210,y:30,pressure:.5},{x:290,y:110,pressure:.5}]}]});};\nqa.start=async(path)=>{await db.saveSetting('local_backup_path',path);backup.startScheduledSync();await backup.controller.initialize();backup.controller.stop();};\n\nqa.abortPageSave=async()=>{\n const connection=await db.openDB(),original=connection.transaction.bind(connection);let armed=true;\n connection.transaction=(...args)=>{const tx=original(...args),getStore=tx.objectStore.bind(tx);tx.objectStore=name=>{\n  const store=getStore(name);if(name==='pages'&&args[1]==='readwrite'){const put=store.put.bind(store);store.put=value=>{\n   const request=put(value);if(armed){armed=false;request.addEventListener('success',()=>tx.abort(),{once:true});}return request;};}return store;};return tx;};\n qa.restorePageSave=()=>{connection.transaction=original;};\n};\nconst originalNative=window.electronAPI.saveBackup;\nwindow.electronAPI.saveBackup=async command=>{\n if(command.action==='notebook'&&qa.editDuringBackup){qa.editDuringBackup=false;await qa.edit();}\n if(command.action==='pdf'&&qa.holdPdf){qa.holdPdf=false;qa.holdingPdf=true;await new Promise(resolve=>{qa.releaseHeldPdf=resolve;});qa.holdingPdf=false;}\n return originalNative(command);\n};\nqa.stop=()=>{backup.stopScheduledSync();renderer.unmount();};\n\n";
+const entry="\nimport React,{useState} from 'react';import{createRoot}from'react-dom/client';\nimport * as db from './src/services/db.js';import * as local from './src/services/localSaveService.js';\nimport * as lang from './src/services/i18n.js';import{autoBackupService as backup}from'./src/services/autoBackupService.js';\nimport{DocumentTabBar}from'./src/components/Common/DocumentTabBar.jsx';\nimport{LibraryView}from'./src/components/Library/LibraryView.jsx';\nimport BackupStatusModal from'./src/components/Library/BackupStatusModal.jsx';\nimport{googleDrive}from'./src/services/googleDriveService.js';\nimport{createVerifiedBackupPdfRenderer,getBackupPdfCacheStats}from'./src/utils/backupPdf.js';\nwindow.qa={db,local,lang,backup,googleDrive,createVerifiedBackupPdfRenderer,getBackupPdfCacheStats,calls:[],clicks:[],closed:[],notes:[],renderCount:0,alerts:[],progressEvents:[]};\nwindow.electronAPI={isElectron:true,getDriveSyncCapabilities:async()=>({protocol:1}),scanBackupFolder:async(folder,options)=>{const result=await window.readerBridge(folder,options);if(result.encoded)result.encoded=Uint8Array.from(result.encoded);return result;},\n saveBackup:async command=>{qa.calls.push(command.action);return window.backupBridge(command);},\n onBackupProgress:handler=>{qa.nativeProgress=event=>{qa.progressEvents.push({stage:event.stage,totalBytes:event.totalBytes});handler(event);};return()=>{qa.nativeProgress=null;};},\n openDriveDesktop:async()=>{qa.desktopOpenCount=(qa.desktopOpenCount||0)+1;return{success:true,opened:true,connected:false,cloudUploadVerified:false};},\n connectGoogleAccount:async clientId=>{qa.lastNativeClientId=clientId;qa.nativeAuthCalls=(qa.nativeAuthCalls||0)+1;\n  if(qa.authHold)return new Promise(resolve=>{qa.authResolver=resolve;});\n  return qa.authResponse||{success:false,authorized:false,reason:'access-denied'};},\n cancelGoogleAccountConnection:async()=>{qa.authResolver?.({success:false,authorized:false,reason:'cancelled'});qa.authResolver=null;return{success:true};},\n selectFolder:async()=>qa.nextFolder||null,openBackupFolder:async()=>({success:true}),revealBackupFile:async()=>({success:true}),openExternal:async url=>{qa.externalUrl=url;return{success:true};}};\nwindow.alert=message=>qa.alerts.push(message);window.confirm=()=>true;\nconst originalBlob=HTMLCanvasElement.prototype.toBlob;HTMLCanvasElement.prototype.toBlob=function(...args){qa.renderCount++;return originalBlob.apply(this,args);};\nconst renderer=createRoot(document.getElementById('root'));\nfunction Harness(){\n const[mode,setMode]=useState('tabs'),[open,setOpen]=useState(false),[hubTab,setHubTab]=useState('local');\n const[active,setActive]=useState('tab-1'),[tabs,setTabs]=useState(Array.from({length:9},(_,i)=>({id:'tab-'+(i+1),title:'Synthetic notebook '+(i+1),pageIndex:i})));\n qa.resetTabs=()=>{setTabs(Array.from({length:9},(_,i)=>({id:'tab-'+(i+1),title:'Synthetic notebook '+(i+1),pageIndex:i})));setActive('tab-1');setMode('tabs');};\n qa.showLibrary=()=>setMode('library');qa.openHub=(tab='local')=>{setHubTab(tab);setOpen(true);};qa.openGoogle=()=>qa.openHub('drive');qa.closeGoogle=()=>setOpen(false);qa.closeDetails=()=>setOpen(false);\n return <><DocumentTabBar tabs={tabs} activeTabId={active}\n onSelectTab={id=>{qa.clicks.push(id);setActive(id);}}onCloseTab={id=>{qa.closed.push(id);setTabs(old=>old.filter(tab=>tab.id!==id));setActive(old=>old===id?null:old);}}\n onGoHome={()=>setMode('library')}onOpenBackupStatus={()=>qa.openHub('local')}/>\n {mode==='library'?<LibraryView notebooks={qa.notes}folders={[]}currentTheme=\"dark\"currentFolderId={null}folderChain={[]}\n onTriggerAutoSync={options=>backup.runAutoBackup(options)} onOpenBackupStatus={tab=>qa.openHub(tab)} onOpenDriveModal={()=>qa.openHub('drive')}\n onNavigateFolder={()=>{}}onOpenNotebook={()=>{}}onUpdateNotebook={()=>{}}/>:<canvas id=\"qa-writing-surface\"width=\"480\"height=\"100\"style={{margin:24,background:'#fff'}}/>}\n <BackupStatusModal isOpen={open}onClose={()=>setOpen(false)}initialTab={hubTab}notebooks={qa.notes}onTriggerSync={options=>backup.runAutoBackup(options)}/>\n </>;\n}\nrenderer.render(<Harness/>);\nqa.fixture=async()=>{const tiny=document.createElement('canvas');tiny.width=40;tiny.height=30;const ctx=tiny.getContext('2d');ctx.fillStyle='#22c55e';ctx.fillRect(0,0,40,30);qa.image=tiny.toDataURL();\n for(const[id,count,template]of[['a',2,'dotted'],['b',1,'whiteboard']]){\n  await db.saveNotebook({id,name:'Same name',pageCount:count,templateId:template,pdfBase64:'synthetic-original-file',updatedAt:1});\n  for(let i=0;i<count;i++)await db.savePage({id:id+'-p'+i,notebookId:id,pageIndex:i,templateId:template,pageWidth:480,pageHeight:620,updatedAt:1,\n   strokes:[{id:'stroke-'+i,tool:'pen',color:'#2563eb',width:3,points:[{x:template==='whiteboard'?-100:20,y:20,pressure:.6},{x:180,y:170,pressure:.8}]}],\n   textElements:[{id:'text-'+i,text:'Synthetic notes ทดสอบ',x:30,y:190,fontSize:18,color:'#111827'}],\n   imageElements:[{id:'image-'+i,src:qa.image,x:30,y:250,width:100,height:75,locked:true}]});\n }qa.notes=await db.getAllNotebooks();};\nqa.edit=async(id='a-p0',extra={})=>{const page=await db.getPage(id);await db.savePage({...page,...extra,strokes:[...page.strokes,{id:'edit-'+Date.now(),tool:'pen',color:'#ef4444',width:3,points:[{x:210,y:30,pressure:.5},{x:290,y:110,pressure:.5}]}]});};\nqa.start=async(path)=>{await db.saveSetting('local_backup_path',path);backup.startScheduledSync();await backup.controller.initialize();backup.controller.stop();};\n\nqa.abortPageSave=async()=>{\n const connection=await db.openDB(),original=connection.transaction.bind(connection);let armed=true;\n connection.transaction=(...args)=>{const tx=original(...args),getStore=tx.objectStore.bind(tx);tx.objectStore=name=>{\n  const store=getStore(name);if(name==='pages'&&args[1]==='readwrite'){const put=store.put.bind(store);store.put=value=>{\n   const request=put(value);if(armed){armed=false;request.addEventListener('success',()=>tx.abort(),{once:true});}return request;};}return store;};return tx;};\n qa.restorePageSave=()=>{connection.transaction=original;};\n};\nconst originalNative=window.electronAPI.saveBackup;\nwindow.electronAPI.saveBackup=async command=>{\n if(command.action==='notebook'&&qa.editDuringBackup){qa.editDuringBackup=false;await qa.edit();}\n if(command.action==='pdf'&&qa.holdPdf){qa.holdPdf=false;qa.holdingPdf=true;await new Promise(resolve=>{qa.releaseHeldPdf=resolve;});qa.holdingPdf=false;}\n return originalNative(command);\n};\nqa.stop=()=>{backup.stopScheduledSync();renderer.unmount();};\n\n";
 (async()=>{
  const fixture=await fsp.mkdtemp(path.join(preview,'betternote-phase2-browser-')),localDir=path.join(fixture,'unused-default'),driveDir=path.join(fixture,'chosen-local'),cloudDir=process.env.BETTERNOTE_QA_DRIVE_DIR||path.join(fixture,'My Drive','BetterNote.AppPC'),blocked=path.join(fixture,'unwritable');
  if(process.env.BETTERNOTE_QA_DRIVE_DIR){assert.ok(path.isAbsolute(cloudDir));assert.match(path.basename(cloudDir),/^BetterNote-Phase2-Test-[a-zA-Z0-9]+$/);assert.equal((await fsp.readdir(cloudDir)).length,0,'Real Drive QA folder must be empty');}
  await fsp.writeFile(blocked,'synthetic blocking file');
- const client=createBackupWorkerClient({localDir,driveCandidates:[]});
+ const client=createBackupWorkerClient({localDir,driveCandidates:[]}),reader=createBackupReaderClient();
  let browser;
  try{
   const assets=path.join(root,'dist/assets'),worker=fs.readdirSync(assets).find(name=>/^notebookCover\.worker-.*\.js$/.test(name));
@@ -34,6 +35,10 @@ const entry="\nimport React,{useState} from 'react';import{createRoot}from'react
   await page.exposeFunction('backupBridge',command=>{
    for(const key of ['customBackupPath','localBackupPath','driveBackupPath'])if(command[key]&&!path.resolve(command[key]).toLowerCase().startsWith(fixture.toLowerCase()+path.sep)&&path.resolve(command[key]).toLowerCase()!==path.resolve(cloudDir).toLowerCase())throw Error('Refusing non-QA backup folder');
    return client.execute(command,event=>{page.evaluate(event=>qa.nativeProgress?.(event),event).catch(()=>{});});
+  });
+  await page.exposeFunction('readerBridge',async(folder,options)=>{
+   assert.ok(path.resolve(folder).toLowerCase().startsWith(fixture.toLowerCase()+path.sep)||path.resolve(folder).toLowerCase()===path.resolve(cloudDir).toLowerCase());
+   const result=await reader.execute({folderPath:folder,...options});if(result.encoded)result.encoded=Array.from(result.encoded);return result;
   });
   await page.goto(origin);assert.equal(page.url(),origin);
   await page.addStyleTag({content:fs.readFileSync(path.join(root,'src/index.css'),'utf8')});
@@ -189,7 +194,7 @@ const entry="\nimport React,{useState} from 'react';import{createRoot}from'react
    assert.match(await page.locator('[data-drive-choice="direct"]').innerText(),/Coming soon/);
    assert.equal(await page.locator('[data-drive-choice="direct"]').getAttribute('aria-disabled'),'true');
    assert.equal(await page.getByRole('button',{name:'Connect with Google',exact:true}).count(),0);
-   await page.getByRole('button',{name:'Connect Google Drive',exact:true}).click();
+   await page.locator('[data-drive-account-action]').click();
    await page.getByText('Google Drive is open.',{exact:false}).waitFor();
    assert.equal(await page.evaluate(()=>qa.desktopOpenCount),1);
    assert.equal(await page.evaluate(()=>qa.nativeAuthCalls||0),0);
@@ -198,7 +203,7 @@ const entry="\nimport React,{useState} from 'react';import{createRoot}from'react
   await check('Download guidance opens only the official Google download page',async()=>{
    const link=page.getByRole('link',{name:'Download from Google',exact:true});
    assert.equal(await link.getAttribute('rel'),'noopener noreferrer');
-   await link.click();assert.equal(await page.evaluate(()=>qa.externalUrl),'https://www.google.com/intx/en/drive/download/');
+   await link.click();assert.equal(await page.evaluate(()=>qa.externalUrl),'https://www.google.com/intl/en/drive/download/#download');
    await closeDetails();
   });
   for(const language of ['en','th','zh','ru'])await check('Both hub tabs immediately follow the selected '+language+' language',async()=>{
@@ -270,7 +275,7 @@ const entry="\nimport React,{useState} from 'react';import{createRoot}from'react
   await check('Desktop Drive requires its own folder and reports prepared files separately from Local',async()=>{
    await page.locator('.bn-backup-drive-panel').waitFor();
    await page.evaluate(destination=>{qa.nextFolder=destination;},cloudDir);
-   await page.getByRole('button',{name:'Choose Drive sync folder',exact:true}).click();
+   await page.locator('[data-drive-folder-action]').click();
    await page.waitForFunction(()=>qa.backup.getSnapshot().targets.length===2);await page.evaluate(()=>qa.backup.controller.stop());
    assert.equal((await state()).targets.find(t=>t.kind==='drive').targetDir,path.resolve(cloudDir));
    assert.equal(await page.locator('.bn-backup-drive-panel .bn-backup-destination').count(),1);
@@ -289,46 +294,28 @@ const entry="\nimport React,{useState} from 'react';import{createRoot}from'react
    await page.evaluate(()=>qa.openGoogle());await page.locator('.bn-backup-drive-panel').waitFor();
    await page.locator('.bn-backup-drive-panel').waitFor();
    await page.evaluate(destination=>{qa.nextFolder=destination;},blocked);
-   await page.getByRole('button',{name:'Choose Drive sync folder',exact:true}).click();await page.waitForFunction(()=>qa.backup.getSnapshot().targets.some(t=>t.kind==='drive'&&t.error));
+   await page.locator('[data-drive-folder-action]').click();await page.waitForFunction(()=>qa.backup.getSnapshot().targets.some(t=>t.kind==='drive'&&t.error));
    await page.getByRole('button',{name:'Prepare files for Drive',exact:true}).click();
    await page.locator('.bn-backup-hub-notice.is-error').waitFor();assert.equal((await state()).status,'current');
    assert.equal(await page.locator('.bn-backup-hub-notice.is-success').count(),0);
    await page.evaluate(async()=>{await qa.db.saveSetting('gdrive_backup_path',null);await qa.backup.destinationChanged();qa.backup.controller.stop();});await closeDetails();
   });
 
-  await check('One conflicting Drive notebook shows its name and edit times while healthy files complete',async()=>{
-   const conflictDir=path.join(fixture,'conflicting-drive');
+  await check('Legacy Drive backup waits for explicit recovery while Local remains current',async()=>{
+   const conflictDir=path.join(fixture,'legacy-drive');
    const originals=await page.evaluate(async()=>[await qa.db.getBackupNotebookSnapshot('a'),await qa.db.getBackupNotebookSnapshot('b')]);
    originals[0].updatedAt+=60000;
    await fsp.mkdir(path.join(conflictDir,'Full_System'),{recursive:true});
-   const original=Buffer.from(JSON.stringify({notebooks:originals,folders:[]}));
-   const savedFile=path.join(conflictDir,'Full_System','BetterNote_Latest_Backup.json');
-   await fsp.writeFile(savedFile,original);
-   await page.evaluate(()=>qa.openGoogle());await page.locator('.bn-backup-drive-panel').waitFor();
-   await page.locator('.bn-backup-drive-panel').waitFor();
-   await page.evaluate(destination=>{qa.nextFolder=destination;},conflictDir);
-   await page.getByRole('button',{name:'Choose Drive sync folder',exact:true}).click();
+   const original=Buffer.from(JSON.stringify({notebooks:originals,folders:[]})),savedFile=path.join(conflictDir,'Full_System','BetterNote_Latest_Backup.json');
+   await fsp.writeFile(savedFile,original);await page.evaluate(()=>qa.openGoogle());await page.locator('.bn-backup-drive-panel').waitFor();
+   await page.evaluate(destination=>{qa.nextFolder=destination;},conflictDir);await page.locator('[data-drive-folder-action]').click();
    await page.waitForFunction(()=>qa.backup.getSnapshot().hasDriveFolder);await page.evaluate(()=>qa.backup.controller.stop());
-   await page.getByRole('button',{name:'Prepare files for Drive',exact:true}).click();
-   await page.locator('.bn-backup-hub-notice.is-error').waitFor();
-   const snapshot=await state(),target=snapshot.targets.find(t=>t.kind==='drive');
-   assert.equal(snapshot.status,'current');assert.equal(target.editableCount,1);assert.equal(target.pdfCount,1);
-   assert.equal(target.notebookIssues.a.name,originals[0].name);assert.equal(target.notebookIssues.a.backupUpdatedAt,originals[0].updatedAt);
-   assert.equal(target.fatalError,null);assert.equal(target.dataCurrent,false);
-   const issue=page.locator('[data-backup-conflict-id="a"]');assert.match(await issue.innerText(),/A newer backup already exists/);
-   assert.ok((await issue.innerText()).includes(originals[0].name));
-   assert.match(await issue.innerText(),/Last edit on this device/);assert.match(await issue.innerText(),/Last edit in the backup/);
-   const table=page.locator('.bn-backup-drive-panel .bn-backup-hub-table');
-   assert.equal(await table.locator('tr[data-notebook-id="b"] .bn-backup-file-state.is-current').count(),2);
-   assert.equal(await table.locator('tr[data-notebook-id="a"] .bn-backup-file-state.is-error').count(),2);
-   assert.equal(await table.locator('tr[data-notebook-id="a"][data-file-kind="pdf"] .bn-backup-file-state').innerText(),'Waiting for notebook review');
-   assert.equal(await table.locator('tr[data-notebook-id="a"] button').filter({hasText:'Retry PDF'}).count(),0);
-   assert.deepEqual(await fsp.readFile(savedFile),original);
-   if(process.env.BETTERNOTE_QA_SCREENSHOTS==='1'){const file=path.join(fixture,'desktop-backup-conflict-details.png');await page.screenshot({path:file});screenshots.push(file);}
+   await page.getByRole('button',{name:'Prepare files for Drive',exact:true}).click();await page.locator('.bn-backup-hub-notice.is-error').waitFor();
+   assert.equal((await state()).status,'current');assert.deepEqual(await fsp.readFile(savedFile),original);
+   assert.equal(await page.locator('[data-drive-sync-state="legacy"]').count(),1);
    for(const language of ['th','zh','ru','en']){
     await page.evaluate(language=>qa.lang.setAppLanguage(language),language);
-    const expected=await page.evaluate(()=>qa.lang.TRANSLATIONS[qa.lang.getAppLanguage()].backupConflictNewer);
-    await page.getByText(expected,{exact:true}).waitFor();
+    const expected=await page.evaluate(()=>qa.lang.TRANSLATIONS[qa.lang.getAppLanguage()].driveSyncLegacy);await page.getByText(expected,{exact:true}).waitFor();
    }
    await page.evaluate(async()=>{await qa.db.saveSetting('gdrive_backup_path',null);await qa.backup.destinationChanged();qa.backup.controller.stop();});await closeDetails();
   });
@@ -346,5 +333,5 @@ const entry="\nimport React,{useState} from 'react';import{createRoot}from'react
    await page.evaluate(()=>qa.stop());assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>qa.alerts),[]);
   });
   console.log(JSON.stringify({total:results.length,passed:results.length,failed:0,results,screenshots,fixtureDirectory:fixture},null,2));
- }finally{if(browser)await browser.close();await client.close();}
+ }finally{if(browser)await browser.close();await client.close();await reader.close();}
 })().catch(error=>{console.error(error.stack);console.log(JSON.stringify({passed:results.length,results,screenshots},null,2));process.exitCode=1;});

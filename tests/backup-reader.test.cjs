@@ -254,7 +254,7 @@ test('Windows filename case changes cannot make a valid notebook disappear from 
 test('Packaged reader uses its shared validator without any development src directory', async () => {
  const root=await fixture(),app=path.join(root,'packaged-app'),folder=path.join(root,'selected');
  await fs.mkdir(path.join(app,'electron'),{recursive:true});await fs.writeFile(path.join(app,'package.json'),JSON.stringify({type:'module'}));
- for(const file of ['backupReader.cjs','backupReader.worker.cjs','backupReaderClient.cjs','backupValidation.js'])
+ for(const file of ['backupReader.cjs','backupReader.worker.cjs','backupReaderClient.cjs','backupValidation.js','backupSyncReader.cjs','backupSyncProtocol.js'])
    await fs.copyFile(path.join(__dirname,'../electron',file),path.join(app,'electron',file));
  await legacy(folder);
  const {createBackupReaderClient:packaged}=require(path.join(app,'electron/backupReaderClient.cjs'));const client=packaged();

@@ -40,6 +40,7 @@ function validateManifest(value, maxFileBytes) {
 }
 function createBackupReader({ fs = disk, deadlineMs = 30000, onProgress = () => {}, maxFileBytes = 256 * 1048576,
   maxTotalBytes = 512 * 1048576, maxFiles = 10000 } = {}) {
+  const syncReader = require('./backupSyncReader.cjs').createBackupSyncReader({ fs, deadlineMs, maxFileBytes, onProgress });
   // Cache summaries only, never notebook pages, images, or raw file contents.
   const summaries = new Map();
   const timed = async promise => {
@@ -233,7 +234,8 @@ function createBackupReader({ fs = disk, deadlineMs = 30000, onProgress = () => 
     try { return await readFolder(folder.trim(), previewOnly); }
     catch (error) { return { success: false, folder: folder.trim(), reason: error.code || 'backup-read-failed' }; }
   };
-  return { async execute({ folderPath = null, candidates = [], previewOnly = false } = {}) {
+  return { async execute({ folderPath = null, candidates = [], previewOnly = false, syncMode, syncNotebookId, manifestHash, syncDeviceId } = {}) {
+    if (syncMode) return syncReader.execute({ folderPath, syncMode, syncNotebookId, manifestHash, syncDeviceId });
     // Explicit choice is strict: never fall back to another folder or merge different destinations.
     if (folderPath !== null && folderPath !== undefined) return scanOne(folderPath, previewOnly);
     const unique = [...new Set(candidates.filter(p => typeof p === 'string' && path.isAbsolute(p)).map(p => path.resolve(p)))];

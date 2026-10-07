@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Cloud, FolderOpen, ExternalLink, LoaderCircle } from 'lucide-react';
 import { getSetting, saveSetting } from '../../services/db';
 import { autoBackupService } from '../../services/autoBackupService';
@@ -35,6 +35,9 @@ const DRIVE_PANEL_TEXT = {
 
 export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotice, onRestoreBackup }) => {
   const { t, language } = useLanguage(), state = useBackupSnapshot();
+  const sync = useSyncExternalStore(autoBackupService.subscribeDriveSync, autoBackupService.getDriveSyncSnapshot);
+  const syncKey = { checking:'driveSyncChecking', receiving:'driveSyncReceiving', waiting:'driveSyncWaiting',
+    pending:sync.reason==='drive-sync-restart'?'driveSyncRestart':'driveSyncPending', legacy:'driveSyncLegacy', current:'driveSyncReceived', conflict:'driveSyncConflicts' }[sync.status];
   const text = DRIVE_PANEL_TEXT[language] || DRIVE_PANEL_TEXT.en;
   const downloadLanguage = { en: 'en', th: 'th', zh: 'zh-CN', ru: 'ru' }[language] || 'en';
   const downloadUrl = 'https://www.google.com/intl/' + downloadLanguage + '/drive/download/#download';
@@ -44,7 +47,7 @@ export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotic
   const [changingFolder, setChangingFolder] = useState(false);
   const [showAccountGuide, setShowAccountGuide] = useState(false);
   const operation = useRef(false);
-  const disabled = loadingSettings || openingDesktop || changingFolder || state.syncing;
+  const disabled = loadingSettings || openingDesktop || changingFolder || state.syncing || state.recoveryPaused;
   useEffect(() => {
     let active = true;
     (async () => {
@@ -140,6 +143,9 @@ export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotic
     </aside>
     <section className="bn-backup-hub-content">
       <>
+        {drivePath && syncKey && <p className="bn-backup-hub-help" role="status" data-drive-sync-state={sync.status}>
+          {t(syncKey, '', { count: sync.status === 'conflict' ? sync.conflicts : sync.received })}
+        </p>}
         <BackupProgress role="drive" />
         <BackupDestinationSummary role="drive" />
         <p className="bn-backup-hub-help">{t('drivePreparationHint')}</p>

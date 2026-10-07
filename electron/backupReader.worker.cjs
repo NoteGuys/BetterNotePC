@@ -11,7 +11,10 @@ let queue = Promise.resolve();
 parentPort.on('message', ({ requestId, command }) => {
   queue = queue.then(async () => {
     activeRequest = requestId; lastProgress = 0;
-    try { parentPort.postMessage({ requestId, result: await reader.execute(command) }); }
+    try {
+      const result = await reader.execute(command);
+      parentPort.postMessage({ requestId, result }, result.encoded instanceof Uint8Array ? [result.encoded.buffer] : []);
+    }
     catch (_) { parentPort.postMessage({ requestId, result: { success: false, reason: 'backup-read-failed' } }); }
     finally { activeRequest = null; }
   });

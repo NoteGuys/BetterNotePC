@@ -5,6 +5,7 @@ import { createBackupController } from './backupController.js';
 import { resolveBackupReadFolder, backupReadErrorKey } from './backupReadStatus.js';
 import { t } from './i18n';
 import { restoreBackup, configureRecoveryBackups } from './backupRecoveryService.js';
+import { createDriveSyncService } from './backupSyncService.js';
 
 class AutoBackupService {
   constructor() {
@@ -12,7 +13,11 @@ class AutoBackupService {
     this.pointerIds = new Set();
     this.canvasPointerIds = new Set();
     this.lastInput = 0;
+    this.driveSync = createDriveSyncService();
     this.controller = createBackupController({
+      beforeBackup: options => this.driveSync.beforeBackup(options),
+      beforePrune: ids => this.driveSync.beforePrune(ids),
+      onDataBackup: result => this.driveSync.acknowledged(result),
       getMetadata: getBackupMetadata, getNotebook: getBackupNotebookSnapshot,
       waitForLocalSaves: () => flushLocalSaves(), getLocalState: getLocalSaveSnapshot,
       native: command => typeof window !== 'undefined' && window.electronAPI?.saveBackup
@@ -37,6 +42,8 @@ class AutoBackupService {
   get lastSyncTime() { return this.controller.getSnapshot().lastSuccess; }
   getSnapshot = () => this.controller.getSnapshot();
   subscribeStatus = listener => this.controller.subscribe(listener);
+  getDriveSyncSnapshot = () => this.driveSync.getSnapshot();
+  subscribeDriveSync = listener => this.driveSync.subscribe(listener);
   subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   notify(status) { for (const fn of this.listeners) { try { fn(status); } catch (_) {} } }
   runAutoBackup(options = {}) { return this.controller.run(options); }
@@ -80,8 +87,9 @@ class AutoBackupService {
       this.pointerIds.clear(); this.canvasPointerIds.clear();
     };
     this.controller.start();
+    this.driveSync.start(options => this.runAutoBackup(options));
   }
-  stopScheduledSync() { this.stopSubscriptions?.(); this.stopSubscriptions = null; this.controller.stop(); }
+  stopScheduledSync() { this.stopSubscriptions?.(); this.stopSubscriptions = null; this.controller.stop(); this.driveSync.stop(); }
   async pruneDeletedNotebook(_name, notebookId = null) {
     if (!notebookId) return { success: false, reason: 'notebook-id-required' };
     return this.controller.prune([notebookId]);

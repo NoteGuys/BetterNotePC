@@ -103,6 +103,11 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
    clearTimeout(timer);timer=setTimeout(expire,Math.max(1,started+allowanceMs-Date.now()));
   };
   const current=()=>!expired;current.budget=budget;budget(sizeHint);
+  current.beforeInstall=async()=>{
+   if(target.syncGuardHash===undefined)return;
+   const raw=await read(within(target.root,'Full_System/backup_manifest.json'));
+   if((raw?hash(raw):null)!==target.syncGuardHash)throw fault('backup-changed-externally');
+  };
   const task=Promise.resolve().then(async()=>{
    try{await operation(current);}catch(error){
     const code=error.code||error.message||'backup-write-failed';
@@ -146,6 +151,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   if(previous&&validate&&!options.previousValidated&&!validate(previous))throw fault('invalid-existing-backup');
   if(validate&&!options.newValidated&&!validate(bytes))throw fault('invalid-new-backup');
   if(previous&&previous.equals(bytes)){
+   await current.beforeInstall?.();
    await verifyInstalled(file,bytes);
    return{path:relative,hash:hash(bytes),size:bytes.length,skipped:true};
   }
@@ -170,6 +176,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
     if(!(await fs.readFile(archive)).equals(previous))throw fault('history-verification-failed');
    }
    await beforeReplace({file,temporary,relative});
+   await current.beforeInstall?.();
    if(!current())throw fault('backup-cancelled');
    const latest=await read(file);
    if(!!latest!==!!previous||(latest&&!latest.equals(previous)))throw fault('backup-changed-externally');
@@ -188,8 +195,19 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
    return{path:relative,hash:digest,size:bytes.length,skipped:false};
   }finally{if(!installed)await fs.unlink(temporary).catch(()=>{});}
  };
- const saveManifest=(target,current)=>atomic(target.root,'Full_System/backup_manifest.json',
-  Buffer.from(JSON.stringify(target.manifest)),buffer=>{try{return!!safeManifest(buffer);}catch(_){return false;}},current,0);
+ const saveManifest=async(target,current)=>{
+  const saved=await atomic(target.root,'Full_System/backup_manifest.json',
+   Buffer.from(JSON.stringify(target.manifest)),buffer=>{try{return!!safeManifest(buffer);}catch(_){return false;}},current,0);
+  if(target.syncGuardHash!==undefined)target.syncGuardHash=saved.hash;
+  return saved;
+ };
+ const configureSyncGuard=(target,command,raw)=>{
+  if(!(target.roles||[target.kind]).includes('drive')||!command.driveSyncGuard)return;
+  const guard=command.driveSyncGuard;
+  if(!guard.ready)throw fault(guard.reason||'drive-sync-pending');
+  if((raw?hash(raw):null)!==guard.manifestHash)throw fault('backup-changed-externally');
+  target.syncGuardHash=guard.manifestHash;target.syncExpected=guard.entries||{};target.syncDeviceId=guard.deviceId;
+ };
  const artifactMatches=async(target,artifact,token,{deep=false,current}={})=>{
   if(!artifact||artifact.revision!==token||!artifact.path||!artifact.hash)return false;
   try{
@@ -216,7 +234,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   lastDataSuccess:target.manifest?.lastDataSuccess||target.manifest?.lastSync||null,
   verifiedAt:target.manifest?.verifiedAt||null,fullSize:target.manifest?.fullSize||0,
   notebooks:target.manifest?.notebooks||{},fullRevision:target.manifest?.fullRevision||null,
-  verifiedEditableIds:target.verifiedEditableIds||[],verifiedPdfIds:target.verifiedPdfIds||[]
+  verifiedEditableIds:target.verifiedEditableIds||[],verifiedPdfIds:target.verifiedPdfIds||[],syncManifestHash:target.syncGuardHash
  });
  const refreshPartial=(target,ids)=>{
   target.partial=ids.some(id=>{const entry=entryFor(target,id);return!entry?.pdf||entry.pdf.revision!==entry.editable?.revision;});
@@ -228,17 +246,25 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   session={id:command.jobId,started:now(),metadata:command.metadata,metadataRevision:command.metadataRevision,phase:command.phase||'all',
    targets:await resolveTargets(command),incoming:new Map()};
   for(const target of session.targets)await targetAction(target,async current=>{
-   await verifyRoot(target.root);target.manifest=safeManifest(await read(within(target.root,'Full_System/backup_manifest.json')));
+   await verifyRoot(target.root);
+   const rawManifest=await read(within(target.root,'Full_System/backup_manifest.json'));
+   configureSyncGuard(target,command,rawManifest);target.manifest=safeManifest(rawManifest);
+   target.acceptedReceives=command.acceptedReceives||{};target.clockAuthorized=new Set();
    const estimated=Object.values(target.manifest.notebooks).reduce((sum,entry)=>sum+(entry.editable?.size||0),0);
    current.budget(estimated*4);
-   target.prior=new Map();target.priorFingerprints=new Map();target.notebookIssues=Object.fromEntries(Object.entries(readNotebookIssues(target.manifest))
+   target.prior=new Map();target.priorFingerprints=new Map();target.priorHashes=new Map();target.notebookIssues=Object.fromEntries(Object.entries(readNotebookIssues(target.manifest))
     .filter(([id])=>command.metadata.notebooks.some(info=>info.id===id)));target.verifiedEditableIds=[];target.verifiedPdfIds=[];
    const unchanged=target.manifest.fullRevision===command.metadataRevision&&await artifactMatches(target,fullArtifact(target),command.metadataRevision,{current});
    if(!unchanged){
     const raw=await read(within(target.root,'Full_System/BetterNote_Latest_Backup.json'));
     if(raw){const full=parse(raw);if(!fullValid(full))throw fault('invalid-existing-backup');
-     for(const note of full.notebooks){target.prior.set(note.id,Number(note.updatedAt)||0);target.priorFingerprints.set(note.id,contentFingerprint(note));}
+     for(const note of full.notebooks){target.prior.set(note.id,Number(note.updatedAt)||0);target.priorFingerprints.set(note.id,contentFingerprint(note));target.priorHashes.set(note.id,hash(JSON.stringify(note)));}
     }
+   }
+   if(target.syncDeviceId&&!unchanged){
+    target.manifest.syncPending={deviceId:target.syncDeviceId,jobId:session.id,
+     notebooks:target.manifest.syncPending?.deviceId===target.syncDeviceId?target.manifest.syncPending.notebooks||{}:{}};
+    await saveManifest(target,current);
    }
    for(const info of command.metadata.notebooks){
     const entry=entryFor(target,info.id);
@@ -256,6 +282,8 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   session.incoming.set(info.id,header(info));
   for(const target of session.targets)await targetAction(target,async current=>{
    if(!await artifactMatches(target,entryFor(target,info.id)?.editable,revision(info),{current}))throw fault('editable-backup-changed');
+   const receive=Object.hasOwn(target.acceptedReceives||{},info.id)?target.acceptedReceives[info.id]:null;
+   if(target.syncExpected||receive&&path.resolve(receive.targetDir).toLowerCase()===target.root.toLowerCase()&&target.priorHashes.get(info.id)===receive.previousHash)target.clockAuthorized.add(info.id);
   });
   return{success:session.targets.some(target=>!target.error),targets:session.targets.map(targetResult)};
  };
@@ -265,16 +293,34 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   const token=revision(note),bytes=Buffer.from(JSON.stringify(note)),incomingHash=hash(bytes);
   session.incoming.set(note.id,header(note));
   for(const target of session.targets)await targetAction(target,async current=>{
-   if((target.prior.get(note.id)||0)>(Number(note.updatedAt)||0))throw Object.assign(fault('newer-backup-exists'),{backupUpdatedAt:target.prior.get(note.id)});
-   if(target.prior.has(note.id)&&target.prior.get(note.id)===(Number(note.updatedAt)||0)&&target.priorFingerprints.get(note.id)!==contentFingerprint(note))throw Object.assign(fault('conflicting-backup-revision'),{backupUpdatedAt:target.prior.get(note.id)});
    const old=entryFor(target,note.id)||{};
-   if(!command.pdfBase64&&old.editable?.revision===token&&old.editable.hash===incomingHash&&await artifactMatches(target,old.editable,token,{current}))return;
+   if(!command.pdfBase64&&old.editable?.revision===token&&old.editable.hash===incomingHash&&await artifactMatches(target,old.editable,token,{current})){
+    if(target.syncExpected&&old.backupConflict){delete old.backupConflict;delete target.notebookIssues[note.id];setEntry(target,note.id,old);await saveManifest(target,current);}
+    return;
+   }
    const stem='Notebook-'+cleanName(note.name)+'--'+hash(note.id).slice(0,32);
    const relative=old.editable?.path||path.join('Editable_Notes',stem+'.bnote'),existing=await read(within(target.root,relative));
+   let authorized=false;
+   if(target.syncExpected){
+    if(!Object.hasOwn(target.syncExpected,note.id)||(existing?hash(existing):null)!==target.syncExpected[note.id])throw fault('backup-changed-externally');
+    authorized=true;
+   }else{
+    const receive=Object.hasOwn(target.acceptedReceives||{},note.id)?target.acceptedReceives[note.id]:null;
+    if(receive&&path.resolve(receive.targetDir).toLowerCase()===target.root.toLowerCase()&&existing&&
+      (hash(existing)===receive.previousHash||hash(existing)===incomingHash&&target.priorHashes.get(note.id)===receive.previousHash))authorized=true;
+   }
+   if(authorized)target.clockAuthorized.add(note.id);
+   if(!authorized&&(target.prior.get(note.id)||0)>(Number(note.updatedAt)||0))throw Object.assign(fault('newer-backup-exists'),{backupUpdatedAt:target.prior.get(note.id)});
+   if(!authorized&&target.prior.has(note.id)&&target.prior.get(note.id)===(Number(note.updatedAt)||0)&&target.priorFingerprints.get(note.id)!==contentFingerprint(note))throw Object.assign(fault('conflicting-backup-revision'),{backupUpdatedAt:target.prior.get(note.id)});
    if(existing){const previous=parse(existing);
     if(!noteValid(previous)||previous.id!==note.id)throw fault('notebook-identity-mismatch');
-    if((Number(previous.updatedAt)||0)>(Number(note.updatedAt)||0))throw Object.assign(fault('newer-backup-exists'),{backupUpdatedAt:previous.updatedAt});
-    if((Number(previous.updatedAt)||0)===(Number(note.updatedAt)||0)&&contentFingerprint(previous)!==contentFingerprint(note))throw Object.assign(fault('conflicting-backup-revision'),{backupUpdatedAt:previous.updatedAt});
+    if(!authorized&&(Number(previous.updatedAt)||0)>(Number(note.updatedAt)||0))throw Object.assign(fault('newer-backup-exists'),{backupUpdatedAt:previous.updatedAt});
+    if(!authorized&&(Number(previous.updatedAt)||0)===(Number(note.updatedAt)||0)&&contentFingerprint(previous)!==contentFingerprint(note))throw Object.assign(fault('conflicting-backup-revision'),{backupUpdatedAt:previous.updatedAt});
+   }
+   if(target.syncDeviceId){
+    target.manifest.syncPending||={deviceId:target.syncDeviceId,jobId:session.id,notebooks:{}};
+    Object.defineProperty(target.manifest.syncPending.notebooks,note.id,{enumerable:true,writable:true,configurable:true,value:{path:relative,previousHash:existing?hash(existing):null,nextHash:incomingHash}});
+    await saveManifest(target,current);
    }
    const editable=await atomic(target.root,relative,bytes,buffer=>{try{return noteValid(parse(buffer))&&parse(buffer).id===note.id;}catch(_){return false;}},
     current,retention,{previous:existing,previousValidated:true,newValidated:true});
@@ -285,7 +331,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
     const saved=await atomic(target.root,old.pdf?.path||path.join('PDF_Documents',stem+'.pdf'),pdf,
      buffer=>buffer.subarray(0,5).equals(Buffer.from('%PDF-')),current);
     entry.pdf={...saved,revision:token,contentRevision:command.pdfRevision,savedAt:now()};entry.pdfError=null;
-   }else if(entry.pdf?.contentRevision===command.pdfRevision&&await artifactMatches(target,entry.pdf,entry.pdf.revision,{current})){
+   }else if(entry.pdf&&entry.pdf.contentRevision===command.pdfRevision&&await artifactMatches(target,entry.pdf,entry.pdf.revision,{current})){
     entry.pdf={...entry.pdf,revision:token};entry.pdfError=null;
    }else{target.partial=true;entry.pdfError=command.pdfError||'pending';}
    delete entry.backupConflict;delete target.notebookIssues[note.id];
@@ -320,13 +366,13 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
       const artifact=entryFor(target,id)?.editable,old=merged.get(id);let note=old;
       if(!old||hash(JSON.stringify(old))!==artifact.hash)note=parse(await fs.readFile(within(target.root,artifact.path)));
       if(!noteValid(note)||note.id!==id)throw fault('incomplete-editable-backup');
-      if(old&&(Number(old.updatedAt)||0)>(Number(note.updatedAt)||0))throw fault('newer-backup-exists');
-      if(old&&(Number(old.updatedAt)||0)===(Number(note.updatedAt)||0)&&contentFingerprint(old)!==contentFingerprint(note))throw fault('conflicting-backup-revision');
+      if(old&&!target.clockAuthorized?.has(id)&&(Number(old.updatedAt)||0)>(Number(note.updatedAt)||0))throw fault('newer-backup-exists');
+      if(old&&!target.clockAuthorized?.has(id)&&(Number(old.updatedAt)||0)===(Number(note.updatedAt)||0)&&contentFingerprint(old)!==contentFingerprint(note))throw fault('conflicting-backup-revision');
       merged.set(id,note);
      }
      const folders=new Map((previous.folders||[]).map(folder=>[folder.id,folder]));
      for(const folder of job.metadata.folders){
-      const old=folders.get(folder.id);if(old&&(Number(old.updatedAt)||0)>(Number(folder.updatedAt)||0))throw fault('newer-backup-exists');folders.set(folder.id,folder);
+      const old=folders.get(folder.id);if(old&&(Number(old.updatedAt)||0)>(Number(folder.updatedAt)||0))throw fault('newer-backup-exists');folders.set(folder.id,{...old,...folder});
      }
      const full={version:1,appName:'BetterNote',exportDate:new Date(now()).toISOString(),folders:[...folders.values()],notebooks:[...merged.values()]};
      const saved=await atomic(target.root,'Full_System/BetterNote_Latest_Backup.json',Buffer.from(JSON.stringify(full)),
@@ -353,9 +399,11 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
     }
     // Repair metadata only: retained notebook files and history are never deleted here.
     for(const id of retiredIds)delete target.manifest.notebooks[id];
+    const wasPending=!!target.manifest.syncPending;delete target.manifest.syncPending;
+    target.manifest.syncFolders=job.metadata.folders;
     target.manifest.fullScopeHash=scopeHash;target.manifest.fullRevision=version;target.manifest.activeIds=ids;target.manifest.verifiedAt=now();
     if(!target.partial)target.manifest.lastSync=target.manifest.lastDataSuccess;
-    if(!alreadyCurrent||retiredIds.length)await saveManifest(target,current);
+    if(!alreadyCurrent||retiredIds.length||wasPending)await saveManifest(target,current);
    });
    const targets=job.targets.map(targetResult),dataSuccess=targets.length>0&&targets.every(target=>target.dataSuccess);
    return{success:job.phase==='data'?dataSuccess:targets.length>0&&targets.every(target=>target.success),
@@ -368,8 +416,11 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   if(!command.notebookId||!command.revision)throw fault('invalid-pdf-request');
   const targets=await resolveTargets(command);
   for(const target of targets)await targetAction(target,async current=>{
-   await verifyRoot(target.root);target.manifest=safeManifest(await read(within(target.root,'Full_System/backup_manifest.json')));
+   await verifyRoot(target.root);
+   const rawManifest=await read(within(target.root,'Full_System/backup_manifest.json'));
+   configureSyncGuard(target,command,rawManifest);target.manifest=safeManifest(rawManifest);
    const entry=entryFor(target,command.notebookId);
+   if(target.syncExpected&&entry?.editable?.hash!==target.syncExpected[command.notebookId])throw fault('pdf-backup-superseded');
    if(command.blockedNotebookTargets?.includes(target.root))return;
    if(entry?.editable?.revision!==command.revision)throw fault('pdf-backup-superseded');
    if(command.pdfError){setEntry(target,command.notebookId,{...entry,pdfError:command.pdfError});target.pdfError=command.pdfError;await saveManifest(target,current);return;}
@@ -435,7 +486,8 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   if(session)return{success:false,reason:'already-writing'};
   const ids=new Set(command.notebookIds),targets=await resolveTargets(command);
   for(const target of targets)await targetAction(target,async current=>{
-   target.manifest=safeManifest(await read(within(target.root,'Full_System/backup_manifest.json')));
+   const rawManifest=await read(within(target.root,'Full_System/backup_manifest.json'));
+   configureSyncGuard(target,command,rawManifest);target.manifest=safeManifest(rawManifest);
    const relative='Full_System/BetterNote_Latest_Backup.json',fullPath=within(target.root,relative);
    current.budget(((await stat(fullPath))?.size||0)*8);
    const raw=await read(fullPath),full=raw?parse(raw):null;
@@ -444,9 +496,13 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
    const names=await fs.readdir(folder).catch(error=>{if(error.code==='ENOENT')return[];throw error;});
    for(const name of names.filter(name=>name.endsWith('.bnote'))){
     const file=within(target.root,path.join('Editable_Notes',name)),note=parse(await fs.readFile(file));
-    if(!noteValid(note))throw fault('invalid-existing-backup');if(ids.has(note.id))toRemove.push(file);
+    if(!noteValid(note))throw fault('invalid-existing-backup');if(ids.has(note.id)){
+     if(target.syncExpected&&(!Object.hasOwn(target.syncExpected,note.id)||hash(await fs.readFile(file))!==target.syncExpected[note.id]))throw fault('backup-changed-externally');
+     toRemove.push(file);
+    }
    }
    for(const id of ids){const artifact=entryFor(target,id)?.pdf;if(artifact?.path)toRemove.push(within(target.root,artifact.path));}
+   if(target.syncDeviceId){target.manifest.syncPending={deviceId:target.syncDeviceId,jobId:'prune',notebooks:{}};await saveManifest(target,current);}
    if(full){full.notebooks=full.notebooks.filter(note=>!ids.has(note.id));const saved=await atomic(target.root,relative,Buffer.from(JSON.stringify(full)),
     buffer=>{try{return fullValid(parse(buffer));}catch(_){return false;}},current,retention,{previous:raw,previousValidated:true,newValidated:true});
     target.manifest.fullHash=saved.hash;target.manifest.fullSize=saved.size;
@@ -454,7 +510,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
    for(const id of ids)delete target.manifest.notebooks[id];
    if(Array.isArray(target.manifest.activeIds))target.manifest.activeIds=target.manifest.activeIds.filter(id=>!ids.has(id));
    target.manifest.fullRevision=null;await saveManifest(target,current);
-   for(const file of toRemove){if(!current())throw fault('backup-cancelled');await fs.unlink(file).catch(error=>{if(error.code!=='ENOENT')throw error;});digestCache.delete(file.toLowerCase());}
+   for(const file of toRemove){if(!current())throw fault('backup-cancelled');await current.beforeInstall?.();await fs.unlink(file).catch(error=>{if(error.code!=='ENOENT')throw error;});digestCache.delete(file.toLowerCase());}
   });
   return{success:targets.every(target=>!target.error),targets:targets.map(targetResult)};
  };
