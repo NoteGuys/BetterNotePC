@@ -421,3 +421,13 @@ core-js-banners และ node-compile-cache/ เป็นไฟล์ชั่�
 - ป้องกัน manifest/ไฟล์เปลี่ยนระหว่างอ่านและเขียน สำรองขาดตอนมีเจ้าของและตรวจ hash ก่อนทำต่อ ป้องกัน prune ฉบับที่ยังไม่รับ Local backup ยังทำงานได้โดยไม่เปิดทางให้ Drive เขียนทับ
 - ผ่าน unit/native 314 + backup UI 41 + recovery 16 + discovery 11 + สอง profile จำลองพร้อม production worker 13 รวม 395; build ผ่าน 2,139 modules คำเตือน bundle เดิม ไม่มีการสำรอง/Restore/prune บนโน้ตจริงในการทดสอบรอบนี้
 - รายงานและข้อจำกัด docs/PHASE3_3_REVIEW.md; Drive Desktop เป็นผู้อัปโหลดจริง และยังไม่เริ่ม 3.4 ทดสอบย้ายเครื่องครบเส้นทาง รอผู้ใช้ตรวจ 3.3 ก่อน
+
+## เฟส 3.4: ทดสอบการย้ายเครื่องและ Drive (7 ตุลาคม 2026)
+
+- ฐานก่อนเริ่ม ffd8462 บน sol-work; รอบนี้เพิ่ม tests/backup-migration.browser.cjs, tests/backup-migration-native.browser.cjs และเอกสารเท่านั้น ไม่แก้ source/runtime/Canvas/ปากกา/Undo/OAuth ของแอป
+- ผ่าน unit/native เดิม 313 (ไม่สร้างชุดใหญ่ 268 MiB ซ้ำ) + ย้ายเครื่อง App/editor จริง 19 + Electron preload/IPC จริง 6 รวม 338 กรณี ไม่บวกการรันซ้ำ
+- ตรวจโปรไฟล์แยกและ file:// offline: ย้ายเครื่องใหม่ ปิด–เปิดทั้งโปรเซส เขียนเพิ่มด้วย Canvas จริง รับงานกลับ สมุดชื่อซ้ำ โฟลเดอร์ซ้อน รูปล็อก ข้อความ ลายมือ พื้นหลัง/PDF ต้นฉบับ หน้าติดดาว whiteboard และสำเนาเมื่อแก้ชนกัน ข้อมูลในชุดทดสอบครบ
+- ไฟล์หาย/เสีย/ปลายทางไม่มี/ปิดระหว่างพักการอ่าน ไม่แทนข้อมูลเดิมด้วยข้อมูลเสีย ไม่ fallback ข้ามโฟลเดอร์ Idle sync ไม่มีงานเขียนซ้ำและไม่มี pages.getAll
+- ใช้เฉพาะ child ใหม่ I:/My Drive/BetterNote.AppPC/BetterNote-Phase3-Test-AZq0Y9: .bnote 3 + PDF 3 + full snapshot/manifest ตรวจอ่านกลับและ fresh profile ผ่าน ผู้ใช้ยืนยัน “เห็นไฟล์ครบแล้ว” บนเว็บ Drive ไม่เปลี่ยน cloudUploadVerified ของแอปจาก filesystem ไม่อ่าน/แก้สำรองจริง
+- สมุด Electron 24 หน้า/144,000 จุดปากกา/4.49 MiB รับและเซฟข้อมูล 1.19 วินาที สร้าง PDF อีก 5.12 วินาที แต่ heartbeat ยังสะดุดสูงสุด 358 ms ระหว่างข้อมูล/173 ms ระหว่าง PDF (รอบก่อน profiler PDF เคย 401 ms) จึงไม่อ้างว่าไม่ lag ทุกจังหวะ
+- สถานะ: ทดสอบด้านข้อมูลและ Drive เสร็จ รอผู้ใช้ตรวจรายงาน docs/PHASE3_4_REVIEW.md; ต้องปรับต้นทุนส่งสมุดใหญ่ผ่าน IPC และงาน PDF สำรองก่อนปิดเป้าหมายความลื่นเต็มรูปแบบ ยังไม่ลงมือปรับ ไม่เริ่มเฟสอื่น และยังไม่ commit/push
