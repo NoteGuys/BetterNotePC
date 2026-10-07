@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import { renderPaperBackground } from '../../utils/paperRenderer';
 import { 
   renderStroke, 
@@ -42,6 +42,9 @@ import { ImageCropModal } from './ImageCropModal';
 import { SnipModal } from './SnipModal';
 import { ColorWheelPicker } from '../Common/ColorWheelPicker';
 import { DEFAULT_QUICK_COLORS } from '../../services/userPreferences';
+
+// One accepted canvas contact owns the ink lock, including multi-page layouts.
+let activeCanvasSession = null;
 
 const PAGE_WIDTH = 1200;
 const PAGE_HEIGHT = 1600;
@@ -87,6 +90,7 @@ export const CanvasBoard = ({
   onZoomChange,
   onToolChange,
   onBatchUpdatePage,
+  selectedPageId,
   onStrokesChange,
   onTextElementsChange,
   onImageElementsChange,
@@ -102,6 +106,7 @@ export const CanvasBoard = ({
 
   // Inking state
   const isDrawingRef = useRef(false);
+  const pointerSessionRef = useRef(null);
   const currentPointsRef = useRef([]);
   const inkFrameRef = useRef(null);
   const cancelInkPreview = useCallback(() => {
@@ -691,10 +696,11 @@ export const CanvasBoard = ({
       return;
     }
 
+    // A second contact must never replace the accepted pointer or its points.
+    if (activeCanvasSession) return;
     recordPastePointer(e);
     // 4. STYLUS PEN (or physical desktop mouse click)
     // When pen touches the canvas: halt any scrolling immediately!
-    window.__bn_pen_active = true;
     window.__bn_pen_last_time = Date.now();
     isPanningRef.current = false;
     if (momentumAnimRef.current) {
@@ -722,8 +728,17 @@ export const CanvasBoard = ({
       }
     }
 
+    const beginSession = () => {
+      const session = { pointerId: e.pointerId, target: e.currentTarget,
+        finish: handlePointerUp, onStrokesChange };
+      pointerSessionRef.current = session;
+      activeCanvasSession = session;
+      window.__bn_pen_active = true;
+    };
+
     // Snipping Tool: start dragging rectangular crop marquee (Prevent screen scroll)
     if (activeTool === 'snip') {
+      beginSession();
       e.preventDefault();
       e.stopPropagation();
       isPanningRef.current = false;
@@ -763,6 +778,7 @@ export const CanvasBoard = ({
       }
 
       // Start new freeform lasso drawing
+      beginSession();
       isLassoingRef.current = true;
       lassoPointsRef.current = [coords];
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
@@ -786,6 +802,7 @@ export const CanvasBoard = ({
       return;
     }
 
+    beginSession();
     // Drawing / Erasing: STRICT preventDefault to lock page scroll completely while pen writes
     e.preventDefault();
     e.stopPropagation();
@@ -846,13 +863,9 @@ export const CanvasBoard = ({
       return;
     }
 
-    // Pen activity tracking (including hover & movement)
-    if (e.pointerType === 'pen') {
-      window.__bn_pen_last_time = Date.now();
-      if (e.buttons > 0 || e.pressure > 0) {
-        window.__bn_pen_active = true;
-      }
-    }
+    // Hover keeps palm rejection's cooldown, but cannot acquire the ink lock.
+    if (e.pointerType === 'pen') window.__bn_pen_last_time = Date.now();
+    if (pointerSessionRef.current?.pointerId !== e.pointerId) return;
 
     // 3. Strict Scroll Lock during Active Inking: Prevent any page panning while pen is down
     if (isDrawingRef.current) {
@@ -1066,20 +1079,50 @@ export const CanvasBoard = ({
       lastPastePointerRef.current.endedAt = Date.now();
     }
 
-    if (e.pointerType === 'pen') {
-      window.__bn_pen_active = false;
-      window.__bn_pen_last_time = Date.now();
-    }
-
     // 2. Touch Up: Finger never inks! Update touch timestamp and return
     if (e.pointerType === 'touch') {
       lastTouchTimeRef.current = Date.now();
       return;
     }
+    const session = pointerSessionRef.current;
+    if (!session || session.pointerId !== e.pointerId) return;
+    const interrupted = e.type !== 'pointerup';
+    // Clear ownership before releasing capture: lostpointercapture can re-enter.
+    pointerSessionRef.current = null;
+    if (activeCanvasSession === session) {
+      activeCanvasSession = null;
+      window.__bn_pen_active = false;
+      window.__bn_pen_last_time = Date.now();
+    }
+    cancelPasteHold();
+    clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+    cancelInkPreview();
+    try { session.target.releasePointerCapture(session.pointerId); } catch (_) {}
+    const strokes = latestStrokesRef.current;
+    const commitStrokes = value => {
+      latestStrokesRef.current = value;
+      session.onStrokesChange(value, { preservePageSelection: interrupted });
+    };
+
+    if (interrupted && (activeTool === 'snip' || activeTool === 'lasso' || activeTool === 'shape')) {
+      isDrawingRef.current = false;
+      isSnippingRef.current = false;
+      isLassoingRef.current = false;
+      snipStartRef.current = null;
+      lassoPointsRef.current = [];
+      currentPointsRef.current = [];
+      startPointRef.current = null;
+      heldShapeRef.current = null;
+      setSnipBox(null);
+      const canvas = session.target;
+      canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
     // Snipping Tool Finalize Crop
     if (isSnippingRef.current && snipBox) {
       isSnippingRef.current = false;
-      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
 
       if (snipBox.width > 20 && snipBox.height > 20) {
         extractSnipImage(snipBox);
@@ -1092,7 +1135,6 @@ export const CanvasBoard = ({
     // Lasso Tool Finalize Selection
     if (activeTool === 'lasso' && isLassoingRef.current) {
       isLassoingRef.current = false;
-      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
 
       const activeCanvas = activeCanvasRef.current;
       if (activeCanvas) {
@@ -1202,10 +1244,8 @@ export const CanvasBoard = ({
     cancelInkPreview();
     isDrawingRef.current = false;
 
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
 
-    const activeCanvas = activeCanvasRef.current;
-    if (!activeCanvas) return;
+    const activeCanvas = activeCanvasRef.current || session.target;
     const dpr = getDpr();
     const ctx = activeCanvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1225,7 +1265,7 @@ export const CanvasBoard = ({
             nibType: penNib,
             isTapered: false
           };
-          onStrokesChange([...strokes, shapeStroke]);
+          commitStrokes([...strokes, shapeStroke]);
         }
         heldShapeRef.current = null;
         currentPointsRef.current = [];
@@ -1235,7 +1275,7 @@ export const CanvasBoard = ({
 
       // 2. SMART Scribble-to-Erase:
       // Evaluated when scribbleToErase is enabled (and protected against geometric shapes)
-      const scribble = scribbleToErase ? detectScribble(currentPointsRef.current, strokes, scribbleToErase) : null;
+      const scribble = !interrupted && scribbleToErase ? detectScribble(currentPointsRef.current, strokes, scribbleToErase) : null;
 
       if (scribble && scribble.isScribble && scribble.hitCount > 0) {
         // Immediately clear hardware scratch canvas so scribble line vanishes from screen
@@ -1247,7 +1287,7 @@ export const CanvasBoard = ({
           ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         }
         heldShapeRef.current = null;
-        onStrokesChange(scribble.remainingStrokes);
+        commitStrokes(scribble.remainingStrokes);
         showToast(t('scribbleErasedToast', 'ขยี้ลบ {count} เส้นแล้ว! (Scribble Erased) 🪄', { count: scribble.hitCount }));
         currentPointsRef.current = [];
         startPointRef.current = null;
@@ -1266,7 +1306,7 @@ export const CanvasBoard = ({
           usePressure,
           pressureSensitivity
         };
-        onStrokesChange([...strokes, newStroke]);
+        commitStrokes([...strokes, newStroke]);
       }
     } else if (activeTool === 'highlighter') {
       const points = heldShapeRef.current
@@ -1280,7 +1320,7 @@ export const CanvasBoard = ({
           highlighterTip,
           points
         };
-        onStrokesChange([...strokes, newStroke]);
+        commitStrokes([...strokes, newStroke]);
       }
       heldShapeRef.current = null;
     } else if (activeTool === 'shape' && startPointRef.current) {
@@ -1320,13 +1360,50 @@ export const CanvasBoard = ({
           nibType: penNib,
           isTapered: false
         };
-        onStrokesChange([...strokes, shapeStroke]);
+        commitStrokes([...strokes, shapeStroke]);
       }
     }
 
     currentPointsRef.current = [];
     startPointRef.current = null;
   };
+
+  // Finish against the render that owns the page/settings, before they change.
+  useLayoutEffect(() => () => {
+    const session = pointerSessionRef.current;
+    session?.finish({ type: 'interruption', pointerId: session.pointerId });
+  }, [page?.id, selectedPageId, activeTool, canvasWidth, canvasHeight, zoom, activeColor, activeWidth,
+    penNib, highlighterTip, isTapered, usePressure, pressureSensitivity]);
+
+  useLayoutEffect(() => {
+    if (pointerSessionRef.current) pointerSessionRef.current.finish = handlePointerUp;
+  });
+
+  useEffect(() => {
+    const interrupt = () => {
+      const session = pointerSessionRef.current;
+      session?.finish({ type: 'interruption', pointerId: session.pointerId });
+    };
+    const release = event => pointerSessionRef.current?.finish(event);
+    const visibility = () => { if (document.hidden) interrupt(); };
+    const outsideDown = event => {
+      const session = pointerSessionRef.current;
+      if (session && event.pointerType !== 'touch' &&
+          !event.target.closest?.('.bn-layer-active')) interrupt();
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    window.addEventListener('blur', interrupt);
+    window.addEventListener('pointerdown', outsideDown, true);
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+      window.removeEventListener('blur', interrupt);
+      window.removeEventListener('pointerdown', outsideDown, true);
+      document.removeEventListener('visibilitychange', visibility);
+    };
+  }, []);
 
   // Extract Snip Region into an Image Data URL (Snipping Tool Engine)
   const extractSnipImage = (box) => {
@@ -2609,6 +2686,7 @@ export const CanvasBoard = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onLostPointerCapture={handlePointerUp}
           onContextMenu={handleContextMenu}
         />
 

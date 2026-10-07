@@ -52,8 +52,14 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
   }, [page.id, view, size, zoom, onViewportChange]);
   useEffect(() => {
     const release = event => contactsRef.current.delete(event.pointerId);
+    const blur = () => { contactsRef.current.clear(); gestureRef.current = null; };
+    const visibility = () => { if (document.hidden) blur(); };
+    window.addEventListener('blur', blur);
+    window.addEventListener('lostpointercapture', release);
+    document.addEventListener('visibilitychange', visibility);
     window.addEventListener('pointerup', release); window.addEventListener('pointercancel', release);
-    return () => { window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release); cancelAnimationFrame(rafRef.current); clearTimeout(wheelTimerRef.current); };
+    return () => { window.removeEventListener('blur', blur); window.removeEventListener('lostpointercapture', release);
+      document.removeEventListener('visibilitychange', visibility); window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release); cancelAnimationFrame(rafRef.current); clearTimeout(wheelTimerRef.current); };
   }, []);
   useEffect(() => {
     const node = viewportRef.current;
@@ -82,7 +88,7 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
   const worldViewport = { ...view, width: size.width / zoom, height: size.height / zoom };
   const visible = Object.fromEntries(Object.entries(records).map(([kind, entries]) => [kind, entries.filter(record => intersectsViewport(record.box, worldViewport) || (kind === 'textElements' && !record.item.text?.trim())).map(record => record.item)]));
   const viewportPage = { ...page, pageWidth: size.width, pageHeight: size.height, ...Object.fromEntries(Object.entries(visible).map(([kind, items]) => [kind, items.map(item => transformElement(item, kind, view, zoom))])) };
-  const update = updates => {
+  const update = (updates, options) => {
     const worldUpdates = {};
     for (const kind of ['strokes', 'imageElements', 'textElements']) if (updates[kind] !== undefined) {
       const edited = updates[kind].map(item => {
@@ -102,10 +108,10 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
       });
       worldUpdates[kind] = mergeVisibleElements(page[kind] || [], visible[kind], edited);
     }
-    if (props.onBatchUpdatePage) return props.onBatchUpdatePage(worldUpdates);
+    if (props.onBatchUpdatePage) return props.onBatchUpdatePage(worldUpdates, options);
     for (const [kind, items] of Object.entries(worldUpdates)) {
       const callback = kind === 'strokes' ? props.onStrokesChange : kind === 'imageElements' ? props.onImageElementsChange : props.onTextElementsChange;
-      callback?.(items);
+      callback?.(items, options);
     }
   };
 
@@ -178,10 +184,10 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
   };
 
   return <div ref={viewportRef} className="bn-whiteboard-viewport" data-origin-x={view.x} data-origin-y={view.y}
-    onPointerDownCapture={beginPointer} onPointerMoveCapture={movePointer} onPointerUpCapture={endPointer} onPointerCancelCapture={endPointer}
+    onPointerDownCapture={beginPointer} onPointerMoveCapture={movePointer} onPointerUpCapture={endPointer} onPointerCancelCapture={endPointer} onLostPointerCaptureCapture={endPointer}
     onTouchStartCapture={beginTouch} onTouchMoveCapture={moveTouch} onTouchEndCapture={endTouch} onTouchCancelCapture={endTouch}>
     <CanvasBoard key={`${page.id}-${generation}`} {...props} page={viewportPage} zoom={1} activeWidth={props.activeWidth * zoom}
-      onBatchUpdatePage={update} onStrokesChange={strokes => update({ strokes })} onTextElementsChange={textElements => update({ textElements })}
+      onBatchUpdatePage={update} onStrokesChange={(strokes, options) => update({ strokes }, options)} onTextElementsChange={textElements => update({ textElements })}
       onImageElementsChange={imageElements => update({ imageElements })} />
     <div className="bn-whiteboard-controls">
       <span><InfinityIcon size={16} /> {t('template_whiteboard', 'Whiteboard')}</span>

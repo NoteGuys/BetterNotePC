@@ -1,4 +1,4 @@
-// Phase 4.1: actual React CanvasBoard, isolated profile, synthetic pen only.
+// Phases 4.1–4.2: actual React CanvasBoard, isolated profile, synthetic pen only.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {pathToFileURL}=require('node:url'),esbuild=require('esbuild');
 const {chromium,_electron}=require(process.env.BETTERNOTE_PLAYWRIGHT_PATH||'playwright');
@@ -16,20 +16,27 @@ qa.flushFrame=()=>{const frames=[...qa.frames.values()];qa.frames.clear();for(co
 const clear=CanvasRenderingContext2D.prototype.clearRect;
 CanvasRenderingContext2D.prototype.clearRect=function(...args){if(this.canvas.classList.contains('bn-layer-active'))qa.clears++;return clear.apply(this,args);};
 const renderer=createRoot(document.getElementById('root'));
-qa.mount=(options={})=>{
- flushSync(()=>renderer.render(null));qa.commits=[];qa.frames.clear();qa.holdFrames=false;qa.clears=0;window.__bn_pen_active=false;window.__bn_pen_last_time=0;
- const Harness=()=>{const[strokes,setStrokes]=React.useState([]);qa.strokes=strokes;
- return <CanvasBoard page={{id:'ink-page',strokes,pageWidth:480,pageHeight:640}} templateId="blank"
+qa.mount=(initialOptions={})=>{
+ flushSync(()=>renderer.render(null));qa.commits=[];qa.commitPages=[];qa.otherCommits=[];qa.frames.clear();qa.holdFrames=false;qa.clears=0;window.__bn_pen_active=false;window.__bn_pen_last_time=0;
+ const Harness=()=>{
+ const[options,setOptions]=React.useState(initialOptions),[pages,setPages]=React.useState({[initialOptions.pageId||'ink-page']:initialOptions.strokes||[]});
+ qa.configure=value=>flushSync(()=>setOptions(old=>({...old,...value})));
+ const pageId=options.pageId||'ink-page',strokes=pages[pageId]||[];
+ qa.strokes=strokes;qa.pages=pages;
+ return <><CanvasBoard page={{id:pageId,strokes,pageWidth:options.width||480,pageHeight:640}} templateId="blank"
  activeTool={options.tool||'pen'} highlighterTip={options.tip||'square'} activeColor="#ef4444" activeWidth={4} penNib="fountain" isTapered={true} usePressure={true}
- pressureSensitivity="medium" scribbleToErase={false} penOnly={true} zoom={options.zoom||1} activeShape="line"
- onStrokesChange={value=>{qa.commits.push(structuredClone(value));setStrokes(value);}}
- onTextElementsChange={()=>{}} onImageElementsChange={()=>{}} onUndo={()=>{}}/>;};flushSync(()=>renderer.render(<Harness/>));
+ pressureSensitivity="medium" scribbleToErase={options.scribble||false} penOnly={true} zoom={options.zoom||1} activeShape={options.shape||"rectangle"}
+ onStrokesChange={value=>{qa.commits.push(structuredClone(value));qa.commitPages.push(pageId);setPages(old=>({...old,[pageId]:value}));}}
+ onTextElementsChange={()=>{}} onImageElementsChange={()=>{}} onUndo={()=>{}}/>
+ {options.multiple&&<CanvasBoard page={{id:'other-page',strokes:[],pageWidth:480,pageHeight:640}} templateId="blank"
+ activeTool="pen" activeColor="#2563eb" activeWidth={4} zoom={1} onStrokesChange={value=>qa.otherCommits.push(value)}
+ onTextElementsChange={()=>{}} onImageElementsChange={()=>{}}/>}</>;};flushSync(()=>renderer.render(<Harness/>));
 };
 qa.unmount=()=>flushSync(()=>renderer.render(null));
 qa.event=(type,x,y,options={})=>{
- const canvas=document.querySelector('.bn-layer-active'),r=canvas.getBoundingClientRect();
- const make=(sx,sy,p)=>new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:71,pointerType:options.pointerType||'pen',button:0,
- buttons:type==='pointerup'||type==='pointercancel'?0:1,pressure:p,clientX:r.left+sx*r.width/480,clientY:r.top+sy*r.height/640});
+ const canvas=document.querySelectorAll('.bn-layer-active')[options.board||0],r=canvas.getBoundingClientRect();
+ const make=(sx,sy,p)=>new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:options.pointerId??71,pointerType:options.pointerType||'pen',button:0,
+ buttons:options.buttons??(type==='pointerup'||type==='pointercancel'?0:1),pressure:p,clientX:r.left+sx*r.width/480,clientY:r.top+sy*r.height/640});
  const e=make(x,y,options.pressure??(type==='pointerup'?0:.6));
  if(options.samples)Object.defineProperty(e,'getCoalescedEvents',{value:()=>options.samples.map(p=>make(...p))});
  if(options.empty)Object.defineProperty(e,'getCoalescedEvents',{value:()=>[]});
@@ -143,6 +150,85 @@ qa.burst=()=>{qa.holdFrames=true;qa.event('pointerdown',20,80);qa.clears=0;const
   await check('Highlighter release cancels hold timer; no later conversion',async()=>{
    await mount({tool:'highlighter'});await page.evaluate(()=>{qa.event('pointerdown',40,100);qa.event('pointermove',240,102);qa.event('pointerup',240,102);});
    await page.waitForTimeout(480);assert.equal(await page.locator('.bn-gesture-toast').count(),0);assert.equal(await page.evaluate(()=>qa.commits.length),1);
+  });
+
+
+  for(const pointerType of ['pen','mouse'])await check('Accepted '+pointerType+' releases its lock and ignores a duplicate release',async()=>{
+   await mount();const r=await page.evaluate(pointerType=>{qa.event('pointerdown',20,30,{pointerType});qa.event('pointermove',80,90,{pointerType});qa.event('pointerup',100,110,{pointerType});qa.event('pointerup',180,190,{pointerType});return {locked:!!window.__bn_pen_active,commits:qa.commits.length};},pointerType);
+   assert.deepEqual(r,{locked:false,commits:1});compare(await points(),[[20,30,.6],[80,90,.6],[100,110,.6]]);
+  });
+  await check('Unrelated pen, mouse and touch cannot replace, move or release an active stroke',async()=>{
+   await mount();const r=await page.evaluate(()=>{
+    qa.event('pointerdown',20,30);qa.event('pointermove',80,90);
+    for(const pointerType of ['pen','mouse','touch']){
+     qa.event('pointerdown',200,200,{pointerId:99,pointerType});
+     qa.event('pointermove',300,300,{pointerId:99,pointerType});
+     qa.event('pointerup',350,350,{pointerId:99,pointerType});
+    }
+    const locked=window.__bn_pen_active,early=qa.commits.length;qa.event('pointerup',100,110);return {locked,early};
+   });assert.deepEqual(r,{locked:true,early:0});compare(await points(),[[20,30,.6],[80,90,.6],[100,110,.6]]);
+  });
+  for(const ending of ['blur','capture','cancel','window-up','hidden'])for(const tool of ['pen','highlighter'])await check(tool+' interruption '+ending+' keeps ink once and allows the next stroke',async()=>{
+   await mount({tool});const r=await page.evaluate(ending=>{
+    qa.holdFrames=true;qa.event('pointerdown',20,30);qa.event('pointermove',80,90);
+    if(ending==='blur')window.dispatchEvent(new Event('blur'));
+    if(ending==='capture')qa.event('lostpointercapture',0,0);
+    if(ending==='cancel')qa.event('pointercancel',0,0);
+    if(ending==='window-up')window.dispatchEvent(new PointerEvent('pointerup',{pointerId:71,pointerType:'pen',clientX:100,clientY:110}));
+    if(ending==='hidden'){
+     Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));delete document.hidden;
+    }
+    const r={commits:qa.commits.length,locked:!!window.__bn_pen_active,frames:qa.frames.size,points:qa.commits[0][0].points};
+    qa.event('pointerup',300,300);qa.event('lostpointercapture',0,0);qa.flushFrame();return {...r,lateCommits:qa.commits.length};
+   },ending);
+   assert.equal(r.commits,1);assert.equal(r.lateCommits,1);assert.equal(r.locked,false);assert.equal(r.frames,0);
+   if(ending!=='window-up')compare(r.points,[[20,30,.6],[80,90,.6]]);
+   await page.evaluate(()=>{qa.event('pointerdown',150,180);qa.event('pointerup',170,200);});assert.equal(await page.evaluate(()=>qa.commits.length),2);compare(await points(),[[150,180,.6],[170,200,.6]]);
+  });
+  for(const change of [{tool:'highlighter'},{pageId:'next-page'},{zoom:1.5},{width:600}])await check('Configuration change '+JSON.stringify(change)+' saves using the previous page/tool',async()=>{
+   await mount();const r=await page.evaluate(change=>{
+    qa.event('pointerdown',20,30);qa.event('pointermove',80,90);qa.configure(change);qa.event('pointerup',300,300);
+    return {pages:qa.commitPages,tool:qa.commits[0]?.[0].tool,points:qa.commits[0]?.[0].points,locked:!!window.__bn_pen_active};
+   },change);assert.deepEqual(r.pages,['ink-page']);assert.equal(r.tool,'pen');assert.equal(r.locked,false);compare(r.points,[[20,30,.6],[80,90,.6]]);
+  });
+  await check('Unmount preserves collected ink once, clears timers and does not affect another mounted board',async()=>{
+   await mount();await page.evaluate(()=>{qa.holdFrames=true;qa.event('pointerdown',20,30);qa.event('pointermove',80,90);qa.unmount();});
+   assert.equal(await page.evaluate(()=>qa.commits.length),1);compare(await points(),[[20,30,.6],[80,90,.6]]);
+   await page.waitForTimeout(450);assert.equal(await page.evaluate(()=>!!window.__bn_pen_active),false);
+   await mount({multiple:true});const r=await page.evaluate(()=>{
+    qa.event('pointerdown',20,30);qa.event('pointerdown',250,250,{board:1,pointerId:99});qa.event('pointermove',350,350,{board:1,pointerId:99});qa.event('pointerup',350,350,{board:1,pointerId:99});
+    const locked=window.__bn_pen_active;qa.event('pointerup',80,90);return {locked,own:qa.commits.length,other:qa.otherCommits.length};
+   });assert.deepEqual(r,{locked:true,own:1,other:0});
+  });
+  await check('Pointer hover and Hand/Text clicks do not leave an ink lock',async()=>{
+   await mount();await page.evaluate(()=>qa.event('pointermove',80,90,{buttons:0,pressure:0}));assert.equal(await page.evaluate(()=>!!window.__bn_pen_active),false);
+   for(const tool of ['hand','text']){await mount({tool});await page.evaluate(()=>{qa.event('pointerdown',20,30);qa.event('pointerup',80,90);});assert.equal(await page.evaluate(()=>!!window.__bn_pen_active),false);}
+  });
+  await check('Outside UI click finishes ink before its action and cancels draw-hold',async()=>{
+   await mount();await page.evaluate(()=>{qa.event('pointerdown',20,80);qa.event('pointermove',200,80);document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse',pointerId:1}));});
+   await page.waitForTimeout(450);assert.equal(await page.locator('.bn-gesture-toast').count(),0);assert.equal(await page.evaluate(()=>qa.commits.length),1);assert.equal(await page.evaluate(()=>!!window.__bn_pen_active),false);
+  });
+  for(const tool of ['lasso','snip','shape','eraser'])await check(tool+' interruption clears locks without creating phantom ink',async()=>{
+   await mount({tool});await page.evaluate(()=>{qa.event('pointerdown',20,30);qa.event('pointermove',80,90);window.dispatchEvent(new Event('blur'));qa.event('pointerup',0,0);});
+   assert.equal(await page.evaluate(()=>!!window.__bn_pen_active),false);assert.equal(await page.evaluate(()=>qa.commits.length),0);
+  });
+  for(const ending of ['pointerup','pointercancel','blur'])await check('Scribble '+ending+' preserves normal erase behavior and never erases on interruption',async()=>{
+   await mount({scribble:true,strokes:[{tool:'pen',color:'#2563eb',width:4,points:[{x:80,y:100,pressure:.6},{x:160,y:100,pressure:.6}]}]});
+   await page.evaluate(ending=>{
+    const list=[[60,80],[180,90],[60,100],[180,110],[60,120],[180,130],[60,140],[180,150],[60,160]];
+    qa.event('pointerdown',...list[0]);qa.event('pointermove',...list.at(-1),{samples:list.slice(1).map(p=>[...p,.6])});
+    if(ending==='blur')window.dispatchEvent(new Event('blur'));else qa.event(ending,...list.at(-1));
+   },ending);
+   assert.equal(await page.evaluate(()=>qa.commits.length),1);
+   assert.equal(await page.evaluate(()=>qa.commits[0].length),ending==='pointerup'?0:2);
+  });
+  await check('Real mouse pointer capture loss saves once and restores capture on the next stroke',async()=>{
+   await mount();const box=await page.locator('.bn-layer-active').boundingBox();
+   await page.mouse.move(box.x+30,box.y+40);await page.mouse.down();await page.mouse.move(box.x+100,box.y+120);
+   const captured=await page.evaluate(()=>document.querySelector('.bn-layer-active').hasPointerCapture(1));assert.equal(captured,true);
+   await page.evaluate(()=>document.querySelector('.bn-layer-active').releasePointerCapture(1));await page.mouse.move(box.x+110,box.y+130);
+   await page.waitForFunction(()=>qa.commits.length===1);await page.mouse.up();assert.equal(await page.evaluate(()=>qa.commits.length),1);assert.equal(await page.evaluate(()=>!!window.__bn_pen_active),false);
+   await page.mouse.move(box.x+150,box.y+180);await page.mouse.down();await page.mouse.up();await page.waitForFunction(()=>qa.commits.length===2);
   });
 
   await check('Touch never appends ink; no renderer exception',async()=>{await mount();await page.evaluate(()=>{qa.event('pointerdown',20,30,{pointerType:'touch'});qa.event('pointermove',80,90,{pointerType:'touch'});qa.event('pointerup',100,110,{pointerType:'touch'});});assert.equal(await page.evaluate(()=>qa.commits.length),0);assert.deepEqual(errors,[]);});

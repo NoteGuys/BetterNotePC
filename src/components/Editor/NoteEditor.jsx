@@ -536,7 +536,7 @@ export const NoteEditor = ({
   const persistPage = useCallback(page => pageSaveQueue.enqueue(page).then(() => true, () => false), []);
 
   // Atomic Batch Update for Page Elements (Strokes, Texts, Images) - IMMEDIATELY PERSISTENT
-  const applyBatchUpdatePage = (updates, target = currentPageIndexRef.current) => {
+  const applyBatchUpdatePage = (updates, target = currentPageIndexRef.current, options = {}) => {
     const prevPages = pagesRef.current;
     const targetIndex = typeof target === 'string' ? prevPages.findIndex(page => page.id === target) : target;
     const targetPage = prevPages[targetIndex];
@@ -558,25 +558,25 @@ export const NoteEditor = ({
       before: pageContentSnapshot(targetPage),
       after: pageContentSnapshot(updatedPage)
     });
-    if (targetIndex !== currentPageIndexRef.current) {
+    if (!options.preservePageSelection && targetIndex !== currentPageIndexRef.current) {
       currentPageIndexRef.current = targetIndex;
       setCurrentPageIndex(targetIndex);
     }
     return persistPage(updatedPage);
   };
 
-  const handleBatchUpdatePage = (updates, target = currentPageIndexRef.current) => {
+  const handleBatchUpdatePage = (updates, target = currentPageIndexRef.current, options = {}) => {
     const pageId = typeof target === 'string' ? target : pagesRef.current[target]?.id;
     if (!pageId) return Promise.resolve(false);
     if (historySession.getSnapshot().busy) {
-      return historySession.run(() => applyBatchUpdatePage(updates, pageId));
+      return historySession.run(() => applyBatchUpdatePage(updates, pageId, options));
     }
-    return applyBatchUpdatePage(updates, pageId);
+    return applyBatchUpdatePage(updates, pageId, options);
   };
 
   // Handle Strokes Change for a specific page (Safe Functional State Update)
-  const handleStrokesChange = async (newStrokes, targetPageIndex = currentPageIndex) => {
-    await handleBatchUpdatePage({ strokes: newStrokes }, targetPageIndex);
+  const handleStrokesChange = async (newStrokes, targetPageIndex = currentPageIndex, options = {}) => {
+    await handleBatchUpdatePage({ strokes: newStrokes }, targetPageIndex, options);
   };
 
   // Handle Text Elements Change for a specific page (Safe Functional State Update)
@@ -1308,8 +1308,8 @@ export const NoteEditor = ({
                   zoom={zoom}
                   onZoomChange={setZoom}
                   onToolChange={setActiveTool}
-                  onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, currentPage.id)}
-                  onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, currentPage.id)}
+                  onBatchUpdatePage={(updates, options) => handleBatchUpdatePage(updates, currentPage.id, options)}
+                  onStrokesChange={(newStrokes, options) => handleStrokesChange(newStrokes, currentPage.id, options)}
                   onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPage.id)}
                   onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPage.id)}
                   onSnipComplete={handleSnipComplete}
@@ -1358,8 +1358,9 @@ export const NoteEditor = ({
                         zoom={zoom}
                         onZoomChange={setZoom}
                         onToolChange={setActiveTool}
-                        onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, p.id)}
-                        onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, p.id)}
+                        onBatchUpdatePage={(updates, options) => handleBatchUpdatePage(updates, p.id, options)}
+                        selectedPageId={currentPage?.id}
+                        onStrokesChange={(newStrokes, options) => handleStrokesChange(newStrokes, p.id, options)}
                         onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, p.id)}
                         onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, p.id)}
                         onSnipComplete={handleSnipComplete}
@@ -1427,8 +1428,8 @@ export const NoteEditor = ({
                   zoom={zoom}
                   onZoomChange={setZoom}
                   onToolChange={setActiveTool}
-                  onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, currentPage.id)}
-                  onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, currentPage.id)}
+                  onBatchUpdatePage={(updates, options) => handleBatchUpdatePage(updates, currentPage.id, options)}
+                  onStrokesChange={(newStrokes, options) => handleStrokesChange(newStrokes, currentPage.id, options)}
                   onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPage.id)}
                   onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPage.id)}
                   onSnipComplete={handleSnipComplete}
