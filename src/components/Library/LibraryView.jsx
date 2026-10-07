@@ -139,7 +139,9 @@ export const LibraryView = ({
       const res = await autoBackupService.restoreFromCloudBackup(targetFolder);
       if (res.success) {
         setCloudBackupDetected(null);
-        window.location.reload();
+        if (res.ignoredRetiredNotebookIds?.length) alert(t('backupRecoveryRetiredEntries', '', { count: res.ignoredRetiredNotebookIds.length }));
+        if (res.recoveredFolderNotebookIds?.length) alert(t('backupRecoveryMissingFolders', '', { count: res.recoveredFolderNotebookIds.length }));
+        if (res.refreshFailed) alert(t('backupRecoveryRefreshFailed'));
       } else {
         alert(t('cloudRestoreFailed', 'กู้คืนไม่สำเร็จ: {reason}', { reason: t(backupReadErrorKey(res.reason)) }));
       }

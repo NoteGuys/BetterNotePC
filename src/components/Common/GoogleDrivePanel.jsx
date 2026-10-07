@@ -1,44 +1,100 @@
-import React, { useEffect, useState } from 'react';
-import { Cloud, FolderOpen, ExternalLink, AlertCircle, LoaderCircle } from 'lucide-react';
-import { getSetting } from '../../services/db';
+import React, { useEffect, useRef, useState } from 'react';
+import { Cloud, FolderOpen, ExternalLink, LoaderCircle } from 'lucide-react';
+import { getSetting, saveSetting } from '../../services/db';
 import { autoBackupService } from '../../services/autoBackupService';
 import { useLanguage } from '../../services/i18n';
 import { BackupDestinationSummary, BackupProgress, useBackupSnapshot } from './BackupStatusIndicator';
 import { BackupFilesTable } from './BackupFilesTable';
+
+const DRIVE_PANEL_TEXT = {
+  en: {
+    chooseToConnect: 'Choose folder to connect Google Drive',
+    accountAction: 'Sign in or switch account',
+    accountGuide: "In Google Drive, click your profile picture and select or add an account. Then return here and choose that account's sync folder.",
+    disconnected: 'BetterNote has disconnected from this Drive folder. Existing backups have been kept; Google Drive stays signed in.'
+  },
+  th: {
+    chooseToConnect: 'เลือกโฟลเดอร์เพื่อเชื่อมต่อกับ Google Drive',
+    accountAction: 'ลงชื่อเข้าใช้หรือเปลี่ยนบัญชี',
+    accountGuide: 'ในแอป Google Drive กดรูปโปรไฟล์แล้วเลือกบัญชีหรือเพิ่มบัญชี จากนั้นกลับมาเลือกโฟลเดอร์ซิงค์ของบัญชีนั้นที่นี่',
+    disconnected: 'BetterNote ยกเลิกการใช้โฟลเดอร์ Drive นี้แล้ว ไฟล์สำรองเดิมยังอยู่ และแอป Google Drive ยังลงชื่อเข้าใช้ตามเดิม'
+  },
+  zh: {
+    chooseToConnect: '选择文件夹以连接 Google Drive',
+    accountAction: '登录或切换帐号',
+    accountGuide: '在 Google Drive 中点击头像，选择或添加帐号。然后返回此处，选择该帐号的同步文件夹。',
+    disconnected: 'BetterNote 已断开此 Drive 文件夹。原有备份已保留；Google Drive 仍保持登录。'
+  },
+  ru: {
+    chooseToConnect: 'Выбрать папку для подключения Google Drive',
+    accountAction: 'Войти или сменить аккаунт',
+    accountGuide: 'В Google Drive нажмите на фото профиля и выберите или добавьте аккаунт. Затем вернитесь сюда и выберите папку синхронизации этого аккаунта.',
+    disconnected: 'BetterNote отключён от этой папки Drive. Существующие резервные копии сохранены; вход в Google Drive не изменён.'
+  }
+};
+
 export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotice, onRestoreBackup }) => {
-  const { t } = useLanguage(), state = useBackupSnapshot();
+  const { t, language } = useLanguage(), state = useBackupSnapshot();
+  const text = DRIVE_PANEL_TEXT[language] || DRIVE_PANEL_TEXT.en;
+  const downloadLanguage = { en: 'en', th: 'th', zh: 'zh-CN', ru: 'ru' }[language] || 'en';
+  const downloadUrl = 'https://www.google.com/intl/' + downloadLanguage + '/drive/download/#download';
   const [drivePath, setDrivePath] = useState('');
+  const [loadingSettings, setLoadingSettings] = useState(true);
   const [openingDesktop, setOpeningDesktop] = useState(false);
+  const [changingFolder, setChangingFolder] = useState(false);
+  const [showAccountGuide, setShowAccountGuide] = useState(false);
+  const operation = useRef(false);
+  const disabled = loadingSettings || openingDesktop || changingFolder || state.syncing;
   useEffect(() => {
     let active = true;
     (async () => {
-      const selected = await getSetting('gdrive_backup_method'), folder = await getSetting('gdrive_backup_path');
-      if (active) setDrivePath(selected === 'desktop' ? folder || '' : '');
+      try {
+        const [selected, folder] = await Promise.all([getSetting('gdrive_backup_method'), getSetting('gdrive_backup_path')]);
+        if (active) setDrivePath(selected === 'desktop' && typeof folder === 'string' ? folder.trim() : '');
+      } catch (_) { if (active) onNotice?.({ type: 'error', text: t('backupActionFailed') }); }
+      finally { if (active) setLoadingSettings(false); }
     })();
     return () => { active = false; };
   }, []);
   const chooseFolder = async () => {
+    if (disabled || operation.current) return;
+    operation.current = true; setChangingFolder(true);
+    let pause;
     try {
       const folder = await window.electronAPI?.selectFolder?.();
-      if (!folder) return;
-      await autoBackupService.setDriveDesktopPath(folder); setDrivePath(folder);
+      if (typeof folder !== 'string' || !folder.trim()) return;
+      pause = autoBackupService.controller.pauseForRecovery();
+      await pause.wait();
+      await autoBackupService.setDriveDesktopPath(folder);
+      setDrivePath(folder.trim()); setShowAccountGuide(false);
       onNotice?.({ type: 'success', text: t('driveFolderSelected') });
     } catch (_) { onNotice?.({ type: 'error', text: t('backupActionFailed') }); }
+    finally { pause?.resume(); operation.current = false; setChangingFolder(false); }
   };
-  const openWeb = async () => {
-    const url = 'https://drive.google.com/drive/my-drive';
-    if (window.electronAPI?.openExternal) await window.electronAPI.openExternal(url);
-    else window.open(url, '_blank', 'noopener');
+  const disconnect = async () => {
+    if (disabled || operation.current || !drivePath) return;
+    operation.current = true; setChangingFolder(true);
+    const pause = autoBackupService.controller.pauseForRecovery();
+    try {
+      await pause.wait();
+      // Disable this destination with one committed setting; keep its existing files and path.
+      await saveSetting('gdrive_backup_method', null);
+      setDrivePath(''); setShowAccountGuide(false);
+      await autoBackupService.destinationChanged();
+      onNotice?.({ type: 'success', text: text.disconnected });
+    } catch (_) { onNotice?.({ type: 'error', text: t('backupActionFailed') }); }
+    finally { pause.resume(); operation.current = false; setChangingFolder(false); }
   };
   const openDesktop = async () => {
-    if (openingDesktop) return;
-    setOpeningDesktop(true);
+    if (disabled || operation.current) return;
+    operation.current = true; setOpeningDesktop(true); setShowAccountGuide(false);
     try {
       const result = await window.electronAPI?.openDriveDesktop?.();
+      setShowAccountGuide(!!result?.opened);
       onNotice?.({ type: result?.opened ? 'info' : 'error',
         text: t(result?.opened ? 'driveDesktopOpened' : result?.reason === 'not-installed' ? 'driveDesktopMissing' : 'driveDesktopOpenFailed') });
     } catch (_) { onNotice?.({ type: 'error', text: t('driveDesktopOpenFailed') }); }
-    finally { setOpeningDesktop(false); }
+    finally { operation.current = false; setOpeningDesktop(false); }
   };
   return <div className="bn-backup-hub-grid bn-backup-drive-panel" data-drive-method="desktop">
     <aside className="bn-backup-hub-aside">
@@ -46,36 +102,40 @@ export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotic
         <span className="bn-drive-choice-badge">{t('driveRecommended')}</span>
         <h4><Cloud size={18} />{t('driveMethodDesktop')}</h4>
         <ol className="bn-drive-guidance"><li>{t('driveSetupInstall')}</li><li>{t('driveSetupFolder')}</li><li>{t('driveSetupVerify')}</li></ol>
-        <a className="bn-backup-hub-button" href="https://www.google.com/intx/en/drive/download/" target="_blank" rel="noopener noreferrer" onClick={event => {
+        <a className="bn-backup-hub-button" href={downloadUrl} target="_blank" rel="noopener noreferrer" onClick={event => {
           if (window.electronAPI?.openExternal) {
             event.preventDefault();
             Promise.resolve(window.electronAPI.openExternal(event.currentTarget.href)).catch(() => onNotice?.({ type: 'error', text: t('driveDesktopOpenFailed') }));
           }
         }}><ExternalLink size={14} />{t('driveDownloadOfficial')}</a>
-        <button type="button" className="bn-backup-hub-button primary" onClick={openDesktop} disabled={openingDesktop}>
-          {openingDesktop && <LoaderCircle size={14} className="bn-local-save-spinner" />}
-          {t(openingDesktop ? 'driveDesktopOpening' : 'driveDesktopConnectAction')}
+        {!drivePath && <button type="button" className="bn-backup-inline-action" style={{ marginTop: 12 }}
+          onClick={openDesktop} disabled={disabled} data-drive-account-action>
+          {openingDesktop ? <LoaderCircle size={14} className="bn-local-save-spinner" /> : <ExternalLink size={14} />}
+          {openingDesktop ? t('driveDesktopOpening') : text.accountAction}
+        </button>}
+        {showAccountGuide && <p role="status" data-drive-account-guide>{text.accountGuide}</p>}
+        <div style={{ marginTop: 16 }}>
+          <h4><FolderOpen size={18} />{t('driveFolderPath')}</h4>
+          {drivePath ? <div className="bn-backup-path-details"><code data-drive-folder-path>{drivePath}</code></div>
+            : <strong>{t(loadingSettings ? 'loading' : 'driveFolderNotSelected')}</strong>}
+        </div>
+        <button type="button" className={'bn-backup-hub-button' + (drivePath ? '' : ' primary')}
+          onClick={chooseFolder} disabled={disabled} data-drive-folder-action>
+          {changingFolder ? <LoaderCircle size={15} className="bn-local-save-spinner" /> : <FolderOpen size={15} />}
+          {drivePath ? t('driveDesktopChooseFolder') : text.chooseToConnect}
         </button>
+        {drivePath && <button type="button" className="bn-backup-hub-button primary" onClick={disconnect} disabled={disabled}>
+          {t('gdriveDisconnect')}
+        </button>}
+        {drivePath && <button type="button" className="bn-backup-hub-button primary" onClick={() => onBackup?.()} disabled={disabled}>{t('driveDesktopWriteAction')}</button>}
+        {drivePath && onRestoreBackup && <button type="button" className="bn-backup-hub-button" disabled={disabled || state.localSaving} onClick={() => {
+          if (window.confirm(t('backupRestoreConfirm'))) onRestoreBackup(drivePath);
+        }}>{t('backupRestoreFromFolder')}</button>}
       </section>
       <section className="bn-backup-hub-card" data-drive-choice="direct" aria-disabled="true">
         <span className="bn-drive-choice-badge is-soon">{t('driveComingSoon')}</span>
         <h4><Cloud size={18} />{t('driveMethodDirect')}</h4>
         <p>{t('driveDirectUnavailable')}</p>
-      </section>
-      <section className="bn-backup-hub-card">
-        <h4><FolderOpen size={18} />{t('driveFolderPath')}</h4>
-        <strong>{t(drivePath ? 'driveFolderSelected' : 'driveFolderNotSelected')}</strong>
-        {drivePath && <details className="bn-backup-path-details"><summary>{t('backupShowPath')}</summary><code>{drivePath}</code></details>}
-        <button type="button" className="bn-backup-hub-button" onClick={chooseFolder} disabled={state.syncing}><FolderOpen size={15} />{t('driveDesktopChooseFolder')}</button>
-        {drivePath && <button type="button" className="bn-backup-hub-button primary" onClick={() => onBackup?.()} disabled={state.syncing}>{t('driveDesktopWriteAction')}</button>}
-        {drivePath && onRestoreBackup && <button type="button" className="bn-backup-hub-button" disabled={state.syncing || state.localSaving} onClick={() => {
-          if (window.confirm(t('backupRestoreConfirm'))) onRestoreBackup(drivePath);
-        }}>{t('backupRestoreFromFolder')}</button>}
-      </section>
-      <section className="bn-backup-hub-card">
-        <h4>{t('driveCloudLastConfirmed')}</h4><strong>{t('backupNever')}</strong>
-        <p className="bn-backup-cloud-hint"><AlertCircle size={15} />{t('driveCloudUnconfirmed')}</p>
-        <button type="button" className="bn-backup-hub-button" onClick={openWeb}><ExternalLink size={14} />{t('driveOpenWeb')}</button>
       </section>
     </aside>
     <section className="bn-backup-hub-content">
@@ -84,7 +144,7 @@ export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotic
         <BackupDestinationSummary role="drive" />
         <p className="bn-backup-hub-help">{t('drivePreparationHint')}</p>
         <h4>{t('driveDesktopPreparationTitle')}</h4>
-        <BackupFilesTable rows={rows} role="drive" onReveal={onReveal} onRetryPdf={onRetryPdf} />
+        <BackupFilesTable rows={drivePath ? rows : []} role="drive" onReveal={onReveal} onRetryPdf={onRetryPdf} />
       </>
     </section>
   </div>;

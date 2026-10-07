@@ -169,6 +169,16 @@ export const createNotebookHistoryStore = ({
         await Promise.allSettled(jobs);
       }
     },
+    clearNotebooks: notebookIds => {
+      const selected = [...new Set(notebookIds)].map(id => sessions.get(id)).filter(Boolean);
+      if (selected.some(session => session.pending)) throw new Error('History operation still pending');
+      for (const session of selected) {
+        session.snapshot.stack.forEach(memory.release);
+        session.snapshot = Object.freeze({ ...session.snapshot, stack: [], pointer: -1 });
+      }
+      // One stale view must not prevent other imported notebooks from clearing their old Undo.
+      for (const session of selected) for (const listener of session.listeners) { try { listener(); } catch (_) {} }
+    },
     clear: () => {
       if ([...sessions.values()].some(session => session.pending)) throw new Error('History operation still pending');
       for (const session of sessions.values()) {

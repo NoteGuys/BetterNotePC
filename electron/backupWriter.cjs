@@ -95,11 +95,12 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   const rootKey=target.key||target.root.toLowerCase();
   if(outstanding.has(rootKey)){target[errorField]='destination-busy';return;}
   let expired=false,timer,expire;
-  const started=Date.now();
+  const started=Date.now();let allowanceMs=deadlineMs;
   const timeout=new Promise((_,reject)=>{expire=()=>{expired=true;reject(fault('destination-timeout'));};});
   const budget=bytes=>{
-   const allowance=Math.min(90000,deadlineMs+Math.ceil(Math.max(sizeHint,bytes||0)/1048576)*150);
-   clearTimeout(timer);timer=setTimeout(expire,Math.max(1,started+allowance-Date.now()));
+   // A later small manifest write must not shorten the budget granted for a large snapshot.
+   allowanceMs=Math.max(allowanceMs,Math.min(90000,deadlineMs+Math.ceil(Math.max(sizeHint,bytes||0)/1048576)*150));
+   clearTimeout(timer);timer=setTimeout(expire,Math.max(1,started+allowanceMs-Date.now()));
   };
   const current=()=>!expired;current.budget=budget;budget(sizeHint);
   const task=Promise.resolve().then(async()=>{
@@ -305,8 +306,12 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
     const scopeHash=hash(JSON.stringify([[...job.metadata.folders].sort((a,b)=>String(a.id).localeCompare(String(b.id))),
      [...job.incoming.keys()].sort().map(id=>[id,entryFor(target,id)?.editable?.hash])]));
     const alreadyCurrent=target.manifest.fullScopeHash===scopeHash&&target.manifest.fullRevision===version&&await artifactMatches(target,fullArtifact(target),version,{current});
+    let completedSnapshotIds;
+    const priorCompletedAt=target.manifest.lastDataSuccess||0;
     if(!alreadyCurrent){
-     const previousRaw=await read(within(target.root,'Full_System/BetterNote_Latest_Backup.json'));
+     const fullPath=within(target.root,'Full_System/BetterNote_Latest_Backup.json');
+     current.budget(((await stat(fullPath))?.size||0)*6);
+     const previousRaw=await read(fullPath);
      current.budget((previousRaw?.length||0)*6);
      const previous=previousRaw?parse(previousRaw):{notebooks:[],folders:[]};
      if(!fullValid(previous))throw fault('invalid-existing-backup');
@@ -328,11 +333,29 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
       buffer=>{try{return fullValid(parse(buffer));}catch(_){return false;}},current,retention,
       {previous:previousRaw,previousValidated:true,newValidated:true});
      target.manifest.fullHash=saved.hash;target.manifest.fullSize=saved.size;
+     completedSnapshotIds=new Set(full.notebooks.map(note=>note.id));
      target.manifest.lastDataSuccess=now();
     }else target.manifest.lastDataSuccess||=target.manifest.lastSync||now();
+    const activeIds=new Set(ids),retiredIds=[];
+    for(const[id,entry]of Object.entries(target.manifest.notebooks)){
+     if(activeIds.has(id)||!entry.editable?.path||!Number.isFinite(entry.editable.savedAt)||
+       entry.editable.savedAt>priorCompletedAt||entry.editable.savedAt<=0)continue;
+     if(await stat(within(target.root,entry.editable.path)))continue;
+     if(!completedSnapshotIds){
+      const fullPath=within(target.root,'Full_System/BetterNote_Latest_Backup.json');
+      current.budget(((await stat(fullPath))?.size||0)*6);
+      const raw=await read(fullPath);
+      if(!raw||hash(raw)!==target.manifest.fullHash)throw fault('backup-changed-externally');
+      const full=parse(raw);if(!fullValid(full))throw fault('invalid-existing-backup');
+      completedSnapshotIds=new Set(full.notebooks.map(note=>note.id));
+     }
+     if(!completedSnapshotIds.has(id))retiredIds.push(id);
+    }
+    // Repair metadata only: retained notebook files and history are never deleted here.
+    for(const id of retiredIds)delete target.manifest.notebooks[id];
     target.manifest.fullScopeHash=scopeHash;target.manifest.fullRevision=version;target.manifest.activeIds=ids;target.manifest.verifiedAt=now();
     if(!target.partial)target.manifest.lastSync=target.manifest.lastDataSuccess;
-    if(!alreadyCurrent)await saveManifest(target,current);
+    if(!alreadyCurrent||retiredIds.length)await saveManifest(target,current);
    });
    const targets=job.targets.map(targetResult),dataSuccess=targets.length>0&&targets.every(target=>target.dataSuccess);
    return{success:job.phase==='data'?dataSuccess:targets.length>0&&targets.every(target=>target.success),
@@ -413,7 +436,9 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
   const ids=new Set(command.notebookIds),targets=await resolveTargets(command);
   for(const target of targets)await targetAction(target,async current=>{
    target.manifest=safeManifest(await read(within(target.root,'Full_System/backup_manifest.json')));
-   const relative='Full_System/BetterNote_Latest_Backup.json',raw=await read(within(target.root,relative)),full=raw?parse(raw):null;
+   const relative='Full_System/BetterNote_Latest_Backup.json',fullPath=within(target.root,relative);
+   current.budget(((await stat(fullPath))?.size||0)*8);
+   const raw=await read(fullPath),full=raw?parse(raw):null;
    if(full&&!fullValid(full))throw fault('invalid-existing-backup');
    const folder=within(target.root,'Editable_Notes'),toRemove=[];
    const names=await fs.readdir(folder).catch(error=>{if(error.code==='ENOENT')return[];throw error;});
@@ -426,9 +451,10 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
     buffer=>{try{return fullValid(parse(buffer));}catch(_){return false;}},current,retention,{previous:raw,previousValidated:true,newValidated:true});
     target.manifest.fullHash=saved.hash;target.manifest.fullSize=saved.size;
    }
-   for(const file of toRemove){if(!current())throw fault('backup-cancelled');await fs.unlink(file).catch(error=>{if(error.code!=='ENOENT')throw error;});digestCache.delete(file.toLowerCase());}
    for(const id of ids)delete target.manifest.notebooks[id];
+   if(Array.isArray(target.manifest.activeIds))target.manifest.activeIds=target.manifest.activeIds.filter(id=>!ids.has(id));
    target.manifest.fullRevision=null;await saveManifest(target,current);
+   for(const file of toRemove){if(!current())throw fault('backup-cancelled');await fs.unlink(file).catch(error=>{if(error.code!=='ENOENT')throw error;});digestCache.delete(file.toLowerCase());}
   });
   return{success:targets.every(target=>!target.error),targets:targets.map(targetResult)};
  };

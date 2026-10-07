@@ -7630,3 +7630,12 @@ svg.bn-star-gold {
 .bn-drive-guidance li+li{margin-top:8px}
 [data-theme="light"] .bn-drive-choice-badge{color:#047857}
 [data-theme="light"] .bn-drive-choice-badge.is-soon,[data-theme="light"] .bn-drive-guidance{color:#475569}
+
+/* A restore temporarily owns the library; no notebook navigation can race its commit. */
+.bn-backup-recovery-overlay {
+  position: fixed; inset: 0; z-index: 10001; display: grid; place-items: center;
+  background: rgba(15,23,42,.55); color: #f8fafc; padding: 24px;
+}
+.bn-backup-recovery-overlay > div { background: #1e293b; padding: 24px 32px; border-radius: 14px; max-width: 520px; text-align: center; }
+.bn-backup-recovery-overlay p { margin: 0 0 10px; font-weight: 600; }
+.bn-backup-recovery-overlay small { color: #cbd5e1; }

@@ -4,6 +4,7 @@ import { generateVerifiedBackupPdf } from '../utils/backupPdf.js';
 import { createBackupController } from './backupController.js';
 import { resolveBackupReadFolder, backupReadErrorKey } from './backupReadStatus.js';
 import { t } from './i18n';
+import { restoreBackup, configureRecoveryBackups } from './backupRecoveryService.js';
 
 class AutoBackupService {
   constructor() {
@@ -25,6 +26,7 @@ class AutoBackupService {
       canRenderPdf: () => this.pointerIds.size === 0 && getLocalSaveSnapshot().status === 'saved' && Date.now() - this.lastInput > 700,
       persist: data => saveSetting('backup_v2_checkpoint', data)
     });
+    configureRecoveryBackups(() => this.controller.pauseForRecovery());
     this.controller.subscribe(() => this.notify({
       ...this.controller.getSnapshot(),
       lastSyncTime: this.controller.getSnapshot().lastSuccess,
@@ -110,14 +112,11 @@ class AutoBackupService {
   async restoreFromCloudBackup(customPath = null) {
     try {
       this.notify({ syncing: true, message: t('backupReadRestoring') });
-      const scanResult = await this.scanAvailableBackups(customPath);
-      if (!scanResult || !scanResult.success || !scanResult.data) {
-        this.notify({ syncing: false, success: false, message: t(backupReadErrorKey(scanResult?.reason)) });
-        return { ...scanResult, success: false, reason: scanResult?.reason || 'backup-read-failed' };
-      }
-
-      const { restoreFullBackup } = await import('./fileSystemService');
-      const restoreResult = await restoreFullBackup(scanResult.data);
+      const restoreResult = await restoreBackup(async () => {
+        const scan = await this.scanAvailableBackups(customPath);
+        if (!scan?.success || !scan.data) throw Object.assign(new Error(), { code: scan?.reason || 'backup-read-failed' });
+        return { data: scan.data, folder: scan.folder, source: scan.source, recoveredFolderNotebookIds: scan.recoveredFolderNotebookIds || [], ignoredRetiredNotebookIds: scan.ignoredRetiredNotebookIds || [] };
+      });
       this.notify({
         syncing: false,
         success: true,
@@ -127,12 +126,13 @@ class AutoBackupService {
       return { 
         success: true, 
         count: restoreResult.notebooksCount, 
-        folder: scanResult.folder,
-        source: scanResult.source 
+        folder: restoreResult.folder,
+        source: restoreResult.source, recoveredFolderNotebookIds: restoreResult.recoveredFolderNotebookIds || [], ignoredRetiredNotebookIds: restoreResult.ignoredRetiredNotebookIds || [], refreshFailed: !!restoreResult.refreshFailed
       };
     } catch (err) {
-      this.notify({ syncing: false, success: false, message: t('backupReadUnavailable') });
-      return { success: false, reason: 'backup-read-failed' };
+      const reason = err.code || 'backup-recovery-write-failed';
+      this.notify({ syncing: false, success: false, message: t(backupReadErrorKey(reason)) });
+      return { success: false, reason };
     }
   }
 

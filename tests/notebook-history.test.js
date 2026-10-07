@@ -199,3 +199,22 @@ test('Large stroke buffers share history without allocating point tracking entri
   store.clear();
   assert.equal(store.getRetainedBytes(), 0);
 });
+
+
+test('Recovery clears only imported notebook history and releases its retained media', () => {
+ const store=createNotebookHistoryStore(),a=store.forNotebook('restore'),b=store.forNotebook('unrelated');
+ a.append({kind:'ink',before:{images:['restored-image'.repeat(100)]}}); b.append({kind:'ink',before:{strokes:[]}});
+ const bytes=store.getRetainedBytes(),prior=b.getSnapshot();store.clearNotebooks(['restore','restore','unknown']);
+ assert.deepEqual(a.getSnapshot().stack,[]);assert.equal(a.getSnapshot().pointer,-1);assert.equal(b.getSnapshot(),prior);assert.ok(store.getRetainedBytes()<bytes);
+});
+test('Recovery refuses to clear pending history before draining the operation', async () => {
+ const store=createNotebookHistoryStore(),a=store.forNotebook('a'),b=store.forNotebook('b');a.append({id:'kept'});b.append({id:'kept-too'});
+ let release;const gate=new Promise(r=>release=r);const job=a.run(()=>gate);
+ assert.throws(()=>store.clearNotebooks(['a','b']),/pending/);assert.equal(a.getSnapshot().stack.length,1);assert.equal(b.getSnapshot().stack.length,1);
+ release();await job;store.clearNotebooks(['a']);assert.equal(a.getSnapshot().stack.length,0);assert.equal(b.getSnapshot().stack.length,1);
+});
+
+test('A faulty inactive history subscriber cannot leave other imported Undo actions behind', () => {
+ const store=createNotebookHistoryStore(),a=store.forNotebook('a'),b=store.forNotebook('b');a.append({id:'a'});b.append({id:'b'});
+ a.subscribe(()=>{throw Error('stale view');});store.clearNotebooks(['a','b']);assert.equal(a.getSnapshot().stack.length,0);assert.equal(b.getSnapshot().stack.length,0);
+});

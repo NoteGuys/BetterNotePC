@@ -9,6 +9,8 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
   now = Date.now, scheduleDelay = 10000, persist = async () => {} }) => {
   let metadata = { folders: [], notebooks: [] }, targets = [], cachedDetails = null;
   let running = null, dirtyTimer, interval, initialTimer, generation = 0, initialized = false, disposed = false;
+  let recoveryPauses = 0;
+  const pruning = new Set();
   let syncing = false, phase = 'idle', metadataPending = false, lastFailure = null, pdfDeferred = false, activeJob = null;
   let progress = { stage: 'idle', done: 0, total: 0 }, pdfProgress = { done: 0, total: 0, page: 0, totalPages: 0 };
   let snapshot = Object.freeze({ status: 'unknown', pdfStatus: 'unknown', syncing: false, targets: [], totalNotebooks: 0, lastSuccess: null });
@@ -51,7 +53,7 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
     const pdfErrors = localTargets.flatMap(target => target.pdfIssues).filter(issue => issue.error !== 'pending' && issue.error !== 'pdf-backup-deferred');
     const pdfStatus = syncing && phase === 'pdf' ? 'working' : pdfComplete ? 'current'
       : pdfErrors.length ? 'error' : initialized ? 'pending' : 'unknown';
-    snapshot = Object.freeze({ status, pdfStatus, syncing, phase, targets: nextTargets, totalNotebooks: tokens.size,
+    snapshot = Object.freeze({ status, pdfStatus, syncing, phase, recoveryPaused: recoveryPauses > 0, targets: nextTargets, totalNotebooks: tokens.size,
       metadataRevision: currentRevision, revisions: Object.fromEntries(tokens),
       notebooks: metadata.notebooks.map(note => ({ id: note.id, name: note.name, updatedAt: note.updatedAt, pageCount: note.pageCount })),
       lastSuccess: current ? Math.min(...localTargets.map(target => target.lastDataSuccess || target.lastSuccess || 0)) || null : null,
@@ -100,6 +102,7 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
     publish();
   };
   const run = (options = {}) => {
+    if (recoveryPauses) return Promise.resolve({ success: false, reason: 'backup-recovery-busy' });
     if (running) return running;
     const startGeneration = generation;
     syncing = true; phase = 'data'; lastFailure = null; pdfDeferred = false;
@@ -107,7 +110,9 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
     running = (async () => {
       let jobId, dataCompleted = false, paths;
       try {
-        await waitForLocalSaves(); paths = await readPaths();
+        await waitForLocalSaves();
+        if (recoveryPauses) return { success: false, reason: 'backup-recovery-busy' };
+        paths = await readPaths();
         metadata = await getMetadata(); metadataPending = false;
         const original = metadata;
         if (!original.notebooks.length && !original.folders.length) return { success: false, reason: 'empty-library' };
@@ -165,14 +170,14 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
           if (!targets.some(target => !target.error && !Object.hasOwn(target.notebookIssues || {}, info.id) &&
             target.notebooks?.[info.id]?.editable?.revision === notebookBackupRevision(info))) continue;
           if (pathsKey(await readPaths()) !== pathsKey(paths) || generation !== startGeneration && metadataPending) break;
-          if (!canRenderPdf()) { pdfDeferred = true; break; }
+          if (recoveryPauses || !canRenderPdf()) { pdfDeferred = true; break; }
           const note = await getNotebook(info.id);
           if (!note?.pages?.length || notebookBackupRevision(note) !== notebookBackupRevision(info)) { pdfDeferred = true; continue; }
           pdfProgress = { ...pdfProgress, notebookId: info.id, name: info.name, page: 0, totalPages: note.pages.length }; publish();
           let base64 = null, pdfError = null;
           try {
             base64 = await makePdf(note, page => {
-              if (!canRenderPdf()) throw new Error('pdf-backup-deferred');
+              if (recoveryPauses || !canRenderPdf()) throw new Error('pdf-backup-deferred');
               if (page?.page) { pdfProgress = { ...pdfProgress, page: page.page, totalPages: page.totalPages || note.pages.length }; publish(); }
             }, { force: !!options.forcePdf });
             if (!base64) pdfError = 'pdf-backup-incomplete';
@@ -181,6 +186,7 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
               : /image|รูป|ภาพ/i.test(error.message || '') ? 'pdf-backup-image-invalid' : 'pdf-backup-incomplete';
             pdfDeferred ||= pdfError === 'pdf-backup-deferred';
           }
+          if (recoveryPauses) { pdfDeferred = true; break; }
           const saved = await native({ action: 'pdf', jobId, ...paths, notebookId: info.id,
             revision: notebookBackupRevision(info), pdfRevision: notebookPdfRevision(note), pdfBase64: base64, pdfError,
             blockedNotebookTargets: targets.filter(target => Object.hasOwn(target.notebookIssues || {}, info.id)).map(target => target.targetDir) });
@@ -208,7 +214,7 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
     return running;
   };
   const schedule = () => {
-    clearTimeout(dirtyTimer); if (disposed) return;
+    clearTimeout(dirtyTimer); if (disposed || recoveryPauses) return;
     dirtyTimer = setTimeout(() => {
       if (getLocalState().status !== 'saved') { schedule(); return; }
       if (snapshot.status !== 'current' || !snapshot.allDestinationsCurrent || pdfDeferred) run();
@@ -227,21 +233,40 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
   };
   const start = () => {
     disposed = false; if (interval) return;
-    initialize(); initialTimer = setTimeout(() => { if (snapshot.status !== 'current' || !snapshot.allDestinationsCurrent || !snapshot.allPdfsCurrent) run(); }, 20000);
+    initialize(); initialTimer = setTimeout(() => { if (!recoveryPauses && !disposed && (snapshot.status !== 'current' || !snapshot.allDestinationsCurrent || !snapshot.allPdfsCurrent)) run(); }, 20000);
     interval = setInterval(() => {
-      if (!running) refresh({ inspect: true, deepVerify: true }).then(() => {
-        if (!disposed && (snapshot.status !== 'current' || !snapshot.allDestinationsCurrent || !snapshot.allPdfsCurrent)) run();
+      if (!running && !recoveryPauses) refresh({ inspect: true, deepVerify: true }).then(() => {
+        if (!disposed && !recoveryPauses && (snapshot.status !== 'current' || !snapshot.allDestinationsCurrent || !snapshot.allPdfsCurrent)) run();
       }).catch(() => {});
     }, 3600000);
   };
   const stop = () => { disposed = true; clearTimeout(dirtyTimer); clearTimeout(initialTimer); clearInterval(interval); interval = null; };
-  const prune = async ids => {
-    if (running) await running;
-    const result = await native({ action: 'prune', notebookIds: ids, ...await readPaths() }); updateTargets(result);
-    if (!result?.success) lastFailure = result?.reason || 'backup-delete-incomplete';
-    await refresh(); return result;
+  const prune = ids => {
+    if (recoveryPauses) return Promise.resolve({ success: false, reason: 'backup-recovery-busy' });
+    const job = (async () => {
+      if (running) await running;
+      const paths = await readPaths();
+      if (recoveryPauses) return { success: false, reason: 'backup-recovery-busy' };
+      const result = await native({ action: 'prune', notebookIds: ids, ...paths }); updateTargets(result);
+      if (!result?.success) lastFailure = result?.reason || 'backup-delete-incomplete';
+      await refresh(); return result;
+    })();
+    pruning.add(job); job.then(() => pruning.delete(job), () => pruning.delete(job));
+    return job;
   };
-  return { run, start, stop, initialize, refresh, markDirty, localStateChanged, destinationChanged, prune, nativeProgress,
+  const pauseForRecovery = () => {
+    recoveryPauses++; clearTimeout(dirtyTimer); publish();
+    let released = false;
+    return {
+      wait: async () => { await Promise.allSettled([running, ...pruning].filter(Boolean)); },
+      resume: ({ changed = false } = {}) => {
+        if (released) return; released = true; recoveryPauses--;
+        if (changed) { cachedDetails = null; generation++; metadataPending = true; }
+        publish(); schedule();
+      }
+    };
+  };
+  return { run, pauseForRecovery, start, stop, initialize, refresh, markDirty, localStateChanged, destinationChanged, prune, nativeProgress,
     getCachedDetails: () => cachedDetails, getSnapshot: () => snapshot,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
     waitForRunning: () => running || Promise.resolve() };

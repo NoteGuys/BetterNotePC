@@ -249,3 +249,111 @@ test('Windows filename case changes cannot make a valid notebook disappear from 
   await fs.rename(source, path.join(path.dirname(source), path.basename(source).toUpperCase()));
   assert.equal((await read(root)).success, true);
 });
+
+
+test('Packaged reader uses its shared validator without any development src directory', async () => {
+ const root=await fixture(),app=path.join(root,'packaged-app'),folder=path.join(root,'selected');
+ await fs.mkdir(path.join(app,'electron'),{recursive:true});await fs.writeFile(path.join(app,'package.json'),JSON.stringify({type:'module'}));
+ for(const file of ['backupReader.cjs','backupReader.worker.cjs','backupReaderClient.cjs','backupValidation.js'])
+   await fs.copyFile(path.join(__dirname,'../electron',file),path.join(app,'electron',file));
+ await legacy(folder);
+ const {createBackupReaderClient:packaged}=require(path.join(app,'electron/backupReaderClient.cjs'));const client=packaged();
+ try{const result=await client.execute({folderPath:folder});assert.equal(result.success,true);assert.equal(result.data.notebooks[0].id,'a');}
+ finally{await client.close();}
+});
+
+
+test('Verified v2 notebooks with deleted folder references restore to Documents with their full content', async () => {
+  const root=await fixture(),a=note('a',2),b=note('b',3);a.folderId='deleted-folder';b.folderId='another-deleted-folder';
+  const manifest=await modern(root,[a,b]),before=await fs.readFile(path.join(root,'Full_System/backup_manifest.json'),'utf8');
+  const result=await read(root);assert.equal(result.success,true);assert.deepEqual(result.recoveredFolderNotebookIds,['a','b']);
+  for(const restored of result.data.notebooks){const original=restored.id==='a'?a:b;assert.equal(restored.folderId,null);assert.ok(restored.updatedAt>original.updatedAt);assert.deepEqual(restored.pages,original.pages);}
+  assert.equal(await fs.readFile(path.join(root,'Full_System/backup_manifest.json'),'utf8'),before);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(root,manifest.notebooks.a.editable.path),'utf8')),a);
+});
+test('A complete current manifest ignores archived duplicate, unrelated and damaged old filenames', async () => {
+  const root=await fixture();await modern(root);await json(root,'Editable_Notes/old-name.bnote',{...note('a',20),folderId:'old-folder'});
+  await json(root,'Editable_Notes/unrelated-old.bnote',note('archived',50));await fs.writeFile(path.join(root,'Editable_Notes/truncated-old.bnote'),'{');
+  const opened=[],reader=createBackupReader({fs:{...fs,open:async(...args)=>{opened.push(path.basename(args[0]));return fs.open(...args);}}});
+  const result=await reader.execute({folderPath:root});assert.equal(result.success,true);assert.equal(result.data.notebooks.length,1);assert.equal(result.data.notebooks[0].id,'a');
+  for(const file of ['old-name.bnote','unrelated-old.bnote','truncated-old.bnote'])assert.ok(!opened.includes(file));
+});
+test('Orphan folder compatibility never bypasses an invalid folder hierarchy or damaged tracked notebook', async () => {
+  const root=await fixture(),a=note();a.folderId='deleted-folder';const manifest=await modern(root,[a]);
+  const artifact=path.join(root,manifest.notebooks.a.editable.path),raw=await fs.readFile(artifact,'utf8');
+  await fs.writeFile(artifact,raw.replace('Engineering','Xngineering'));expectBlocked(await read(root),'backup-incomplete');
+  await fs.writeFile(artifact,raw);const fullFile=path.join(root,'Full_System/BetterNote_Latest_Backup.json'),full=JSON.parse(await fs.readFile(fullFile,'utf8'));
+  full.folders=[{id:'child',parentId:'missing-parent'}];const bytes=Buffer.from(JSON.stringify(full));await fs.writeFile(fullFile,bytes);
+  manifest.fullSize=bytes.length;manifest.fullHash=require('node:crypto').createHash('sha256').update(bytes).digest('hex');await json(root,'Full_System/backup_manifest.json',manifest);
+  expectBlocked(await read(root),'backup-incomplete');
+});
+test('Matching full-snapshot notebooks verify their editable hashes with a bounded 1 MiB buffer', async () => {
+  const root=await fixture(),a=note();a.pdfBase64='x'.repeat(3*1048576);const manifest=await modern(root,[a]);let largest=0;
+  const artifact=path.join(root,manifest.notebooks.a.editable.path),reader=createBackupReader({fs:{...fs,open:async(...args)=>{
+    const handle=await fs.open(...args);if(args[0]===artifact){const read=handle.read.bind(handle);handle.read=(buffer,...rest)=>{largest=Math.max(largest,buffer.length);return read(buffer,...rest);};}return handle;
+  }}});
+  const result=await reader.execute({folderPath:root});assert.equal(result.success,true);assert.equal(result.data.notebooks[0].pdfBase64.length,a.pdfBase64.length);assert.ok(largest>0&&largest<=1048576);
+});
+test('A progressing cold Drive read may exceed the old five-second per-operation deadline', async () => {
+  const root=await fixture();await modern(root);let delayed=false;
+  const reader=createBackupReader({fs:{...fs,open:async(...args)=>{if(!delayed){delayed=true;await new Promise(resolve=>setTimeout(resolve,5100));}return fs.open(...args);}}});
+  assert.equal((await reader.execute({folderPath:root})).success,true);
+});
+
+
+test('A recovered folder relocation can be backed up again without an equal-time conflict', async () => {
+ const root=await fixture(),original=note();original.folderId='deleted-folder';await modern(root,[original]);const recovered=await read(root);assert.equal(recovered.success,true);
+ const writer=createBackupWriter({localDir:root,driveCandidates:[]}),data=recovered.data,metadata={folders:data.folders,notebooks:data.notebooks.map(({pages,...header})=>header)};
+ assert.equal((await writer.execute({action:'begin',jobId:'after-recovery',metadata,metadataRevision:'after-recovery',phase:'data'})).success,true);
+ assert.equal((await writer.execute({action:'notebook',jobId:'after-recovery',notebook:data.notebooks[0],pdfRevision:'pending'})).success,true);
+ assert.equal((await writer.execute({action:'finish',jobId:'after-recovery',metadataRevision:'after-recovery'})).success,true);
+ const second=await read(root);assert.equal(second.success,true);assert.deepEqual(second.recoveredFolderNotebookIds,[]);assert.equal(second.data.notebooks[0].folderId,null);
+});
+
+
+test('A trusted retained full-snapshot notebook with a reserved object-key ID remains recoverable',async()=>{
+ const root=await fixture(),manifest=await modern(root),fullFile=path.join(root,'Full_System/BetterNote_Latest_Backup.json'),full=JSON.parse(await fs.readFile(fullFile,'utf8'));
+ full.notebooks.push(note('constructor'));const bytes=Buffer.from(JSON.stringify(full));await fs.writeFile(fullFile,bytes);manifest.fullSize=bytes.length;manifest.fullHash=require('node:crypto').createHash('sha256').update(bytes).digest('hex');await json(root,'Full_System/backup_manifest.json',manifest);
+ const result=await read(root);assert.equal(result.success,true);assert.equal(result.count,2);assert.ok(result.data.notebooks.some(note=>note.id==='constructor'));
+});
+
+
+async function staleDeletedEntriesFixture() {
+ const root=await fixture(),a=note('active'),b=note('retired-1'),c=note('retired-2'),prior=await modern(root,[a,b,c]);
+ const writer=createBackupWriter({localDir:root,driveCandidates:[]});assert.equal((await writer.execute({action:'prune',notebookIds:[b.id,c.id]})).success,true);
+ const metadata={folders:[],notebooks:[{...a,pages:undefined}]};
+ assert.equal((await writer.execute({action:'begin',jobId:'new-current',metadata,metadataRevision:'new-current',phase:'data'})).success,true);
+ assert.equal((await writer.execute({action:'reuse',jobId:'new-current',notebook:a})).success,true);
+ assert.equal((await writer.execute({action:'finish',jobId:'new-current',metadataRevision:'new-current'})).success,true);
+ const file=path.join(root,'Full_System/backup_manifest.json'),manifest=JSON.parse(await fs.readFile(file,'utf8'));
+ manifest.notebooks[b.id]=prior.notebooks[b.id];manifest.notebooks[c.id]=prior.notebooks[c.id];await json(root,'Full_System/backup_manifest.json',manifest);
+ return {root,a,b,c,manifest,file};
+}
+test('Restore ignores only old inactive missing list entries absent from a verified committed snapshot',async()=>{
+ const {root,a,file}=await staleDeletedEntriesFixture(),before=await fs.readFile(file,'utf8');
+ const preview=await read(root,{previewOnly:true});assert.equal(preview.success,true);assert.equal(preview.count,1);assert.equal(preview.inactiveEntriesPendingCheck,2);
+ const restored=await read(root);assert.equal(restored.success,true);assert.equal(restored.count,1);assert.deepEqual(restored.data.notebooks,[a]);assert.deepEqual(restored.ignoredRetiredNotebookIds,['retired-1','retired-2']);
+ assert.equal(await fs.readFile(file,'utf8'),before);
+});
+test('A missing current file still blocks Restore even with a valid full snapshot',async()=>{
+ const {root,a,manifest}=await staleDeletedEntriesFixture();await fs.unlink(path.join(root,manifest.notebooks[a.id].editable.path));expectBlocked(await read(root),'backup-incomplete');
+});
+test('Missing inactive data that is still in the complete snapshot remains protected',async()=>{
+ const root=await fixture(),manifest=await modern(root,[note('a'),note('b')]);manifest.activeIds=['a'];await json(root,'Full_System/backup_manifest.json',manifest);
+ await fs.unlink(path.join(root,manifest.notebooks.b.editable.path));expectBlocked(await read(root),'backup-incomplete');
+});
+test('Without explicit committed scope and times, missing entries cannot be treated as retired',async()=>{
+ for(const mutate of [m=>delete m.activeIds,m=>m.fullRevision=null,m=>delete m.lastDataSuccess,m=>delete m.notebooks['retired-1'].editable.savedAt]){
+  const {root,manifest}=await staleDeletedEntriesFixture();mutate(manifest);await json(root,'Full_System/backup_manifest.json',manifest);expectBlocked(await read(root),'backup-incomplete');
+ }
+});
+test('A newer staged notebook must not be skipped when its file is still downloading',async()=>{
+ const {root,manifest}=await staleDeletedEntriesFixture();manifest.notebooks['retired-1'].editable.savedAt=manifest.lastDataSuccess+1;await json(root,'Full_System/backup_manifest.json',manifest);expectBlocked(await read(root),'backup-incomplete');
+});
+test('A tampered full snapshot cannot authorize ignoring any missing old entry',async()=>{
+ const {root}=await staleDeletedEntriesFixture(),file=path.join(root,'Full_System/BetterNote_Latest_Backup.json'),raw=await fs.readFile(file,'utf8');await fs.writeFile(file,raw.replace('Engineering','Xngineering'));expectBlocked(await read(root),'backup-incomplete');
+});
+test('An inactive editable file that exists remains recoverable rather than being discarded by scope',async()=>{
+ const {root,b,manifest}=await staleDeletedEntriesFixture();await json(root,manifest.notebooks[b.id].editable.path,b);
+ const result=await read(root);assert.equal(result.success,true);assert.ok(result.data.notebooks.some(n=>n.id===b.id));assert.deepEqual(result.ignoredRetiredNotebookIds,['retired-2']);
+});

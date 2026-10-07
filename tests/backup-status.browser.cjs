@@ -18,6 +18,7 @@ const entry="\nimport React,{useState} from 'react';import{createRoot}from'react
   const assets=path.join(root,'dist/assets'),worker=fs.readdirSync(assets).find(name=>/^notebookCover\.worker-.*\.js$/.test(name));
   if(!worker)throw Error('Run npm run build before the browser checks.');
   const plugin={name:'qa-inline-cover-worker',setup(build){
+    require('./helpers/recovery-worker.cjs').setupRecoveryWorker(build);
    build.onResolve({filter:/pdf\.worker\.min\.mjs\?url$/},()=>({path:'pdf-worker-url',namespace:'qa-url'}));
    build.onLoad({filter:/.*/,namespace:'qa-url'},()=>({contents:"export default '/qa-unused-pdf-worker.mjs';",loader:'js'}));
    build.onResolve({filter:/notebookCover\.worker\.js\?worker&inline$/},()=>({path:'cover-factory',namespace:'qa-cover-worker'}));

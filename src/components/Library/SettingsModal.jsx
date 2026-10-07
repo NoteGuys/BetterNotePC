@@ -1,3 +1,4 @@
+import { backupReadErrorKey } from '../../services/backupReadStatus.js';
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, 
@@ -138,13 +139,15 @@ export const SettingsModal = ({
       const { autoBackupService } = await import('../../services/autoBackupService');
       const res = await autoBackupService.restoreFromCloudBackup(backupPath);
       if (res.success) {
+        if (res.ignoredRetiredNotebookIds?.length) alert(t('backupRecoveryRetiredEntries', '', { count: res.ignoredRetiredNotebookIds.length }));
+        if (res.recoveredFolderNotebookIds?.length) alert(t('backupRecoveryMissingFolders', '', { count: res.recoveredFolderNotebookIds.length }));
         setRestoreMessage(t('gdriveRestoreSuccess', `✓ Success! Restored ${res.count} notebooks.`, { count: res.count }));
         setTimeout(() => {
           if (onClose) onClose();
-          window.location.reload();
+          if (res.refreshFailed) alert(t('backupRecoveryRefreshFailed'));
         }, 1500);
       } else {
-        setRestoreMessage(t('backupNotFound', 'No backup files found in this folder. Please verify the folder location.'));
+        setRestoreMessage(t(backupReadErrorKey(res.reason)));
         setTimeout(() => setRestoreMessage(null), 4000);
       }
     } catch (err) {

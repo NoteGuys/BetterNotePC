@@ -3,6 +3,7 @@ const fs = require('node:fs'), disk = fs.promises, path = require('node:path'), 
 const esbuild = require('esbuild');
 const { chromium } = require(process.env.BETTERNOTE_PLAYWRIGHT_PATH || 'playwright');
 const { createBackupReaderClient } = require('../electron/backupReaderClient.cjs');
+const { createBackupWriter } = require('../electron/backupWriter.cjs');
 const root = fs.realpathSync(path.resolve(__dirname, '..')), qaRoot = process.env.BETTERNOTE_QA_TEMP;
 if (!qaRoot || !path.isAbsolute(qaRoot)) throw Error('Set BETTERNOTE_QA_TEMP to the isolated QA folder.');
 const origin = 'https://betternote-phase3.invalid/', passed = [];
@@ -26,6 +27,7 @@ const entry = "import React,{useState} from 'react';import{createRoot}from'react
   const assets = path.join(root, 'dist/assets'), worker = fs.readdirSync(assets).find(name => /^notebookCover\.worker-.*\.js$/.test(name));
   if (!worker) throw Error('Run npm run build first.');
   const plugin = { name:'qa-worker',setup(build) {
+    require('./helpers/recovery-worker.cjs').setupRecoveryWorker(build);
    build.onResolve({filter:/pdf\.worker\.min\.mjs\?url$/},()=>({path:'pdf',namespace:'qa-url'}));
    build.onLoad({filter:/.*/,namespace:'qa-url'},()=>({contents:"export default '/unused-worker.mjs';",loader:'js'}));
    build.onResolve({filter:/notebookCover\.worker\.js\?worker&inline$/},()=>({path:'cover',namespace:'qa-cover'}));
@@ -96,6 +98,56 @@ const entry = "import React,{useState} from 'react';import{createRoot}from'react
       try{return await qa.backup.restoreFromCloudBackup();}finally{window.electronAPI.scanBackupFolder=original;}
     });
     assert.equal(result.success,false);assert.equal(result.reason,'backup-read-failed');
+  });
+  await check('Both real Restore from Folder buttons recover deleted-folder notes and explain the Documents placement in four languages', async () => {
+    const sources = [];
+    for (const role of ['local','drive']) {
+      const directory=path.join(fixture,'current-v2-'+role),id='qa-orphan-'+role;
+      const note={...remote,id,name:role+' recovered note',folderId:'previously-deleted',pages:remote.pages.map((page,index)=>({...page,id:id+'-p'+index,notebookId:id}))};
+      const writer=createBackupWriter({localDir:directory,driveCandidates:[]});
+      const metadata={folders:[],notebooks:[{...note,pages:undefined}]};
+      assert.equal((await writer.execute({action:'begin',jobId:'qa-'+role,metadata,metadataRevision:'qa-'+role,phase:'data'})).success,true);
+      assert.equal((await writer.execute({action:'notebook',jobId:'qa-'+role,notebook:note,pdfRevision:'pending'})).success,true);
+      assert.equal((await writer.execute({action:'finish',jobId:'qa-'+role,metadataRevision:'qa-'+role})).success,true);
+      sources.push({role,directory,note});
+    }
+    await page.evaluate(async sources=>{await qa.db.saveSetting('local_backup_path',sources[0].directory);await qa.db.saveSetting('gdrive_backup_method','desktop');await qa.db.saveSetting('gdrive_backup_path',sources[1].directory);},sources);
+    for (const language of ['en','th','zh','ru']) for (const source of sources) {
+      await page.evaluate(language=>qa.lang.setAppLanguage(language),language);
+      await page.locator('.bn-backup-indicator').click();await page.locator('.bn-backup-hub').waitFor();
+      if(source.role==='drive')await page.locator('.bn-backup-hub-tabs [role="tab"]').nth(1).click();
+      const label=await page.evaluate(()=>qa.lang.t('backupRestoreFromFolder')),count=await page.evaluate(()=>qa.alerts.length);
+      await page.locator('.bn-backup-hub').getByRole('button',{name:label,exact:true}).click();
+      await page.waitForFunction(count=>qa.alerts.length>count,count);
+      assert.equal(await page.evaluate(()=>qa.alerts.at(-1)),await page.evaluate(()=>qa.lang.t('backupRecoveryMissingFolders','',{count:1})));
+      const restored=await page.evaluate(id=>qa.db.getBackupNotebookSnapshot(id),source.note.id);assert.equal(restored.folderId,null);assert.deepEqual(restored.pages,source.note.pages);
+      assert.equal(await page.evaluate(()=>qa.scans.at(-1).folder),source.directory);
+      await page.locator('.bn-backup-hub .bn-modal-close-btn').click();
+    }
+  });
+  await check('Drive Restore skips two verified obsolete references and reports this in every selected language', async () => {
+    const directory=path.join(fixture,'stale-drive'),writer=createBackupWriter({localDir:directory,driveCandidates:[]});
+    const ids=['qa-stale-current','qa-stale-old-a','qa-stale-old-b'],notes=ids.map(id=>({...remote,id,name:id,folderId:null,pages:remote.pages.map((page,index)=>({...page,id:id+'-p'+index,notebookId:id}))}));
+    const round=async (records,jobId)=>{
+      const metadata={folders:[],notebooks:records.map(({pages,...header})=>header)};
+      assert.equal((await writer.execute({action:'begin',jobId,metadata,metadataRevision:jobId,phase:'data'})).success,true);
+      for(const notebook of records)assert.equal((await writer.execute({action:'notebook',jobId,notebook,pdfRevision:'pending'})).success,true);
+      assert.equal((await writer.execute({action:'finish',jobId,metadataRevision:jobId})).success,true);
+    };
+    await round(notes,'old-complete');const manifestFile=path.join(directory,'Full_System/backup_manifest.json'),prior=JSON.parse(await disk.readFile(manifestFile,'utf8'));
+    assert.equal((await writer.execute({action:'prune',notebookIds:ids.slice(1)})).success,true);await round([notes[0]],'latest-complete');
+    const latest=JSON.parse(await disk.readFile(manifestFile,'utf8'));for(const id of ids.slice(1))latest.notebooks[id]=prior.notebooks[id];await disk.writeFile(manifestFile,JSON.stringify(latest));
+    const before=await disk.readFile(manifestFile,'utf8');await page.evaluate(directory=>qa.db.saveSetting('gdrive_backup_path',directory),directory);
+    for(const language of ['en','th','zh','ru']){
+      await page.evaluate(language=>qa.lang.setAppLanguage(language),language);await page.locator('.bn-backup-indicator').click();await page.locator('.bn-backup-hub').waitFor();
+      await page.locator('.bn-backup-hub-tabs [role="tab"]').nth(1).click();const label=await page.evaluate(()=>qa.lang.t('backupRestoreFromFolder')),count=await page.evaluate(()=>qa.alerts.length);
+      await page.locator('.bn-backup-hub').getByRole('button',{name:label,exact:true}).click();await page.waitForFunction(count=>qa.alerts.length>count,count);
+      assert.equal(await page.evaluate(()=>qa.alerts.at(-1)),await page.evaluate(()=>qa.lang.t('backupRecoveryRetiredEntries','',{count:2})));
+      const stored=await page.evaluate(id=>qa.db.getBackupNotebookSnapshot(id),ids[0]);assert.deepEqual(stored.pages,notes[0].pages);
+      assert.equal(await page.evaluate(async ids=>(await qa.db.getAllNotebooks()).some(note=>ids.includes(note.id)),ids.slice(1)),false);
+      await page.locator('.bn-backup-hub .bn-modal-close-btn').click();
+    }
+    assert.equal(await disk.readFile(manifestFile,'utf8'),before);
   });
   await check('The settings dialog still opens while a background backup read is waiting', async () => {
     await page.evaluate(()=>qa.lang.setAppLanguage('en'));

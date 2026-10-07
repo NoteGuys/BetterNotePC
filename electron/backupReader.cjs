@@ -17,68 +17,6 @@ const contentHash = note => digest(JSON.stringify(note, (key, value) => {
   if (['updatedAt', 'createdAt', 'thumbnailUrl', 'thumbnailUpdatedAt'].includes(key)) return undefined;
   return object(value) ? Object.fromEntries(Object.keys(value).sort().map(k => [k, value[k]])) : value;
 }));
-function validateNotebook(value) {
-  if (!object(value) || !validId(value.id) || !Array.isArray(value.pages) || !value.pages.length ||
-      value.name !== undefined && typeof value.name !== 'string' ||
-      value.updatedAt !== undefined && (!Number.isFinite(value.updatedAt) || value.updatedAt < 0) ||
-      value.folderId != null && !validId(value.folderId) ||
-      value.pageCount !== undefined && value.pageCount !== value.pages.length) throw fault('invalid-backup-data');
-  const ids = new Set(), indexes = new Set();
-  const pages = value.pages.map((page, index) => {
-    if (!object(page) || !validId(page.id) || ids.has(page.id) ||
-        page.notebookId !== undefined && page.notebookId !== value.id) throw fault('invalid-backup-data');
-    const pageIndex = page.pageIndex ?? index;
-    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= value.pages.length || indexes.has(pageIndex)) throw fault('invalid-backup-data');
-    for (const key of ['strokes', 'textElements', 'imageElements', 'drawings', 'textBlocks', 'images']) {
-      if (page[key] !== undefined && !Array.isArray(page[key])) throw fault('invalid-backup-data');
-    }
-    for (const key of ['pageWidth', 'pageHeight']) {
-      if (page[key] !== undefined && (!Number.isFinite(page[key]) || page[key] <= 0)) throw fault('invalid-backup-data');
-    }
-    if (page.pdfPageImage != null && typeof page.pdfPageImage !== 'string') throw fault('invalid-backup-data');
-    for (const key of ['strokes', 'textElements', 'imageElements']) for (const element of page[key] || []) {
-      if (!object(element)) throw fault('invalid-backup-data');
-      for (const coordinate of ['x', 'y', 'width', 'height']) {
-        if (element[coordinate] !== undefined && !Number.isFinite(element[coordinate])) throw fault('invalid-backup-data');
-      }
-      if (key === 'strokes' && element.points !== undefined && (!Array.isArray(element.points) ||
-          element.points.some(point => !object(point) || !Number.isFinite(point.x) || !Number.isFinite(point.y)))) throw fault('invalid-backup-data');
-      if (key === 'textElements' && element.text !== undefined && typeof element.text !== 'string' ||
-          key === 'imageElements' && element.src !== undefined && typeof element.src !== 'string') throw fault('invalid-backup-data');
-    }
-    ids.add(page.id); indexes.add(pageIndex);
-    return { ...page, notebookId: value.id, pageIndex };
-  }).sort((a, b) => a.pageIndex - b.pageIndex);
-  return { ...value, pageCount: pages.length, pages };
-}
-function validateLibrary(folders, notebooks) {
-  const folderMap = new Map(), notebookIds = new Set(), pageIds = new Set();
-  for (const folder of folders) {
-    if (!object(folder) || !validId(folder.id) || folderMap.has(folder.id) ||
-        folder.parentId != null && !validId(folder.parentId)) throw fault('invalid-backup-data');
-    folderMap.set(folder.id, folder);
-  }
-  const checked = new Set();
-  for (const folder of folders) {
-    const trail = new Set(); let current = folder;
-    while (current && !checked.has(current.id)) {
-      if (trail.has(current.id)) throw fault('invalid-backup-data');
-      trail.add(current.id);
-      if (current.parentId && !folderMap.has(current.parentId)) throw fault('backup-incomplete');
-      current = folderMap.get(current.parentId);
-    }
-    for (const id of trail) checked.add(id);
-  }
-  for (const note of notebooks) {
-    if (notebookIds.has(note.id)) throw fault('invalid-backup-data');
-    notebookIds.add(note.id);
-    if (note.folderId && !folderMap.has(note.folderId)) throw fault('backup-incomplete');
-    for (const page of note.pages) {
-      if (pageIds.has(page.id)) throw fault('invalid-backup-data');
-      pageIds.add(page.id);
-    }
-  }
-}
 function validateManifest(value, maxFileBytes) {
   if (!object(value) || value.version !== 2 || !object(value.notebooks)) throw fault('invalid-backup-manifest');
   for (const [id, entry] of Object.entries(value.notebooks)) {
@@ -100,7 +38,7 @@ function validateManifest(value, maxFileBytes) {
       (!/^[a-f0-9]{64}$/.test(value.fullHash) || !Number.isSafeInteger(value.fullSize) || value.fullSize <= 0)) throw fault('invalid-backup-manifest');
   return value;
 }
-function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 * 1048576,
+function createBackupReader({ fs = disk, deadlineMs = 30000, onProgress = () => {}, maxFileBytes = 256 * 1048576,
   maxTotalBytes = 512 * 1048576, maxFiles = 10000 } = {}) {
   // Cache summaries only, never notebook pages, images, or raw file contents.
   const summaries = new Map();
@@ -115,6 +53,7 @@ function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 *
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   };
   async function readFolder(folderPath, previewOnly) {
+    const { validateNotebook, validateLibrary, recoverMissingNotebookFolders } = await import('./backupValidation.js');
     const requested = path.resolve(folderPath);
     const rootStat = await optionalStat(requested);
     if (!rootStat) throw fault('not-found');
@@ -134,31 +73,41 @@ function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 *
       if (remainder === '..' || remainder.startsWith('..' + path.sep) || path.isAbsolute(remainder)) throw fault('unsafe-backup-path');
       records.set(file, stamp(stat)); return stat;
     };
-    const readJson = async (relative, limit = maxFileBytes) => {
+    const progress = details => { try { onProgress(details); } catch (_) {} };
+    const readArtifact = async (relative, { limit = maxFileBytes, parseJson = true } = {}) => {
       const stat = await safeStat(relative);
       if (!stat) return null;
       if (!stat.isFile()) throw fault('invalid-backup-data');
       if (stat.size > limit || bytesRead + stat.size > maxTotalBytes) throw fault('backup-too-large');
       bytesRead += stat.size;
       const file = within(relative), opening = fs.open(file, 'r');
-      let handle, raw;
+      progress({ stage: 'reading', bytesDone: 0, totalBytes: stat.size });
+      let handle, raw, hash;
       try { handle = await timed(opening); }
       catch (error) { opening.then(late => late.close().catch(() => {}), () => {}); throw error; }
       try {
         if (stamp(await timed(handle.stat())) !== stamp(stat)) throw fault('backup-changed-during-read');
-        // Bounded reads: a file growing after stat cannot allocate an unbounded buffer.
-        raw = Buffer.allocUnsafe(stat.size);
-        for (let offset = 0; offset < raw.length;) {
-          const chunk = await timed(handle.read(raw, offset, Math.min(1048576, raw.length - offset), offset));
+        // Hash an already-parsed full-snapshot notebook using one 1 MiB buffer.
+        raw = Buffer.allocUnsafe(parseJson ? stat.size : Math.min(1048576, stat.size));
+        const hasher = createHash('sha256');
+        for (let offset = 0; offset < stat.size;) {
+          const bufferOffset = parseJson ? offset : 0;
+          const chunk = await timed(handle.read(raw, bufferOffset, Math.min(1048576, stat.size - offset), offset));
           if (!chunk.bytesRead) throw fault('backup-changed-during-read');
+          hasher.update(raw.subarray(bufferOffset, bufferOffset + chunk.bytesRead));
           offset += chunk.bytesRead;
+          progress({ stage: 'reading', bytesDone: offset, totalBytes: stat.size });
         }
-        if ((await timed(handle.read(Buffer.alloc(1), 0, 1, raw.length))).bytesRead ||
+        hash = hasher.digest('hex');
+        if ((await timed(handle.read(Buffer.alloc(1), 0, 1, stat.size))).bytesRead ||
             stamp(await timed(handle.stat())) !== stamp(stat) || stamp(await optionalStat(file)) !== stamp(stat)) throw fault('backup-changed-during-read');
       } finally { await timed(handle.close()); }
-      try { return { value: JSON.parse(raw.toString('utf8')), hash: digest(raw) }; }
+      if (!parseJson) return { hash };
+      progress({ stage: 'checking', bytesDone: stat.size, totalBytes: stat.size });
+      try { return { value: JSON.parse(raw.toString('utf8')), hash }; }
       catch (_) { throw fault('invalid-backup-data'); }
     };
+    const readJson = (relative, limit = maxFileBytes) => readArtifact(relative, { limit });
     const manifestFile = 'Full_System/backup_manifest.json', fullFile = 'Full_System/BetterNote_Latest_Backup.json';
     const manifestRaw = await readJson(manifestFile, 8 * 1048576);
     const manifest = manifestRaw ? validateManifest(manifestRaw.value, maxFileBytes) : null;
@@ -166,15 +115,26 @@ function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 *
     if (fullStat && !fullStat.isFile() || editStat && !editStat.isDirectory()) throw fault('invalid-backup-data');
     if (fullStat?.size > maxFileBytes) throw fault('backup-too-large');
     const listed = editStat ? await timed(fs.readdir(within('Editable_Notes'))) : [];
-    const files = listed.filter(name => name.toLowerCase().endsWith('.bnote')).sort();
+    // v2 manifest names the current set. Old filenames remain for safety, not automatic import.
+    const files = manifest ? Object.values(manifest.notebooks).map(entry => path.basename(entry.editable.path.replace(/\\/g, '/')))
+      : listed.filter(name => name.toLowerCase().endsWith('.bnote')).sort();
     if (files.length > maxFiles || Object.keys(manifest?.notebooks || {}).length > maxFiles) throw fault('backup-too-large');
-    const issues = [];
+    const issues = [], deferredMissingIds = new Set(), ignoredRetiredNotebookIds = [];
+    const activeIds = manifest?.activeIds ? new Set(manifest.activeIds) : null;
+    const completedAt = manifest?.lastDataSuccess;
+    const completedSnapshot = activeIds && typeof manifest.fullRevision === 'string' && !!manifest.fullRevision &&
+      Number.isFinite(completedAt) && completedAt > 0;
     const issue = (reason, id = null, name = '') => issues.push({ reason, id, name });
     if (manifest) {
       if (!manifest.fullHash || !fullStat || fullStat.size !== manifest.fullSize) issue('backup-incomplete');
       for (const [id, entry] of Object.entries(manifest.notebooks)) {
         const stat = await safeStat(entry.editable.path);
-        if (!stat?.isFile() || stat.size !== entry.editable.size) issue('backup-incomplete', id, entry.name);
+        if (!stat?.isFile() || stat.size !== entry.editable.size) {
+          // A missing inactive entry may be left behind after deletion. Verify the full snapshot before ignoring it.
+          if (!stat && completedSnapshot && !activeIds.has(id) && Number.isFinite(entry.editable.savedAt) &&
+              entry.editable.savedAt > 0 && entry.editable.savedAt <= completedAt) deferredMissingIds.add(id);
+          else issue('backup-incomplete', id, entry.name);
+        }
         if (entry.backupConflict) issue('backup-conflict', id, entry.name);
       }
       if (issues.length) return { success: false, reason: issues[0].reason, folder: requested, issues };
@@ -182,9 +142,9 @@ function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 *
     // A manifest preview checks availability only. Content/hashes are rechecked on Restore.
     if (manifest && previewOnly) {
       await ensureUnchanged();
-      const notebooks = Object.entries(manifest.notebooks).map(([id, entry]) => ({ ...header({ ...entry, id }), revision: entry.editable.revision }));
+      const notebooks = Object.entries(manifest.notebooks).filter(([id]) => !deferredMissingIds.has(id)).map(([id, entry]) => ({ ...header({ ...entry, id }), revision: entry.editable.revision }));
       return { success: true, folder: requested, source: 'validated-backup', count: notebooks.length,
-        notebooks, verification: 'metadata-only' };
+        notebooks, verification: 'metadata-only', inactiveEntriesPendingCheck: deferredMissingIds.size };
     }
     // Legacy folders have no manifest: invalidate a small metadata cache on every file stamp.
     for (const file of files) await safeStat(path.join('Editable_Notes', file));
@@ -192,7 +152,7 @@ function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 *
     if (!manifest && previewOnly && summaries.has(root) && summaries.get(root).key === cacheKey) {
       await ensureUnchanged(); return { ...summaries.get(root).result, folder: requested };
     }
-    const selected = new Map(), verifiedEditableIds = new Set(); let folders = [];
+    const selected = new Map(), verifiedEditableIds = new Set(), matchingFullNotes = new Map(); let folders = [];
     const add = (note, source) => {
       const fingerprint = contentHash(note), old = selected.get(note.id);
       if (!old) { selected.set(note.id, { note, fingerprint, source }); return; }
@@ -203,7 +163,7 @@ function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 *
     };
     const full = await readJson(fullFile);
     if (full) {
-      if (manifest && full.hash !== manifest.fullHash) issue('backup-incomplete');
+      if (manifest && full.hash !== manifest.fullHash) return { success: false, reason: 'backup-incomplete', folder: requested, issues: [{ reason: 'backup-incomplete' }] };
       if (!object(full.value) || !Array.isArray(full.value.notebooks) || !Array.isArray(full.value.folders) ||
           full.value.appName !== undefined && full.value.appName !== 'BetterNote' || full.value.notebooks.length > maxFiles) throw fault('invalid-backup-data');
       folders = full.value.folders;
@@ -212,43 +172,50 @@ function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 *
         const note = validateNotebook(value);
         if (seen.has(note.id)) throw fault('invalid-backup-data');
         seen.add(note.id); add(note, 'full');
+        const entry = manifest && Object.hasOwn(manifest.notebooks, note.id) ? manifest.notebooks[note.id] : null;
+        if (entry && revision(note) === entry.editable.revision && digest(JSON.stringify(value)) === entry.editable.hash) matchingFullNotes.set(note.id, note);
       }
     }
+    if (manifest && deferredMissingIds.size) {
+      for (const id of deferredMissingIds) {
+        if (full && !selected.has(id)) ignoredRetiredNotebookIds.push(id);
+        else issue('backup-incomplete', id, manifest.notebooks[id].name);
+      }
+    }
+    const ignoredRetiredIds = new Set(ignoredRetiredNotebookIds);
+    const manifestByPath = new Map(Object.entries(manifest?.notebooks || {}).map(([id, entry]) => [fileKey(entry.editable.path), { id, entry }]));
     for (const file of files) {
-      const relative = path.join('Editable_Notes', file), raw = await readJson(relative);
+      const relative = path.join('Editable_Notes', file), indexed = manifestByPath.get(fileKey(relative));
+      if (indexed && ignoredRetiredIds.has(indexed.id)) continue;
+      const fullNote = indexed && matchingFullNotes.get(indexed.id);
+      const raw = await readArtifact(relative, { parseJson: !fullNote });
       if (!raw) { issue('backup-changed-during-read'); continue; }
-      const note = validateNotebook(raw.value), entry = manifest?.notebooks[note.id];
+      const note = fullNote || validateNotebook(raw.value), entry = indexed?.entry;
       if (manifest) {
-        if (!Object.hasOwn(manifest.notebooks, note.id)) {
-          issue('backup-incomplete', note.id, note.name); continue;
-        }
-        if (fileKey(entry.editable.path) !== fileKey(relative)) {
-          // Old filename copies can remain after upgrading the backup writer.
-          const old = selected.get(note.id);
-          if (!old || (Number(note.updatedAt) || 0) > (Number(entry.updatedAt) || 0) ||
-              (Number(note.updatedAt) || 0) === (Number(old.note.updatedAt) || 0) && contentHash(note) !== old.fingerprint) {
-            issue('backup-conflict', note.id, note.name);
-          }
-          continue;
-        }
-        if (raw.hash !== entry.editable.hash || revision(note) !== entry.editable.revision) {
-          issue('backup-incomplete', note.id, note.name); continue;
+        if (!indexed || note.id !== indexed.id || raw.hash !== entry.editable.hash || revision(note) !== entry.editable.revision) {
+          issue('backup-incomplete', indexed?.id || note.id, note.name); continue;
         }
         verifiedEditableIds.add(note.id);
       }
-      add(note, relative);
+      // The exact notebook is already in the verified full snapshot: do not parse/hash its rich content twice.
+      if (!fullNote) add(note, relative);
     }
     if (manifest) for (const id of Object.keys(manifest.notebooks)) {
-      if (!verifiedEditableIds.has(id)) issue('backup-incomplete', id, manifest.notebooks[id].name);
+      if (!ignoredRetiredIds.has(id) && !verifiedEditableIds.has(id)) issue('backup-incomplete', id, manifest.notebooks[id].name);
     }
     await ensureUnchanged();
     if (issues.length) return { success: false, reason: issues[0].reason, folder: requested, issues };
     if (!selected.size && !folders.length) throw fault('not-found');
-    const notebooks = [...selected.values()].map(item => item.note);
+    let notebooks = [...selected.values()].map(item => item.note), recoveredFolderNotebookIds = [];
+    if (manifest) ({ notebooks, recoveredFolderNotebookIds } = recoverMissingNotebookFolders(folders, notebooks));
     validateLibrary(folders, notebooks);
+    const recoveredById = new Map(notebooks.map(note => [note.id, note]));
     const summary = { success: true, folder: requested, source: 'validated-backup', count: notebooks.length,
-      verification: 'content-checked', notebooks: [...selected.values()].map(item => ({ ...header(item.note),
-        revision: revision(item.note), contentHash: item.fingerprint, selectedSource: item.source })) };
+      verification: 'content-checked', recoveredFolderNotebookIds, ignoredRetiredNotebookIds, notebooks: [...selected.values()].map(item => {
+        const note = recoveredById.get(item.note.id);
+        return { ...header(note), revision: revision(note),
+          contentHash: note === item.note ? item.fingerprint : contentHash(note), selectedSource: item.source };
+      }) };
     if (previewOnly) {
       summaries.delete(root); summaries.set(root, { key: cacheKey, result: summary });
       if (summaries.size > 4) summaries.delete(summaries.keys().next().value);
@@ -282,4 +249,4 @@ function createBackupReader({ fs = disk, deadlineMs = 5000, maxFileBytes = 256 *
     return previewOnly ? found[0] : scanOne(found[0].folder, false);
   } };
 }
-module.exports = { createBackupReader, validateNotebook, validateLibrary };
+module.exports = { createBackupReader };

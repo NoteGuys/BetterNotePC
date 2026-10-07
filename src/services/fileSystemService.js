@@ -1,5 +1,6 @@
 // File System Service for Local Disk & Synced Cloud Drive (Google Drive/OneDrive folder)
-import { getAllFolders, getAllNotebooks, getPagesByNotebookId, saveFolder, saveNotebook, savePage } from './db';
+import { getAllFolders, getAllNotebooks, getPagesByNotebookId, saveNotebook, savePage } from './db';
+import { restoreBackup } from './backupRecoveryService.js';
 
 /**
  * Save data as a local file (using File System Access API or Blob download)
@@ -74,66 +75,10 @@ export const exportFullBackup = async () => {
 /**
  * Restore full BetterNote database from a parsed backup data object
  */
-export const restoreFullBackup = async (data) => {
-  if (!data || !data.notebooks) {
-    throw new Error('รูปแบบไฟล์ไม่ถูกต้อง ไม่พบข้อมูลสมุดโน้ต');
-  }
+export const restoreFullBackup = data => restoreBackup(() => ({ data }));
 
-  // Restore folders
-  if (data.folders && Array.isArray(data.folders)) {
-    for (const f of data.folders) {
-      if (f && f.id) {
-        await saveFolder(f);
-      }
-    }
-  }
-
-  let restoredCount = 0;
-  // Restore notebooks & pages
-  for (const nb of data.notebooks) {
-    if (!nb || (!nb.id && !nb.name)) continue;
-    const { pages, ...notebookMeta } = nb;
-    await saveNotebook(notebookMeta);
-
-    if (pages && Array.isArray(pages) && pages.length > 0) {
-      for (const p of pages) {
-        if (p && p.id) {
-          await savePage(p);
-        }
-      }
-    } else {
-      // Ensure at least 1 page exists if pages array wasn't bundled
-      const existingPages = await getPagesByNotebookId(notebookMeta.id);
-      if (!existingPages || existingPages.length === 0) {
-        await savePage({
-          id: `${notebookMeta.id}_page_0`,
-          notebookId: notebookMeta.id,
-          pageIndex: 0,
-          strokes: [],
-          drawings: [],
-          textBlocks: [],
-          images: [],
-          templateId: notebookMeta.templateId || 'blank'
-        });
-      }
-    }
-    restoredCount++;
-  }
-
-  return {
-    foldersCount: data.folders?.length || 0,
-    notebooksCount: restoredCount
-  };
-};
-
-/**
- * Import full BetterNote database from a local file
- */
-export const importFullBackup = async (file) => {
-  const text = await file.text();
-  const data = JSON.parse(text);
-  return await restoreFullBackup(data);
-};
+/** Import/validate the selected JSON in a bundled local worker. */
+export const importFullBackup = file => restoreBackup(() => ({ file }));
 
 /**
  * Import a single .bnote file and save its notebook and pages to IndexedDB

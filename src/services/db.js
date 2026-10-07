@@ -117,6 +117,64 @@ const writeTransaction = (storeNames, operation) => {
 };
 const nextUpdatedAt = (...timestamps) => Math.max(Date.now(), ...timestamps.map(value => (Number(value) || 0) + 1));
 
+// Recovery only: one transaction; retain incoming timestamps and unrelated notebooks.
+// Called in the bundled worker so rich pages are never cloned through the UI.
+export const restoreBackupAtomic = (data, operationId) => writeTransaction(
+  ['folders', 'notebooks', 'pages', 'settings'], (tx, done, abort) => {
+    const pageStore = tx.objectStore('pages'), notebookStore = tx.objectStore('notebooks');
+    const result = { foldersCount: data.folders.length, notebooksCount: data.notebooks.length,
+      notebooks: data.notebooks.map(note => ({ id: note.id, name: note.name, pageCount: note.pages.length })) };
+    const fail = code => abort(Object.assign(new Error(code), { code }));
+    const saveNextNotebook = index => {
+      try {
+        if (index >= data.notebooks.length) {
+          tx.objectStore('settings').put({ key: 'backup_recovery_receipt', value: { operationId, result } });
+          done(result); return;
+        }
+        const { pages, ...note } = data.notebooks[index];
+        notebookStore.put({ ...note, pageCount: pages.length });
+        let pageIndex = 0;
+        const saveNextPage = () => {
+          try {
+            if (pageIndex >= pages.length) { saveNextNotebook(index + 1); return; }
+            const page = pages[pageIndex++], request = pageStore.get(page.id);
+            request.onsuccess = () => {
+              try {
+                if (request.result && request.result.notebookId !== note.id) { fail('backup-recovery-id-conflict'); return; }
+                pageStore.put(page).onsuccess = saveNextPage;
+              } catch (error) { abort(error); }
+            };
+          } catch (error) { abort(error); }
+        };
+        saveNextPage();
+      } catch (error) { abort(error); }
+    };
+    // Delete old pages before inserting reordered pages with the same unique index.
+    const ids = data.notebooks.map(note => note.id);
+    const deleteNextNotebook = index => {
+      if (index >= ids.length) { saveNextNotebook(0); return; }
+      const request = pageStore.index('notebookId').openKeyCursor(IDBKeyRange.only(ids[index]));
+      request.onsuccess = () => {
+        try {
+          const cursor = request.result;
+          if (!cursor) { deleteNextNotebook(index + 1); return; }
+          pageStore.delete(cursor.primaryKey); cursor.continue();
+        } catch (error) { abort(error); }
+      };
+    };
+    for (const folder of data.folders) tx.objectStore('folders').put(folder);
+    deleteNextNotebook(0);
+  }
+);
+export const getBackupRecoveryReceipt = async () => {
+  const store = await getStore('settings');
+  return new Promise((resolve, reject) => {
+    const request = store.get('backup_recovery_receipt');
+    request.onsuccess = () => resolve(request.result?.value || null);
+    request.onerror = () => reject(request.error);
+  });
+};
+
 // ==================== FOLDERS ====================
 export const getFolders = async (parentId = null) => {
   const store = await getStore('folders', 'readonly');

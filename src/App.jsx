@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react';
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
 import BackupStatusModal from './components/Library/BackupStatusModal';
@@ -27,6 +27,8 @@ import { exportNotebookToPdf } from './utils/pdfExportEngine';
 import { getPaperSize } from './data/templates';
 import { getAppTheme, setAppTheme, applyThemeToDom } from './services/userPreferences';
 import { useLanguage } from './services/i18n';
+import { backupReadErrorKey } from './services/backupReadStatus.js';
+import { backupRecovery, setRecoveryEditorActive, subscribeBackupRestored } from './services/backupRecoveryService.js';
 import { MAX_OPEN_NOTEBOOK_TABS } from './utils/documentTabs';
 import { localizeNotebookCopyName } from './utils/notebookNames';
 import { subscribeNotebookCovers, setNotebookCoverLibraryVisible } from './services/notebookCoverService';
@@ -41,7 +43,13 @@ export function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isClosingAfterSave, setIsClosingAfterSave] = useState(false);
 
-  const isCoverLibraryVisible = !isLoading && !(activeNotebookId && notebooks.some(item => item.id === activeNotebookId));
+  const recovery = useSyncExternalStore(backupRecovery.subscribe, backupRecovery.getSnapshot);
+  const hasOpenEditor = !!activeNotebookId && notebooks.some(item => item.id === activeNotebookId);
+  useLayoutEffect(() => {
+    setRecoveryEditorActive(hasOpenEditor);
+    return () => setRecoveryEditorActive(false);
+  }, [hasOpenEditor]);
+  const isCoverLibraryVisible = !recovery.active && !isLoading && !(activeNotebookId && notebooks.some(item => item.id === activeNotebookId));
   useLayoutEffect(() => {
     // Pause previews before an editor becomes interactive; resume only in the library.
     setNotebookCoverLibraryVisible(isCoverLibraryVisible);
@@ -168,6 +176,7 @@ export function App() {
       try {
         document.activeElement?.blur();
         await new Promise(resolve => requestAnimationFrame(resolve));
+        await backupRecovery.waitForPending();
         await flushLocalSaves({ retry: true });
         api.completeCloseSaveRequest({ requestId, success: true });
       } catch (_) {
@@ -178,7 +187,8 @@ export function App() {
     const cancel = api?.onCloseSaveCancelled?.(() => setIsClosingAfterSave(false));
     api?.setLocalSaveGuardReady?.({ labels });
     const beforeUnload = event => {
-      if (getLocalSaveSnapshot().status !== 'saved') {
+      const restoring = backupRecovery.getSnapshot();
+      if (restoring.active && restoring.phase !== 'unconfirmed' || getLocalSaveSnapshot().status !== 'saved') {
         event.preventDefault();
         event.returnValue = '';
       }
@@ -191,7 +201,7 @@ export function App() {
   }, [t]);
 
   // Load all library data
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async ({ recovery = false } = {}) => {
     try {
       await seedInitialData();
       const [allF, allN, connected, email] = await Promise.all([
@@ -209,6 +219,7 @@ export function App() {
       setOpenTabs(prev => prev.filter(tab => allN.some(nb => nb.id === tab.id)).slice(0, MAX_OPEN_NOTEBOOK_TABS));
     } catch (err) {
       console.error('Failed to load initial data:', err);
+      if (recovery) throw err;
     } finally {
       setIsLoading(false);
     }
@@ -217,6 +228,19 @@ export function App() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => subscribeBackupRestored(async result => {
+    await loadData({ recovery: true });
+    const restored = new Map(result.notebooks.map(note => [note.id, note]));
+    const clamp = (index, note) => Math.max(0, Math.min(Number(index) || 0, note.pageCount - 1));
+    setOpenTabs(tabs => tabs.map(tab => restored.has(tab.id)
+      ? { ...tab, title: restored.get(tab.id).name, pageIndex: clamp(tab.pageIndex, restored.get(tab.id)) } : tab));
+    setNotebookPageMap(previous => {
+      const next = { ...previous };
+      for (const [id, note] of restored) if (Object.hasOwn(next, id)) next[id] = clamp(next[id], note);
+      return next;
+    });
+  }), [loadData]);
 
   // Build folder navigation chain for breadcrumb
   const getFolderChain = () => {
@@ -502,11 +526,10 @@ export function App() {
       }
 
       const result = await importFullBackup(file);
-      alert(`กู้คืนข้อมูลสำเร็จ! นำเข้าแล้ว ${result.notebooksCount} สมุดบันทึก`);
-      await loadData();
+      alert(result.refreshFailed ? t('backupRecoveryRefreshFailed') : t('backupReadRestored', '', { count: result.notebooksCount }));
     } catch (err) {
       console.error(err);
-      alert('เกิดข้อผิดพลาดในการกู้คืน: ' + err.message);
+      alert(file.name.endsWith('.bnote') ? 'เกิดข้อผิดพลาดในการกู้คืน: ' + err.message : t(backupReadErrorKey(err.code || 'backup-recovery-write-failed')));
     }
   };
 
@@ -541,6 +564,7 @@ export function App() {
 
   return (
     <div className="bn-app-root">
+      <div inert={recovery.active ? '' : undefined} style={{ display: 'contents' }}>
       {/* Pro Studio Multi-Document Tab Bar (Max 9) */}
       <DocumentTabBar 
         tabs={openTabs}
@@ -617,6 +641,14 @@ export function App() {
         onClose={() => setIsUpdateModalOpen(false)}
         updateData={updateModalData}
       />
+      </div>
+      {recovery.active && (
+        <div className="bn-backup-recovery-overlay" role="status" aria-live="polite">
+          <div><p>{t(({ waiting: 'backupRecoveryWaiting', checking: 'backupRecoveryChecking',
+            writing: 'backupRecoveryWriting', refreshing: 'backupRecoveryRefreshing', unconfirmed: 'backupRecoveryUnconfirmed' })[recovery.phase])}</p>
+            {recovery.phase !== 'unconfirmed' && <small>{t('backupRecoveryKeepOpen')}</small>}</div>
+        </div>
+      )}
     </div>
   );
 }

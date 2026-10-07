@@ -1,5 +1,11 @@
 // Recovery errors are shown in the selected language; native errors never become raw UI text.
 const recoveryErrorKeys = Object.freeze({
+  'backup-recovery-unconfirmed': 'backupRecoveryUnconfirmed',
+  'backup-recovery-busy': 'backupRecoveryBusy',
+  'backup-recovery-editor-open': 'backupRecoveryEditorOpen',
+  'backup-recovery-unsaved': 'backupRecoveryUnsaved',
+  'backup-recovery-write-failed': 'backupRecoveryWriteFailed',
+  'backup-recovery-id-conflict': 'backupRecoveryIdConflict',
   'not-found': 'backupReadNotFound',
   'backup-incomplete': 'backupReadIncomplete',
   'backup-conflict': 'backupReadConflict',

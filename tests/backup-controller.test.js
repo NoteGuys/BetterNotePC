@@ -286,3 +286,38 @@ for(const stage of ['startup','periodic'])test('The '+stage+' check notices miss
   assert.equal(attempts,1,'Automatic verification must schedule the incomplete Drive destination');
  }finally{core.stop();context.mock.timers.reset();}
 });
+
+
+test('Recovery pause blocks manual backup and prune until its idempotent release', async () => {
+ const env=setup(); await env.core.run(); const prior=env.calls.length;
+ const lease=env.core.pauseForRecovery(); await lease.wait();
+ assert.equal((await env.core.run()).reason,'backup-recovery-busy');
+ assert.equal((await env.core.prune(['n'])).reason,'backup-recovery-busy'); assert.equal(env.calls.length,prior);
+ lease.resume({changed:true}); lease.resume({changed:true});
+ assert.equal(env.core.getSnapshot().recoveryPaused,false); assert.equal(env.core.getSnapshot().metadataPending,true);
+ await env.core.run(); assert.equal(env.core.getSnapshot().status,'current'); env.core.stop();
+});
+test('Recovery drains an active data backup but defers its PDF stage', async () => {
+ const gate=Promise.withResolvers(); let env; let entered=false;
+ env=setup({yieldTask:async()=>{entered=true;await gate.promise;}}); const job=env.core.run();
+ while(!entered)await new Promise(r=>setTimeout(r,1));
+ const lease=env.core.pauseForRecovery(); let drained=false; const wait=lease.wait().then(()=>{drained=true;});
+ await Promise.resolve(); assert.equal(drained,false); gate.resolve(); await job; await wait;
+ assert.ok(env.calls.includes('finish')); assert.equal(env.getPdfCalls(),0); lease.resume(); env.core.stop();
+});
+test('Pausing while a backup awaits local saves prevents beginning a writer job', async () => {
+ const gate=Promise.withResolvers(); const env=setup({waitForLocalSaves:()=>gate.promise});
+ const job=env.core.run(); const lease=env.core.pauseForRecovery(); gate.resolve(); await lease.wait();
+ assert.equal((await job).reason,'backup-recovery-busy'); assert.deepEqual(env.calls,[]); lease.resume(); env.core.stop();
+});
+test('Recovery also drains an already running native prune', async () => {
+ const gate=Promise.withResolvers(); let entered=false; const env=setup({native:async command=>{
+   if(command.action==='prune'){entered=true;await gate.promise;} return {success:true,targets:[]}; }});
+ const job=env.core.prune(['n']); while(!entered)await new Promise(r=>setTimeout(r,1));
+ const lease=env.core.pauseForRecovery(); let drained=false; const wait=lease.wait().then(()=>{drained=true;});
+ await Promise.resolve(); assert.equal(drained,false); gate.resolve(); await job; await wait; assert.equal(drained,true); lease.resume(); env.core.stop();
+});
+test('Nested recovery pauses do not resume a backup prematurely', async () => {
+ const env=setup(),a=env.core.pauseForRecovery(),b=env.core.pauseForRecovery();a.resume();
+ assert.equal((await env.core.run()).reason,'backup-recovery-busy');b.resume(); assert.equal((await env.core.run()).success,true);env.core.stop();
+});

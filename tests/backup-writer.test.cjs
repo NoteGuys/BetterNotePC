@@ -323,3 +323,48 @@ test('An older notebook is reported by ID and keeps its backup while other noteb
  assert.equal(target.notebooks.healthy.editable.revision,notebookBackupRevision(note('healthy','Healthy',20)));
  assert.deepEqual(await fs.readFile(fullFile(root)),prior);
 });
+
+
+test('Pruning publishes matching active IDs and manifest before deleting obsolete files',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note('a'),note('b')]);
+ const result=await writer.execute({action:'prune',notebookIds:['b']});assert.equal(result.success,true);
+ const m=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));assert.deepEqual(m.activeIds,['a']);assert.equal(Object.hasOwn(m.notebooks,'b'),false);
+ const {createBackupReader}=require('../electron/backupReader.cjs');const read=await createBackupReader().execute({folderPath:root});assert.equal(read.success,true);assert.equal(read.count,1);
+});
+test('Manifest publication failure leaves notebook files untouched during pruning',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note('a'),note('b')]);const file=path.join(root,'Full_System/backup_manifest.json'),prior=JSON.parse(await fs.readFile(file));
+ const bfile=path.join(root,prior.notebooks.b.editable.path),before=await fs.readFile(bfile);
+ const failing=createBackupWriter({localDir:root,beforeReplace:async({relative})=>{if(relative==='Full_System/backup_manifest.json')throw Object.assign(Error('manifest write failed'),{code:'EIO'});}});
+ assert.equal((await failing.execute({action:'prune',notebookIds:['b']})).success,false);assert.deepEqual(await fs.readFile(bfile),before);assert.deepEqual(JSON.parse(await fs.readFile(file)),prior);
+});
+test('An interrupted file cleanup leaves unindexed old files while the latest snapshot remains restorable',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note('a'),note('b')]);
+ const failing=createBackupWriter({localDir:root,fs:{...fs,unlink:async file=>{if(file.endsWith('.bnote'))throw Object.assign(Error('cleanup failed'),{code:'EIO'});return fs.unlink(file);}}});
+ assert.equal((await failing.execute({action:'prune',notebookIds:['b']})).success,false);
+ const {createBackupReader}=require('../electron/backupReader.cjs'),result=await createBackupReader().execute({folderPath:root});assert.equal(result.success,true);assert.equal(result.count,1);assert.equal(result.data.notebooks[0].id,'a');
+});
+test('A normal unchanged backup removes only dangling old inactive manifest references',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note('a'),note('b')]);const file=path.join(root,'Full_System/backup_manifest.json'),prior=JSON.parse(await fs.readFile(file));
+ await writer.execute({action:'prune',notebookIds:['b']});assert.equal((await run(writer,[note('a')])).success,true);
+ const current=JSON.parse(await fs.readFile(file));current.notebooks.b=prior.notebooks.b;await fs.writeFile(file,JSON.stringify(current));const fullBefore=await fs.readFile(fullFile(root));
+ assert.equal((await run(createBackupWriter({localDir:root}),[note('a')])).success,true);
+ const repaired=JSON.parse(await fs.readFile(file));assert.equal(Object.hasOwn(repaired.notebooks,'b'),false);assert.deepEqual(await fs.readFile(fullFile(root)),fullBefore);
+});
+test('Inactive files with real retained data and newer staged entries are not removed by reconciliation',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note('a'),note('b')]);assert.equal((await run(writer,[note('a')])).success,true);
+ let manifest=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));assert.ok(manifest.notebooks.b);assert.ok(JSON.parse(await fs.readFile(fullFile(root))).notebooks.some(note=>note.id==='b'));
+ const staged=note('late-stage');
+ assert.equal((await writer.execute({action:'begin',jobId:'staged',metadata:meta([staged]),metadataRevision:'staged',phase:'data'})).success,true);
+ assert.equal((await writer.execute({action:'notebook',jobId:'staged',notebook:staged,pdfBase64:null,pdfRevision:'pending'})).success,true);
+ await writer.execute({action:'abort',jobId:'staged'});
+ manifest=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));manifest.notebooks['late-stage'].editable.savedAt=Date.now()+60000;
+ await fs.unlink(path.join(root,manifest.notebooks['late-stage'].editable.path));
+ await fs.writeFile(path.join(root,'Full_System/backup_manifest.json'),JSON.stringify(manifest));assert.equal((await run(createBackupWriter({localDir:root}),[note('a')])).success,true);
+ manifest=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));assert.ok(manifest.notebooks.b);assert.ok(manifest.notebooks['late-stage']);
+});
+test('A large full-snapshot budget does not shrink when its small manifest is published',async()=>{
+ const root=await fixture(),n=note();n.pdfBase64='x'.repeat(2*1048576);
+ const writer=createBackupWriter({localDir:root,deadlineMs:60,beforeReplace:async({relative})=>{if(relative==='Full_System/BetterNote_Latest_Backup.json')await new Promise(resolve=>setTimeout(resolve,300));}});
+ const result=await run(writer,[n]);assert.equal(result.success,true);const m=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));assert.equal(m.fullSize,(await fs.stat(fullFile(root))).size);
+ const {createBackupReader}=require('../electron/backupReader.cjs');assert.equal((await createBackupReader().execute({folderPath:root})).success,true);
+});

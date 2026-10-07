@@ -24,6 +24,7 @@ targetPaths.set(path.join(root, 'src', 'components', 'Common', 'DocumentTabBar.j
 const plugin = {
   name: 'capture-real-component-props',
   setup(build) {
+    require('./helpers/recovery-worker.cjs').setupRecoveryWorker(build);
     build.onResolve({ filter: /^qa-original:/ }, args => ({ path: args.path.slice('qa-original:'.length), namespace: 'qa-original' }));
     build.onLoad({ filter: /.*/, namespace: 'qa-original' }, args => ({ contents: fs.readFileSync(args.path, 'utf8'), loader: 'jsx', resolveDir: path.dirname(args.path) }));
     build.onResolve({ filter: /notebookCover\.worker\.js\?worker&inline$/ }, () => ({ path:'thumbnail-worker-factory', namespace:'qa-thumbnail-worker' }));
