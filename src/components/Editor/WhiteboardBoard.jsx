@@ -3,6 +3,7 @@ import { Maximize, Infinity as InfinityIcon } from 'lucide-react';
 import { CanvasBoard } from './CanvasBoard';
 import { getElementBounds, getWhiteboardContentBounds, intersectsViewport, mergeVisibleElements } from '../../utils/whiteboard';
 import { useLanguage } from '../../services/i18n';
+import { createTouchGuard, createTwoFingerTap, touchSnapshot, normalizeWheel } from '../../utils/touchNavigation';
 
 const transformElement = (item, kind, view, zoom, toWorld = false) => {
   const scale = toWorld ? 1 / zoom : zoom;
@@ -18,7 +19,10 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
   const { t } = useLanguage();
   const viewportRef = useRef(null), gestureRef = useRef(null), contactsRef = useRef(new Set());
   const rafRef = useRef(null), pendingViewRef = useRef(null), lastZoomRef = useRef(zoom), wheelTimerRef = useRef(null);
-  const lastTouchTapRef = useRef(0);
+  const touchGuardRef = useRef(null), touchTapRef = useRef(null);
+  if (!touchGuardRef.current) touchGuardRef.current = createTouchGuard();
+  if (!touchTapRef.current) touchTapRef.current = createTwoFingerTap();
+  const pendingZoomRef = useRef(null);
   const navigationResetRef = useRef(false);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [view, setView] = useState(() => { const b = getWhiteboardContentBounds(page); return { x: b.empty ? 0 : b.x, y: b.empty ? 0 : b.y }; });
@@ -26,11 +30,19 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
   const viewRef = useRef(view), sizeRef = useRef(size), zoomRef = useRef(zoom), propsRef = useRef(props);
   viewRef.current = view; sizeRef.current = size; zoomRef.current = zoom; propsRef.current = props;
 
-  const queueView = next => {
+  const queueView = (next, nextZoom = null) => {
     pendingViewRef.current = next;
+    if (nextZoom !== null) pendingZoomRef.current = nextZoom;
     if (!rafRef.current) rafRef.current = requestAnimationFrame(() => {
+      if (window.__bn_pen_active || window.__bn_drag_active || contactsRef.current.size) {
+        rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null; navigationResetRef.current = false;
+        return;
+      }
       if (navigationResetRef.current) { navigationResetRef.current = false; setGeneration(value => value + 1); }
-      rafRef.current = null; const next = pendingViewRef.current; pendingViewRef.current = null; viewRef.current = next; setView(next);
+      rafRef.current = null; const next = pendingViewRef.current; pendingViewRef.current = null;
+      const nextZoom = pendingZoomRef.current; pendingZoomRef.current = null;
+      if (nextZoom !== null) { lastZoomRef.current = nextZoom; zoomRef.current = nextZoom; propsRef.current.onZoomChange?.(nextZoom); }
+      viewRef.current = next; setView(next);
     });
   };
   useLayoutEffect(() => {
@@ -52,13 +64,28 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
   }, [page.id, view, size, zoom, onViewportChange]);
   useEffect(() => {
     const release = event => contactsRef.current.delete(event.pointerId);
-    const blur = () => { contactsRef.current.clear(); gestureRef.current = null; };
+    const blur = () => {
+      contactsRef.current.clear(); gestureRef.current = null;
+      touchGuardRef.current.suspend(); touchTapRef.current.cancel();
+      cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null;
+      navigationResetRef.current = false; clearTimeout(wheelTimerRef.current); wheelTimerRef.current = null;
+    };
+    const pointerDown = event => { if (event.pointerType !== 'touch' || !viewportRef.current?.contains(event.target) || event.target.closest?.('.bn-whiteboard-controls, input, textarea, button')) { touchGuardRef.current.block(); touchTapRef.current.cancel(); gestureRef.current = null; cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null; } };
+    const outsideRelease = event => {
+      if (viewportRef.current?.contains(event.target)) return;
+      touchGuardRef.current.update(event.touches, !!(window.__bn_pen_active || window.__bn_drag_active));
+      touchGuardRef.current.suspend(); touchTapRef.current.cancel(); gestureRef.current = null;
+      cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null;
+    };
+    window.addEventListener('touchend', outsideRelease);
+    window.addEventListener('touchcancel', outsideRelease);
+    window.addEventListener('pointerdown', pointerDown, true);
     const visibility = () => { if (document.hidden) blur(); };
     window.addEventListener('blur', blur);
     window.addEventListener('lostpointercapture', release);
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('pointerup', release); window.addEventListener('pointercancel', release);
-    return () => { window.removeEventListener('blur', blur); window.removeEventListener('lostpointercapture', release);
+    return () => { blur(); window.removeEventListener('touchend', outsideRelease); window.removeEventListener('touchcancel', outsideRelease); window.removeEventListener('pointerdown', pointerDown, true); window.removeEventListener('blur', blur); window.removeEventListener('lostpointercapture', release);
       document.removeEventListener('visibilitychange', visibility); window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release); cancelAnimationFrame(rafRef.current); clearTimeout(wheelTimerRef.current); };
   }, []);
   useEffect(() => {
@@ -66,18 +93,18 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
     const wheel = event => {
       event.preventDefault(); event.stopPropagation();
       if (event.target.closest('textarea, input, .bn-modal-backdrop')) return;
-      if (contactsRef.current.size || window.__bn_pen_active || window.__bn_drag_active) return;
+      if (contactsRef.current.size || touchGuardRef.current.size || window.__bn_pen_active || window.__bn_drag_active) return;
+      touchTapRef.current.cancel();
       if (!wheelTimerRef.current) navigationResetRef.current = true;
       clearTimeout(wheelTimerRef.current); wheelTimerRef.current = setTimeout(() => { wheelTimerRef.current = null; }, 180);
-      const v = pendingViewRef.current || viewRef.current, z = zoomRef.current;
+      const v = pendingViewRef.current || viewRef.current, z = pendingZoomRef.current ?? zoomRef.current;
+      const delta = normalizeWheel(event, sizeRef.current.height);
       if (event.ctrlKey) {
-        const nextZoom = Math.min(3.5, Math.max(0.01, z * Math.exp(-event.deltaY * 0.002)));
+        const nextZoom = Math.min(3.5, Math.max(0.01, z * Math.exp(-delta.y * 0.002)));
         const r = node.getBoundingClientRect(), x = event.clientX - r.left, y = event.clientY - r.top;
-        lastZoomRef.current = nextZoom; queueView({ x: v.x + x / z - x / nextZoom, y: v.y + y / z - y / nextZoom });
-        propsRef.current.onZoomChange?.(nextZoom);
+        queueView({ x: v.x + x / z - x / nextZoom, y: v.y + y / z - y / nextZoom }, nextZoom);
       } else {
-        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? sizeRef.current.height : 1;
-        queueView({ x: v.x + (event.shiftKey ? event.deltaY : event.deltaX) * unit / z, y: v.y + (event.shiftKey ? 0 : event.deltaY) * unit / z });
+        queueView({ x: v.x + (event.shiftKey ? delta.y : delta.x) / z, y: v.y + (event.shiftKey ? 0 : delta.y) / z });
       }
     };
     node.addEventListener('wheel', wheel, { passive: false });
@@ -120,7 +147,7 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
     if (event.pointerType === 'touch') { event.stopPropagation(); return; }
     // Keep the last visible origin fixed if ink starts before a queued pan frame.
     if (pendingViewRef.current) {
-      cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null;
+      cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null;
       navigationResetRef.current = false; clearTimeout(wheelTimerRef.current); wheelTimerRef.current = null;
     }
     if (props.activeTool === 'hand' || event.button === 1) {
@@ -139,43 +166,60 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
     contactsRef.current.delete(event.pointerId);
     if (gestureRef.current?.pointerId !== event.pointerId) return;
     event.stopPropagation(); gestureRef.current = null;
+    if (event.type !== 'pointerup') { cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null; }
     try { viewportRef.current.releasePointerCapture(event.pointerId); } catch (_) {}
   };
-  const touchSnapshot = touches => {
-    const a = touches[0], b = touches[1] || a;
-    return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2, distance: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)), count: touches.length };
-  };
+  const touchLocked = () => !!(window.__bn_pen_active || window.__bn_drag_active || contactsRef.current.size);
   const beginTouch = event => {
+    if (event.target.closest('.bn-whiteboard-controls, input, textarea, button')) return;
     event.preventDefault(); event.stopPropagation();
-    if (window.__bn_pen_active || window.__bn_drag_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) return;
-    if (event.touches.length < 2 && props.activeTool !== 'hand') return;
+    const touches = touchGuardRef.current.update(event.touches, touchLocked());
+    if (touchLocked() || touches.length !== event.touches.length) { touchTapRef.current.cancel(); return; }
+    touchTapRef.current.start(touches);
+    if (touches.length > 2) { gestureRef.current = null; touchTapRef.current.cancel(); touchGuardRef.current.block(); cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null; return; }
+    if (touches.length < 2 && props.activeTool !== 'hand') return;
+    // Stop a queued wheel/previous contact frame before taking this visible origin.
+    cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null;
+    navigationResetRef.current = false;
     setGeneration(value => value + 1);
-    gestureRef.current = { touch: true, ...touchSnapshot(event.touches), view: { ...viewRef.current }, zoom, startedAt: Date.now(), moved: false };
+    gestureRef.current = { touch: true, ...touchSnapshot(touches), view: { ...viewRef.current }, zoom: zoomRef.current, moved: false };
   };
   const moveTouch = event => {
     event.preventDefault(); event.stopPropagation();
-    const gesture = gestureRef.current;
-    if (!gesture?.touch || !event.touches.length || window.__bn_pen_active) return;
-    const next = touchSnapshot(event.touches);
-    if (next.count !== gesture.count) { beginTouch(event); return; }
+    const touches = touchGuardRef.current.update(event.touches, touchLocked()), gesture = gestureRef.current;
+    if (touchLocked()) { touchTapRef.current.cancel(); gestureRef.current = null; return; }
+    touchTapRef.current.move(touches);
+    if (!gesture?.touch || !touches.length || touches.length !== event.touches.length) return;
+    const next = touchSnapshot(touches);
+    if (next.count !== gesture.count) return;
+    const moved = Math.hypot(next.x - gesture.x, next.y - gesture.y) > 8 || Math.abs(next.distance - gesture.distance) > 8;
+    gesture.moved ||= moved;
+    if (!gesture.moved) return;
+    touchTapRef.current.cancel();
     const z = next.count > 1 ? Math.min(3.5, Math.max(0.01, gesture.zoom * next.distance / gesture.distance)) : gesture.zoom;
     const r = viewportRef.current.getBoundingClientRect();
-    const moved = Math.hypot(next.x - gesture.x, next.y - gesture.y) > 6 || Math.abs(next.distance - gesture.distance) > 6;
-    gesture.moved ||= moved;
-    lastZoomRef.current = z; props.onZoomChange?.(z);
-    queueView({ x: gesture.view.x + (gesture.x - r.left) / gesture.zoom - (next.x - r.left) / z, y: gesture.view.y + (gesture.y - r.top) / gesture.zoom - (next.y - r.top) / z });
+    queueView({ x: gesture.view.x + (gesture.x - r.left) / gesture.zoom - (next.x - r.left) / z,
+      y: gesture.view.y + (gesture.y - r.top) / gesture.zoom - (next.y - r.top) / z }, z);
   };
   const endTouch = event => {
     event.preventDefault(); event.stopPropagation();
-    const gesture = gestureRef.current;
-    if (gesture?.touch && !event.touches.length) {
-      if (gesture.count > 1 && !gesture.moved && Date.now() - gesture.startedAt < 300) {
-        if (lastTouchTapRef.current && Date.now() - lastTouchTapRef.current < 400) { props.onUndo?.(); lastTouchTapRef.current = 0; }
-        else lastTouchTapRef.current = Date.now();
-      }
-      gestureRef.current = null;
-    }
+    touchGuardRef.current.update(event.touches, touchLocked());
+    touchTapRef.current.move(event.changedTouches);
+    if (touchLocked()) touchTapRef.current.cancel();
+    if (!event.touches.length && touchTapRef.current.end(event.touches)) props.onUndo?.();
+    // Remaining fingers after a pinch do not silently turn into a new drag.
+    if (gestureRef.current?.touch && event.touches.length < gestureRef.current.count) gestureRef.current = null;
   };
+  const cancelTouch = event => {
+    event.preventDefault(); event.stopPropagation();
+    touchGuardRef.current.update(event.touches, true); touchTapRef.current.cancel(); gestureRef.current = null;
+    cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null;
+  };
+  useLayoutEffect(() => () => {
+    touchGuardRef.current.suspend(); touchTapRef.current.cancel(); gestureRef.current = null;
+    cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null;
+  }, [page.id, props.activeTool]);
+
   const fit = () => {
     const bounds = getWhiteboardContentBounds(page);
     const z = Math.min(3.5, Math.max(0.000001, Math.min((size.width - 80) / bounds.width, (size.height - 80) / bounds.height)));
@@ -185,7 +229,7 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
 
   return <div ref={viewportRef} className="bn-whiteboard-viewport" data-origin-x={view.x} data-origin-y={view.y}
     onPointerDownCapture={beginPointer} onPointerMoveCapture={movePointer} onPointerUpCapture={endPointer} onPointerCancelCapture={endPointer} onLostPointerCaptureCapture={endPointer}
-    onTouchStartCapture={beginTouch} onTouchMoveCapture={moveTouch} onTouchEndCapture={endTouch} onTouchCancelCapture={endTouch}>
+    onTouchStartCapture={beginTouch} onTouchMoveCapture={moveTouch} onTouchEndCapture={endTouch} onTouchCancelCapture={cancelTouch}>
     <CanvasBoard key={`${page.id}-${generation}`} {...props} page={viewportPage} zoom={1} activeWidth={props.activeWidth * zoom}
       onBatchUpdatePage={update} onStrokesChange={(strokes, options) => update({ strokes }, options)} onTextElementsChange={textElements => update({ textElements })}
       onImageElementsChange={imageElements => update({ imageElements })} />

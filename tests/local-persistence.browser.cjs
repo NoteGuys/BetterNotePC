@@ -120,6 +120,11 @@ const entry = [
       await page.evaluate(() => qa.toolbar.setShowThumbnails(true));
       await page.waitForFunction(() => !!qa.thumbnails);
     };
+    if(process.env.BETTERNOTE_QA_SHAPE_ONLY==='1') {
+      await require('./shape-editor.browser.cjs')({page,fixture,mount,flush,check});
+      assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
+      console.log(JSON.stringify({tests:results.length,passed:results.length,rendererErrors:errors,syntheticDatabaseOnly:true}));return;
+    }
     if(process.env.BETTERNOTE_QA_INK_SESSION_ONLY==='1') {
       await require('./ink-session-editor.browser.cjs')({page,fixture,mount,flush,check});
       assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
@@ -773,6 +778,7 @@ const entry = [
     await require('./thumbnail-cover.browser.cjs')({page, fixture, mount, flush, check, preview});
     await require('./highlighter-ui.browser.cjs')({page, fixture, mount, flush, check, preview});
     await require('./ink-session-editor.browser.cjs')({page,fixture,mount,flush,check});
+    await require('./shape-editor.browser.cjs')({page,fixture,mount,flush,check});
     assert.deepEqual(errors,[], 'Unexpected renderer errors');
     await page.evaluate(()=>qa.unmount());await flush();
     await context.close();

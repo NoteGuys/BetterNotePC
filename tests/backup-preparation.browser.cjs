@@ -8,11 +8,13 @@ const entry=String.raw`
 import * as db from './src/services/db.js';import {createBackupPreparationService} from './src/services/backupPreparationService.js';
 import {generateVerifiedBackupPdf} from './src/utils/backupPdf.js';import {prepareBackup} from './electron/backupValidation.js';
 import * as pdfjs from 'pdfjs-dist';import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';pdfjs.GlobalWorkerOptions.workerSrc=pdfWorker;
+import {generateVectorShapePoints} from './src/utils/inkingEngine.js';
 const service=createBackupPreparationService();window.qa={db,service};
 qa.seed=async()=>{
  const c=document.createElement('canvas');c.width=c.height=24;const ctx=c.getContext('2d');ctx.fillStyle='#22c55e';ctx.fillRect(0,0,24,24);const png=c.toDataURL();
  const pages=['dotted','blank','whiteboard'].map((templateId,i)=>({id:'p'+i,notebookId:'n',pageIndex:i,updatedAt:10,templateId,pageWidth:480,pageHeight:620,
-  strokes:[{id:'ink',tool:'pen',color:'#ef2222',width:8,points:[{x:i===2?-80:20,y:30,pressure:.6},{x:180,y:150,pressure:.6}]},
+  strokes:[{id:'sharp-shape',tool:'pen',color:'#ef2222',width:4,isTapered:false,shapeType:'rectangle',points:generateVectorShapePoints({type:'rectangle',startPt:{x:220,y:50},endPt:{x:400,y:160}})},
+   {id:'ink',tool:'pen',color:'#ef2222',width:8,points:[{x:i===2?-80:20,y:30,pressure:.6},{x:180,y:150,pressure:.6}]},
    {id:'round-highlight',tool:'highlighter',highlighterTip:'round',color:'#0044ff',width:8,points:[{x:40,y:330,pressure:.6},{x:150,y:330,pressure:.6}]},
    {id:'square-highlight',tool:'highlighter',highlighterTip:'square',color:'#ffff00',width:8,points:[{x:40,y:390,pressure:.6}]}],
   imageElements:[{id:'green',src:png,x:30,y:240,width:80,height:60,locked:true},{id:'over',src:png,x:130,y:100,width:35,height:35,layer:'over'}],

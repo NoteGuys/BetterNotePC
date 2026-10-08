@@ -70,6 +70,8 @@ export const calculateTaper = (index, totalPoints, isTapered = true) => {
 /**
  * Draw a smooth stroke on a Canvas 2D context using Quadratic Bézier curves & Tapering
  */
+const angularShapeTypes = new Set(['line', 'rectangle', 'square', 'triangle', 'arrow', 'polyline']);
+
 export const renderStroke = (ctx, stroke) => {
   const { 
     tool, 
@@ -108,6 +110,27 @@ export const renderStroke = (ctx, stroke) => {
     ctx.globalAlpha = 1.0;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+  }
+
+  // Only newly generated angular shapes bypass handwriting smoothing.
+  // Untagged older strokes and curved shapes keep their existing appearance.
+  if (tool === 'pen' && angularShapeTypes.has(stroke.shapeType) && points.length > 1) {
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
+    ctx.miterLimit = 10;
+    ctx.lineWidth = calculateNibWidth(nibType, width, points[0].pressure || 0.5, 1.0, pressureSensitivity, usePressure);
+    const first = points[0], last = points[points.length - 1];
+    // Erased fragments retain metadata but must never reconnect across the gap.
+    const closed = points.length > 2 && first.x === last.x && first.y === last.y;
+    ctx.beginPath();
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < points.length - (closed ? 1 : 0); i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    if (closed) ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+    return;
   }
 
   // Highlighter taps and short strokes keep the same width and tip as long ones.
@@ -582,14 +605,16 @@ export const snapAngle = (angleRad, snapThresholdDeg = 6) => {
   const angleDeg = (angleRad * 180) / Math.PI;
   const snapTargets = [0, 30, 45, 60, 90, 120, 135, 150, 180, -30, -45, -60, -90, -120, -135, -150, -180];
   
+  let nearest = angleRad, nearestDiff = Infinity;
   for (const target of snapTargets) {
     let diff = Math.abs(angleDeg - target);
     if (diff > 180) diff = 360 - diff;
-    if (diff <= snapThresholdDeg) {
-      return (target * Math.PI) / 180;
+    if (diff <= snapThresholdDeg && diff < nearestDiff) {
+      nearest = (target * Math.PI) / 180;
+      nearestDiff = diff;
     }
   }
-  return angleRad;
+  return nearest;
 };
 
 // Highlighter hold recognizes only a nearly straight open stroke. Avoid running

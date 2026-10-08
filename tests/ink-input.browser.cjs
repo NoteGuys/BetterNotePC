@@ -1,4 +1,4 @@
-// Phases 4.1–4.2: actual React CanvasBoard, isolated profile, synthetic pen only.
+// Phases 4.1–4.3: actual React CanvasBoard, isolated profile, synthetic pen only.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {pathToFileURL}=require('node:url'),esbuild=require('esbuild');
 const {chromium,_electron}=require(process.env.BETTERNOTE_PLAYWRIGHT_PATH||'playwright');
@@ -76,6 +76,7 @@ qa.burst=()=>{qa.holdFrames=true;qa.event('pointerdown',20,80);qa.clears=0;const
  try{
   await page.goto(pathToFileURL(html).href);await page.addScriptTag({content:bundle.outputFiles[0].text});await mount();metrics.burst=await page.evaluate(()=>qa.burst());
   if(baseline){const report={baseline:true,fixture,metrics,errors};fs.writeFileSync(path.join(fixture,'results.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));return;}
+  await require('./shape-input.browser.cjs')({page,mount,check});
   await check('Native samples preserve order, pressure and release endpoint',async()=>{await mount();await page.evaluate(()=>{qa.event('pointerdown',20,30,{pressure:.2});qa.event('pointermove',80,90,{pressure:.8,samples:[[40,50,.4],[60,70,.6],[80,90,.8]]});qa.event('pointerup',100,110);});compare(await points(),[[20,30,.2],[40,50,.4],[60,70,.6],[80,90,.8],[100,110,.8]]);});
   await check('Parent endpoint included when omitted from samples',async()=>{await mount();await page.evaluate(()=>{qa.event('pointerdown',20,30);qa.event('pointermove',80,90,{samples:[[40,50,.4]]});qa.event('pointerup',80,90);});compare(await points(),[[20,30,.6],[40,50,.4],[80,90,.6]]);});
   for(const fallback of ['empty','missing','throws'])await check('Fallback: '+fallback,async()=>{await mount();await page.evaluate(f=>{qa.event('pointerdown',20,30);qa.event('pointermove',80,90,{[f]:true});qa.event('pointerup',100,110);},fallback);compare(await points(),[[20,30,.6],[80,90,.6],[100,110,.6]]);});

@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
 import { EditorToolbar } from './EditorToolbar';
 import { PageNavigation } from './PageNavigation';
 import { ThumbnailSidebar } from './ThumbnailSidebar';
 import { CanvasBoard } from './CanvasBoard';
 import { WhiteboardBoard } from './WhiteboardBoard';
 import { isWhiteboardPage } from '../../utils/whiteboard';
+import { createTouchGuard, createTwoFingerTap, touchSnapshot, normalizeWheel, createWheelPageGate } from '../../utils/touchNavigation';
 import { ExportModal } from '../Common/ExportModal';
 import { 
   getPagesByNotebookId, 
@@ -188,300 +189,243 @@ export const NoteEditor = ({
     zoomRef.current = zoom;
   }, [zoom]);
 
-  const lastWheelPageFlipRef = useRef(0);
 
-  // Touchpad pinch (Ctrl + Wheel) listener and Horizontal Page Flip on stage
+  const isPinchingActiveRef = useRef(false);
+  const navigationRef = useRef(null);
+  if (!navigationRef.current) navigationRef.current = {
+    guard: createTouchGuard(), tap: createTwoFingerTap(), wheelGate: createWheelPageGate(),
+    pan: null, pinch: null, frame: null, momentum: null, wheelFrame: null, wheelZoom: null, anchor: null
+  };
+  const nav = navigationRef.current;
+  const navigationLocked = () => !!(window.__bn_pen_active || window.__bn_drag_active);
+  const clearNavigationPreview = () => {
+    const content = stageContentRef.current;
+    if (content) { content.style.transform = ''; content.style.transformOrigin = ''; content.style.willChange = ''; }
+  };
+  const stopNavigationFrames = () => {
+    for (const key of ['frame', 'momentum', 'wheelFrame']) {
+      if (nav[key] !== null) cancelAnimationFrame(nav[key]);
+      nav[key] = null;
+    }
+    nav.wheelZoom = null;
+    if (!nav.pinch) isPinchingActiveRef.current = false;
+  };
+  const resetNavigation = () => {
+    stopNavigationFrames(); clearNavigationPreview();
+    nav.guard.suspend(); nav.tap.cancel(); nav.pan = null; nav.pinch = null; nav.anchor = null;
+    isPinchingActiveRef.current = false;
+  };
+  const resetNavigationRef = useRef(resetNavigation);
+  resetNavigationRef.current = resetNavigation;
+
+  // Keep the same page point under the fingers after React applies the final zoom,
+  // including centered pages and the fixed spacing between vertically stacked pages.
+  const applyNavigationAnchor = anchor => {
+    const stage = stageRef.current;
+    if (!stage || !anchor?.element.isConnected) return;
+    const rect = anchor.element.getBoundingClientRect();
+    stage.scrollLeft += rect.left + anchor.x * zoomRef.current - anchor.screenX;
+    stage.scrollTop += rect.top + anchor.y * zoomRef.current - anchor.screenY;
+  };
+  useLayoutEffect(() => {
+    zoomRef.current = zoom;
+    if (nav.anchor) { applyNavigationAnchor(nav.anchor); nav.anchor = null; }
+    if (!nav.pinch) isPinchingActiveRef.current = false;
+  }, [zoom]);
+
+  useLayoutEffect(() => () => resetNavigationRef.current(), [
+    notebook.id, scrollDirection, activeTool,
+    scrollDirection === 'horizontal' ? pages[currentPageIndex]?.id : null
+  ]);
+  useEffect(() => {
+    const interrupt = () => resetNavigationRef.current();
+    const hidden = () => { if (document.hidden) interrupt(); };
+    const pointer = event => {
+      if (event.pointerType !== 'touch' || !stageRef.current?.contains(event.target) || navigationTargetIsControl(event.target)) interrupt();
+    };
+    const outsideRelease = event => {
+      if (!stageRef.current?.contains(event.target)) { nav.guard.update(event.touches, navigationLocked()); interrupt(); }
+    };
+    window.addEventListener('touchend', outsideRelease);
+    window.addEventListener('touchcancel', outsideRelease);
+    window.addEventListener('blur', interrupt);
+    window.addEventListener('pointerdown', pointer, true);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      interrupt(); window.removeEventListener('touchend', outsideRelease); window.removeEventListener('touchcancel', outsideRelease);
+      window.removeEventListener('blur', interrupt);
+      window.removeEventListener('pointerdown', pointer, true);
+      document.removeEventListener('visibilitychange', hidden);
+    };
+  }, []);
+
+  const chooseNavigationAnchor = (x, y) => {
+    const stage = stageRef.current;
+    const hit = document.elementFromPoint(x, y)?.closest('.bn-canvas-container');
+    const element = hit && stage?.contains(hit) ? hit : stage?.querySelector('.bn-canvas-container');
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { element, x: (x - rect.left) / zoomRef.current, y: (y - rect.top) / zoomRef.current, screenX: x, screenY: y };
+  };
+  const settlePinch = () => {
+    const pinch = nav.pinch;
+    if (!pinch) return;
+    if (nav.frame !== null) cancelAnimationFrame(nav.frame);
+    nav.frame = null; nav.pinch = null; clearNavigationPreview();
+    if (pinch.moved && pinch.anchor) {
+      const finalZoom = Math.min(3.5, Math.max(0.35, Number((pinch.zoom * pinch.scale).toFixed(2))));
+      const anchor = { ...pinch.anchor, screenX: pinch.x + pinch.panX, screenY: pinch.y + pinch.panY };
+      if (finalZoom === zoomRef.current) applyNavigationAnchor(anchor);
+      else { nav.anchor = anchor; setZoom(finalZoom); }
+    }
+    isPinchingActiveRef.current = false;
+  };
+  const navigationTargetIsControl = target => !!target?.closest?.(
+    'input, textarea, select, button, [contenteditable="true"], .bn-modal-backdrop, .bn-lasso-menu, .bn-whiteboard-viewport'
+  );
+  const handleStageTouchStart = e => {
+    if (scrollDirection === 'horizontal' && isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) return;
+    if (navigationTargetIsControl(e.target)) return;
+    stopNavigationFrames();
+    const touches = nav.guard.update(e.touches, navigationLocked());
+    if (navigationLocked() || touches.length !== e.touches.length) { nav.tap.cancel(); return; }
+    nav.tap.start(touches);
+    if (touches.length > 2) { settlePinch(); nav.pan = null; nav.tap.cancel(); nav.guard.block(); return; }
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (touches.length === 1) {
+      const point = touches[0];
+      nav.pan = { id: point.identifier, x: point.clientX, y: point.clientY, left: stage.scrollLeft, top: stage.scrollTop,
+        moved: false, vx: 0, vy: 0, time: performance.now(), lastX: point.clientX, lastY: point.clientY };
+    } else if (touches.length === 2) {
+      nav.pan = null; settlePinch();
+      const point = touchSnapshot(touches), content = stageContentRef.current;
+      if (!content) return;
+      const rect = content.getBoundingClientRect();
+      nav.pinch = { ...point, zoom: zoomRef.current, scale: 1, panX: 0, panY: 0, moved: false,
+        anchor: chooseNavigationAnchor(point.x, point.y) };
+      content.style.transformOrigin = (point.x - rect.left) + 'px ' + (point.y - rect.top) + 'px';
+      content.style.willChange = 'transform';
+      isPinchingActiveRef.current = true;
+    }
+  };
+  const handleStageTouchMove = e => {
+    if (navigationTargetIsControl(e.target)) return;
+    const touches = nav.guard.update(e.touches, navigationLocked());
+    if (navigationLocked()) { resetNavigation(); return; }
+    nav.tap.move(touches);
+    if (touches.length !== e.touches.length) return;
+    if (touches.length === 2 && nav.pinch) {
+      if (e.cancelable) e.preventDefault();
+      const point = touchSnapshot(touches), pinch = nav.pinch;
+      if (Math.hypot(point.x - pinch.x, point.y - pinch.y) > 8 || Math.abs(point.distance - pinch.distance) > 8) pinch.moved = true;
+      if (!pinch.moved) return;
+      nav.tap.cancel();
+      pinch.scale = Math.min(3.5 / pinch.zoom, Math.max(0.35 / pinch.zoom, point.distance / pinch.distance));
+      pinch.panX = point.x - pinch.x; pinch.panY = point.y - pinch.y;
+      if (nav.frame === null) nav.frame = requestAnimationFrame(() => {
+        nav.frame = null; const p = nav.pinch, content = stageContentRef.current;
+        if (p && content && !navigationLocked()) content.style.transform = 'translate3d(' + p.panX + 'px,' + p.panY + 'px,0) scale(' + p.scale + ')';
+      });
+    } else if (touches.length === 1 && nav.pan && activeTool !== 'snip') {
+      const point = touches[0], pan = nav.pan;
+      if (point.identifier !== pan.id) return;
+      const dx = point.clientX - pan.x, dy = point.clientY - pan.y;
+      if (!pan.moved && Math.hypot(dx, dy) <= 16) return;
+      pan.moved = true;
+      if (e.cancelable) e.preventDefault();
+      const time = performance.now(), dt = Math.max(1, time - pan.time);
+      pan.vx = (point.clientX - pan.lastX) / dt; pan.vy = (point.clientY - pan.lastY) / dt;
+      pan.time = time; pan.lastX = point.clientX; pan.lastY = point.clientY;
+      pan.nextLeft = pan.left - dx; pan.nextTop = pan.top - dy;
+      if (nav.frame === null) nav.frame = requestAnimationFrame(() => {
+        nav.frame = null; const stage = stageRef.current;
+        if (nav.pan && stage && !navigationLocked()) { stage.scrollLeft = nav.pan.nextLeft; stage.scrollTop = nav.pan.nextTop; }
+      });
+    }
+  };
+  const finishStageTouch = (e, cancelled) => {
+    if (navigationTargetIsControl(e.target)) return;
+    const locked = navigationLocked();
+    nav.guard.update(e.touches, locked);
+    if (cancelled || locked) nav.tap.cancel();
+    else nav.tap.move(e.changedTouches);
+    const pan = nav.pan;
+    if (nav.pinch && e.touches.length < 2) {
+      const moved = nav.pinch.moved;
+      settlePinch(); nav.pan = null;
+      if (moved) nav.guard.block();
+    }
+    if (e.touches.length) return;
+    if (!cancelled && !locked && nav.tap.end(e.touches)) {
+      handleUndo(); showGestureToast(t('twoFingerUndoToast', 'ย้อนกลับ (แตะ 2 นิ้ว 2 ครั้ง) ↶'));
+    }
+    nav.pan = null;
+    if (nav.frame !== null) cancelAnimationFrame(nav.frame);
+    nav.frame = null;
+    const stage = stageRef.current;
+    if (pan?.moved && stage && !locked) {
+      stage.scrollLeft = pan.nextLeft; stage.scrollTop = pan.nextTop;
+      // Only a recent, intentional release carries momentum. Cancellation never does.
+      if (!cancelled && performance.now() - pan.time < 80) {
+        let vx = Math.max(-2.5, Math.min(2.5, pan.vx)), vy = Math.max(-2.5, Math.min(2.5, pan.vy)), last = performance.now();
+        const momentum = time => {
+          nav.momentum = null;
+          if (navigationLocked() || nav.guard.size) return;
+          const dt = Math.min(32, Math.max(1, time - last)); last = time;
+          const left = stage.scrollLeft, top = stage.scrollTop, decay = Math.pow(0.95, dt / 16);
+          vx *= decay; vy *= decay; stage.scrollLeft -= vx * dt; stage.scrollTop -= vy * dt;
+          if ((stage.scrollLeft !== left || stage.scrollTop !== top) && Math.hypot(vx, vy) > 0.05) nav.momentum = requestAnimationFrame(momentum);
+        };
+        if (Math.hypot(vx, vy) > 0.25) nav.momentum = requestAnimationFrame(momentum);
+      }
+    }
+  };
+  const handleStageTouchEnd = e => finishStageTouch(e, false);
+  const handleStageTouchCancel = e => {
+    nav.guard.update(e.touches, true); resetNavigation();
+  };
+
+  // Touchpad zoom is anchored and batched; one inertial scroll gesture flips at most one page.
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-
-    const handleWheel = (e) => {
-      if (isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) return;
+    const wheel = e => {
+      if (isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId) || navigationTargetIsControl(e.target)) return;
+      if (navigationLocked() || nav.guard.size) { e.preventDefault(); return; }
+      if (nav.momentum !== null) cancelAnimationFrame(nav.momentum);
+      nav.momentum = null; nav.tap.cancel();
+      const delta = normalizeWheel(e, stage.clientHeight);
       if (e.ctrlKey) {
-        e.preventDefault();
-        isPinchingActiveRef.current = true;
-        if (pinchCooldownTimerRef.current) clearTimeout(pinchCooldownTimerRef.current);
-        pinchCooldownTimerRef.current = setTimeout(() => {
-          isPinchingActiveRef.current = false;
-        }, 300);
-
-        const delta = -e.deltaY * 0.003;
-        setZoom(prev => Math.min(3.5, Math.max(0.35, Number((prev + delta).toFixed(2)))));
+        e.preventDefault(); isPinchingActiveRef.current = true;
+        const current = nav.wheelZoom?.zoom ?? zoomRef.current;
+        nav.wheelZoom = { zoom: Math.min(3.5, Math.max(0.35, current * Math.exp(-delta.y * 0.002))),
+          anchor: chooseNavigationAnchor(e.clientX, e.clientY) };
+        if (nav.wheelFrame === null) nav.wheelFrame = requestAnimationFrame(() => {
+          nav.wheelFrame = null; const pending = nav.wheelZoom; nav.wheelZoom = null;
+          if (!pending || navigationLocked()) return;
+          nav.anchor = pending.anchor;
+          const next = Number(pending.zoom.toFixed(2));
+          if (next === zoomRef.current) { applyNavigationAnchor(nav.anchor); nav.anchor = null; isPinchingActiveRef.current = false; }
+          else setZoom(next);
+        });
         return;
       }
-
-      // PALM / PEN PROTECTION: If pen is active or recently used within 1200ms, IGNORE wheel flips completely!
-      if (window.__bn_pen_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) {
-        return;
+      if (scrollDirection !== 'horizontal') return;
+      e.preventDefault();
+      const horizontal = stage.scrollWidth > stage.clientWidth + 2, vertical = stage.scrollHeight > stage.clientHeight + 2;
+      if (horizontal || vertical) {
+        stage.scrollLeft += e.shiftKey ? delta.y : delta.x || (!vertical ? delta.y : 0);
+        stage.scrollTop += e.shiftKey ? 0 : vertical ? delta.y : 0;
+        nav.wheelGate.reset(); return;
       }
-
-      // In Horizontal Mode: Mouse wheel or touchpad scroll flips pages smoothly
-      if (scrollDirection === 'horizontal') {
-        const now = Date.now();
-        if (now - lastWheelPageFlipRef.current < 280) return;
-
-        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-        if (Math.abs(delta) > 15) {
-          if (delta > 0 && currentPageIndexRef.current < pagesRef.current.length - 1) {
-            lastWheelPageFlipRef.current = now;
-            handleSelectPage(currentPageIndexRef.current + 1);
-          } else if (delta < 0 && currentPageIndexRef.current > 0) {
-            lastWheelPageFlipRef.current = now;
-            handleSelectPage(currentPageIndexRef.current - 1);
-          }
-        }
-      }
+      const direction = nav.wheelGate.push(Math.abs(delta.x) > Math.abs(delta.y) ? delta.x : delta.y);
+      const target = currentPageIndexRef.current + direction;
+      if (direction && target >= 0 && target < pagesRef.current.length) handleSelectPage(target);
     };
-
-    stage.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      stage.removeEventListener('wheel', handleWheel);
-    };
-  }, [scrollDirection, isLoading]);
-
-  // Multi-touch pinch tracking & Two-finger double-tap undo (GPU hardware-accelerated, zero-shake)
-  const firstTouchRef = useRef(null);
-  const lastTwoFingerTapTimeRef = useRef(0);
-  const stagePanRef = useRef({ isPanning: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
-  const stagePinchRef = useRef({
-    isPinching: false,
-    startTime: 0,
-    startDist: 0,
-    startZoom: 1,
-    startMidX: 0,
-    startMidY: 0,
-    focalOffsetX: 0,
-    focalOffsetY: 0,
-    focalContentX: 0,
-    focalContentY: 0,
-    startScrollLeft: 0,
-    startScrollTop: 0,
-    currentScale: 1,
-    panX: 0,
-    panY: 0,
-    hasMoved: false,
-    isTwoFingerTap: false
-  });
-  const pinchRafRef = useRef(null);
-
-  const isPinchingActiveRef = useRef(false);
-  const pinchCooldownTimerRef = useRef(null);
-
-  const handleStageTouchStart = (e) => {
-    // STRICT PALM REJECTION & OBJECT DRAG LOCK:
-    if (window.__bn_pen_active || 
-        (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200) ||
-        window.__bn_drag_active) {
-      stagePanRef.current.isPanning = false;
-      return;
-    }
-
-    if (e.touches.length === 1) {
-      firstTouchRef.current = {
-        time: Date.now(),
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY
-      };
-      const stage = stageRef.current;
-      if (stage) {
-        stagePanRef.current = {
-          isPanning: false, // will engage on intentional movement > 16px
-          startX: e.touches[0].clientX,
-          startY: e.touches[0].clientY,
-          scrollLeft: stage.scrollLeft,
-          scrollTop: stage.scrollTop
-        };
-      }
-    } else if (e.touches.length === 2) {
-      stagePanRef.current.isPanning = false;
-      isPinchingActiveRef.current = true;
-      if (pinchCooldownTimerRef.current) clearTimeout(pinchCooldownTimerRef.current);
-
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      const midX = (t1.clientX + t2.clientX) / 2;
-      const midY = (t1.clientY + t2.clientY) / 2;
-      const stage = stageRef.current;
-      const contentEl = stageContentRef.current;
-      if (!stage || !contentEl) return;
-
-      const stageRect = stage.getBoundingClientRect();
-      const contentRect = contentEl.getBoundingClientRect();
-      const focalOffsetX = midX - stageRect.left;
-      const focalOffsetY = midY - stageRect.top;
-      const focalContentX = midX - contentRect.left;
-      const focalContentY = midY - contentRect.top;
-
-      // Anchor start time to first finger landing if within 160ms (natural asynchronous finger placement)
-      let startTime = Date.now();
-      if (firstTouchRef.current && (startTime - firstTouchRef.current.time < 160)) {
-        startTime = firstTouchRef.current.time;
-      }
-
-      stagePinchRef.current = {
-        isPinching: true,
-        startTime,
-        startDist: Math.max(10, dist),
-        startZoom: zoomRef.current,
-        startMidX: midX,
-        startMidY: midY,
-        focalOffsetX,
-        focalOffsetY,
-        focalContentX,
-        focalContentY,
-        startScrollLeft: stage.scrollLeft,
-        startScrollTop: stage.scrollTop,
-        currentScale: 1,
-        panX: 0,
-        panY: 0,
-        hasMoved: false,
-        isTwoFingerTap: true
-      };
-
-      contentEl.style.willChange = 'transform';
-      contentEl.style.transformOrigin = `${focalContentX}px ${focalContentY}px`;
-    } else {
-      if (stagePinchRef.current?.isPinching) {
-        handleStageTouchEnd(e);
-      }
-    }
-  };
-
-  const handleStageTouchMove = (e) => {
-    // Palm Rejection & Object Drag Lock:
-    if (window.__bn_pen_active || 
-        (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200) ||
-        window.__bn_drag_active) {
-      stagePanRef.current.isPanning = false;
-      return;
-    }
-
-    // 1. Single Finger Panning on stage background
-    if (e.touches.length === 1) {
-      const dx = e.touches[0].clientX - stagePanRef.current.startX;
-      const dy = e.touches[0].clientY - stagePanRef.current.startY;
-      const dist = Math.hypot(dx, dy);
-
-      if (!stagePanRef.current.isPanning) {
-        if (dist > 16) {
-          stagePanRef.current.isPanning = true;
-        } else {
-          return;
-        }
-      }
-
-      const stage = stageRef.current;
-      if (stage) {
-        stage.scrollLeft = stagePanRef.current.scrollLeft - dx;
-        stage.scrollTop = stagePanRef.current.scrollTop - dy;
-      }
-      return;
-    }
-
-    // 2. Two-finger Pinch & Pan
-    if (e.touches.length === 2 && stagePinchRef.current?.isPinching) {
-      if (e.cancelable) e.preventDefault();
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      const midX = (t1.clientX + t2.clientX) / 2;
-      const midY = (t1.clientY + t2.clientY) / 2;
-
-      const pinch = stagePinchRef.current;
-      const distDiff = Math.abs(dist - pinch.startDist);
-      const panDist = Math.hypot(midX - pinch.startMidX, midY - pinch.startMidY);
-
-      // Movement threshold for distinguishing Tap vs Pinch/Pan (18px)
-      if (distDiff > 18 || panDist > 18) {
-        pinch.hasMoved = true;
-        pinch.isTwoFingerTap = false;
-      }
-
-      if (pinch.hasMoved) {
-        const scaleRatio = dist / pinch.startDist;
-        const clampedScale = Math.min(3.5 / pinch.startZoom, Math.max(0.35 / pinch.startZoom, scaleRatio));
-        const panX = midX - pinch.startMidX;
-        const panY = midY - pinch.startMidY;
-
-        pinch.currentScale = clampedScale;
-        pinch.panX = panX;
-        pinch.panY = panY;
-
-        if (!pinchRafRef.current) {
-          pinchRafRef.current = requestAnimationFrame(() => {
-            pinchRafRef.current = null;
-            const contentEl = stageContentRef.current;
-            if (contentEl && stagePinchRef.current?.isPinching) {
-              const { currentScale, panX: px, panY: py } = stagePinchRef.current;
-              contentEl.style.transform = `translate3d(${px}px, ${py}px, 0) scale(${currentScale})`;
-            }
-          });
-        }
-      }
-    }
-  };
-
-  const handleStageTouchEnd = (e) => {
-    stagePanRef.current.isPanning = false;
-
-    if (stagePinchRef.current?.isPinching) {
-      const pinch = stagePinchRef.current;
-      pinch.isPinching = false;
-
-      if (pinchRafRef.current) {
-        cancelAnimationFrame(pinchRafRef.current);
-        pinchRafRef.current = null;
-      }
-
-      const duration = Date.now() - pinch.startTime;
-      // Two-Finger Double Tap Undo Detection (แตะ 2 นิ้ว 2 ครั้งติดกันเพื่อย้อนกลับ):
-      if (pinch.isTwoFingerTap && !pinch.hasMoved && duration < 450) {
-        pinch.isTwoFingerTap = false;
-        const now = Date.now();
-        const tapInterval = now - lastTwoFingerTapTimeRef.current;
-        if (tapInterval >= 40 && tapInterval <= 480) {
-          // Confirmed Two-Finger Double Tap!
-          lastTwoFingerTapTimeRef.current = 0;
-          handleUndo();
-          showGestureToast(t('twoFingerUndoToast', 'ย้อนกลับ (แตะ 2 นิ้ว 2 ครั้ง) ↶'));
-        } else {
-          // First tap recorded, awaiting second tap within 480ms
-          lastTwoFingerTapTimeRef.current = now;
-        }
-      }
-
-      const finalScale = pinch.currentScale || 1;
-      const rawZoom = pinch.startZoom * finalScale;
-      const finalZoom = Math.min(3.5, Math.max(0.35, Number(rawZoom.toFixed(2))));
-
-      const stage = stageRef.current;
-      const contentEl = stageContentRef.current;
-
-      if (contentEl) {
-        contentEl.style.transform = '';
-        contentEl.style.transformOrigin = '';
-        contentEl.style.willChange = '';
-      }
-
-      if (stage && pinch.hasMoved && pinch.startDist > 0) {
-        const zoomRatio = finalZoom / pinch.startZoom;
-        const contentX = pinch.startScrollLeft + pinch.focalOffsetX;
-        const contentY = pinch.startScrollTop + pinch.focalOffsetY;
-
-        stage.scrollLeft = contentX * zoomRatio - pinch.focalOffsetX - pinch.panX;
-        stage.scrollTop = contentY * zoomRatio - pinch.focalOffsetY - pinch.panY;
-        setZoom(finalZoom);
-      }
-    }
-
-    firstTouchRef.current = null;
-
-    if (pinchCooldownTimerRef.current) clearTimeout(pinchCooldownTimerRef.current);
-    pinchCooldownTimerRef.current = setTimeout(() => {
-      isPinchingActiveRef.current = false;
-    }, 250);
-  };
+    stage.addEventListener('wheel', wheel, { passive: false });
+    return () => stage.removeEventListener('wheel', wheel);
+  }, [scrollDirection, isLoading, notebook.id]);
 
   // Wait for this notebook's pending page operation before opening its view.
   const loadPages = useCallback(async () => {
@@ -838,6 +782,7 @@ export const NoteEditor = ({
   const handleSelectPage = useCallback((index) => {
     const allPages = pagesRef.current;
     if (index >= 0 && index < allPages.length) {
+      resetNavigationRef.current();
       const prevIndex = currentPageIndexRef.current;
       const isDistantJump = Math.abs(index - prevIndex) > 1;
 
@@ -1001,7 +946,7 @@ export const NoteEditor = ({
       const observer = new IntersectionObserver((entries) => {
         if (isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) return;
         // STRICT: Never switch pages while user is actively pinching to zoom, during initial page navigation, or during programmatic scroll!
-        if (isPinchingActiveRef.current || stagePinchRef.current?.isPinching) return;
+        if (isPinchingActiveRef.current || navigationRef.current.pinch) return;
         if (!hasInitialNavigatedRef.current && initialPageRef.current > 0) return;
         if (isProgrammaticScrollRef.current) return;
 
@@ -1272,7 +1217,7 @@ export const NoteEditor = ({
           onTouchStart={handleStageTouchStart}
           onTouchMove={handleStageTouchMove}
           onTouchEnd={handleStageTouchEnd}
-          onTouchCancel={handleStageTouchEnd}
+          onTouchCancel={handleStageTouchCancel}
         >
           {/* Floating Gesture Toast for Two-Finger Tap Undo */}
           {gestureToast && (
