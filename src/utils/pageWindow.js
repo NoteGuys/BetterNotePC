@@ -1,7 +1,7 @@
 // Only fields used for navigation/layout. Never keep media or strokes in a placeholder.
 export const pageSummary = page => {
   const result = { __unloaded: true, ...(page.pdfOriginal || page.__pdfOriginalOmitted ? { __pdfOriginalOwner: true } : {}) };
-  for (const key of ['id','notebookId','pageIndex','updatedAt','templateId','sizeId','orientation','pageWidth','pageHeight','isFavorite','paperColor','paperPattern','pageSize','pageOrientation']) {
+  for (const key of ['id','notebookId','pageIndex','updatedAt','templateId','sizeId','orientation','pageWidth','pageHeight','isFavorite','paperColor','paperPattern','pageSize','pageOrientation','pdfLazyRaster','pdfNativeRaster','pdfOriginalId','pdfOriginalDigest','pdfPageNumber']) {
     if (page[key] !== undefined) result[key] = page[key];
   }
   if (typeof page.thumbnailUrl === 'string' && page.thumbnailUrl.length <= 256 * 1024 && /^data:image\/(png|jpeg|webp);base64,/i.test(page.thumbnailUrl)) result.thumbnailUrl = page.thumbnailUrl;

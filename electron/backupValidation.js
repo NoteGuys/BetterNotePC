@@ -33,6 +33,14 @@ export function validateNotebook(value) {
     ids.add(page.id); indexes.add(pageIndex);
     return { ...page, notebookId: value.id, pageIndex };
   }).sort((a, b) => a.pageIndex - b.pageIndex);
+  const originals=new Map(pages.filter(page=>page.pdfOriginal?.id).map(page=>[page.pdfOriginal.id,page.pdfOriginal]));
+  for(const page of pages)if(page.pdfLazyRaster!==undefined){
+    if(page.pdfLazyRaster!==1 || !validId(page.pdfOriginalId) || !Number.isInteger(page.pdfPageNumber) || page.pdfPageNumber<1 ||
+       !/^[a-f0-9]{64}$/i.test(page.pdfOriginalDigest||'') || !/^data:image\/jpeg;base64,/i.test(page.pdfPageImage||''))
+      throw fault('invalid-backup-data');
+    if(!/^data:application\/pdf(?:;[^,]*)?;base64,/i.test(originals.get(page.pdfOriginalId)?.dataUrl||''))
+      throw fault('backup-incomplete');
+  }
   return { ...value, pageCount: pages.length, pages };
 }
 export function validateLibrary(folders, notebooks) {

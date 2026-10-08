@@ -1,6 +1,7 @@
+import { nativePdfRaster } from './pdfRasterService.js';
 import { notebookBackupRevision } from '../utils/backupRevision.js';
 import { notebookPdfRevision } from './backupController.js';
-// SVG alone uses Chromium's asynchronous decoder. No canvas or PDF assembly on UI.
+// SVG and uncommon PDF filters use Chromium's DOM renderer; PDF assembly remains off-thread.
 const decodeSvg = ({src,size}) => new Promise((resolve,reject) => {
   if (!/^data:image\/svg\+xml[;,]/i.test(src) || ![size?.resizeWidth,size?.resizeHeight].every(n=>Number.isInteger(n)&&n>0&&n<=8192) || size.resizeWidth*size.resizeHeight>16000000)
     { reject(new Error('pdf-backup-image-invalid')); return; }
@@ -29,6 +30,13 @@ export const createBackupPreparationService = ({ createWorker = async () => { co
       worker.onmessage = ({data}) => {
         if (worker !== instance) return;
         const item = pending.get(data.requestId); if (!item) return;
+        if (data.renderPdfBackground) {
+          item.arm();
+          Promise.resolve().then(()=>{item.check?.();return nativePdfRaster(data.renderPdfBackground);}).then(result=>{
+            if(worker===instance&&pending.has(data.requestId)){item.check?.();instance.postMessage({action:'raster',requestId:data.requestId,url:result.dataUrl});}
+          }).catch(error=>{if(worker===instance)instance.postMessage({action:'raster',requestId:data.requestId,error:error.message==='pdf-backup-deferred'?'pdf-backup-deferred':'PDF raster unavailable'});});
+          return;
+        }
         if (data.decodeImage) {
           item.arm();
           Promise.resolve().then(()=>{item.check?.(); return decodeSvg(data.decodeImage);}).then(bitmap=>{
@@ -51,7 +59,7 @@ export const createBackupPreparationService = ({ createWorker = async () => { co
       const requestId = ++counter, item = {resolve,reject,check};
       item.arm = () => { clearTimeout(item.timer); item.timer = setTimeout(close,timeout); };
       pending.set(requestId,item); item.arm();
-      try { worker.postMessage({...command,requestId}); } catch (_) { close(); }
+      (async()=>{try { const assets=command.action==='pdf'&&typeof window!=='undefined'?(await import('../utils/pdfAssetUrls.js')).pdfAssets():undefined; if(worker&&pending.has(requestId))worker.postMessage({...command,requestId,...(assets?{assets}:{})}); } catch (_) { close(); }})();
     });
   };
   return { close,

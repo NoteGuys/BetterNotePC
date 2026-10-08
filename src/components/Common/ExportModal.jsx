@@ -6,6 +6,17 @@ import { useLanguage } from '../../services/i18n';
 import { localizeNotebookCopyName } from '../../utils/notebookNames';
 
 const EXPORT_ERROR_TRANSLATIONS = {
+  "pdf-restart-required": "exportDialogPdfRestart",
+  "pdf-print-failed": "exportDialogPdfPrintFailed",
+  "pdf-load-failed": "exportDialogPdfLoadFailed",
+  "pdf-export-timeout": "exportDialogPdfBatchTimeout",
+  "pdf-temp-unavailable": "exportDialogPdfTempFailed",
+  "pdf-page-count": "exportDialogPdfCountFailed",
+  "pdf-merge-failed": "exportDialogPdfMergeFailed",
+  "pdf-page-unavailable": "exportDialogPdfPageFailed",
+  "pdf-session-expired": "exportDialogPdfExpired",
+  "pdf-export-busy": "exportDialogPdfBusy",
+  "pdf-invalid-request": "exportDialogPdfCountFailed",
   "สมุดบันทึกไม่มีหน้าเอกสารให้ส่งออก": "exportDialogEmptyNotebook",
   "ไม่พบข้อมูลหน้าเอกสารที่ต้องการส่งออก": "exportDialogMissingPage",
   "รูปภาพนี้ยังไม่พร้อมสำหรับการส่งออกแบบออฟไลน์": "exportDialogOfflineImageError",
@@ -24,13 +35,14 @@ const EXPORT_ERROR_TRANSLATIONS = {
 const translateExportError = (error, t) => {
   const message = error?.message || '';
   const entry = Object.entries(EXPORT_ERROR_TRANSLATIONS).find(([source]) => message.includes(source));
-  return entry ? t(entry[1]) : message || t('exportDialogUnknownError');
+  const translated = entry ? t(entry[1]) : message || t('exportDialogUnknownError');
+  return translated + (error?.exportPage ? ' ' + t('exportDialogPdfRange', '', { first: error.exportPage, last: error.exportEnd }) : '');
 };
 
 // Store message keys so already-visible results also follow a language change.
 const exportMessage = (key, params = {}) => ({ key, params });
 
-export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadPage, loadBNote, currentPageIndex }) => {
+export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadPage, loadPdfPage, loadBNote, currentPageIndex }) => {
   const { t } = useLanguage();
   const [isExporting, setIsExporting] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
@@ -47,9 +59,11 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadP
     setDoneMsg('');
 
     try {
-      await exportNotebookToPdf(notebook, loadPages ? await loadPages() : pages, (current, total) => {
-        setProgressMsg(exportMessage('exportDialogPdfProgress', { page: current, total }));
-      });
+      await exportNotebookToPdf(notebook, loadPdfPage ? pages : loadPages ? await loadPages() : pages, (current, total, stage) => {
+        const key = stage === 'print' ? 'exportDialogPdfPrinting' : stage === 'merge' ? 'exportDialogPdfMerging' :
+          stage === 'save' ? 'exportDialogPdfSaving' : 'exportDialogPdfProgress';
+        setProgressMsg(exportMessage(key, { page: stage === 'prepare' ? current + 1 : current, total }));
+      }, { loadPage: loadPdfPage });
       setDoneMsg(exportMessage('exportDialogPdfSuccess'));
     } catch (err) {
       console.error(err);

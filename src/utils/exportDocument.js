@@ -71,24 +71,32 @@ export const renderExportPageSvg = async (page, templateId = 'ruled') => {
   return { svg, bounds };
 };
 
-export const buildExportDocument = async (notebook, pages, dimensions, onProgress) => {
-  const styles = [], body = [];
+export const exportPageSection = async (page, templateId, dimensions, index) => {
+  const { svg } = await renderExportPageSvg(page, templateId);
+  const { pdfW, pdfH } = dimensions(page, templateId);
+  return {
+    style: '@page bn' + index + '{size:' + pdfW + 'pt ' + pdfH + 'pt;margin:0}',
+    body: '<section class="page" style="page:bn' + index + ';width:' + pdfW +
+      'pt;height:' + pdfH + 'pt">' + svg + '</section>'
+  };
+};
+export const documentFromSections = (notebook, sections) =>
+  '<!doctype html><html lang="th"><head><meta charset="utf-8">' +
+  '<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; ' +
+  'img-src data:; style-src &apos;unsafe-inline&apos;; base-uri &apos;none&apos;">' +
+  '<title>' + escapeXml(notebook.name || 'Notebook') + '</title><style>' +
+  'html,body{margin:0;padding:0}.page{break-after:page;overflow:hidden}' +
+  '.page:last-child{break-after:auto}svg{display:block}*{print-color-adjust:exact}' +
+  sections.map(s=>s.style).join('') + '</style></head><body>' + sections.map(s=>s.body).join('') + '</body></html>';
+export const buildExportDocument = async (notebook, pages, dimensions, onProgress, resolvePage = async page=>page) => {
+  const sections = [];
   for (let index = 0; index < pages.length; index++) {
+    const page = await resolvePage(pages[index]);
+    sections.push(await exportPageSection(page, notebook.templateId, dimensions, index));
     if (onProgress) onProgress(index + 1, pages.length);
-    const { svg } = await renderExportPageSvg(pages[index], notebook.templateId);
-    const { pdfW, pdfH } = dimensions(pages[index], notebook.templateId);
-    styles.push('@page bn' + index + '{size:' + pdfW + 'pt ' + pdfH + 'pt;margin:0}');
-    body.push('<section class="page" style="page:bn' + index + ';width:' + pdfW +
-      'pt;height:' + pdfH + 'pt">' + svg + '</section>');
     await yieldToUi();
   }
-  return '<!doctype html><html lang="th"><head><meta charset="utf-8">' +
-    '<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; ' +
-    'img-src data:; style-src &apos;unsafe-inline&apos;; base-uri &apos;none&apos;">' +
-    '<title>' + escapeXml(notebook.name || 'Notebook') + '</title><style>' +
-    'html,body{margin:0;padding:0}.page{break-after:page;overflow:hidden}' +
-    '.page:last-child{break-after:auto}svg{display:block}*{print-color-adjust:exact}' +
-    styles.join('') + '</style></head><body>' + body.join('') + '</body></html>';
+  return documentFromSections(notebook, sections);
 };
 
 export const downloadExportBlob = (blob, filename) => {

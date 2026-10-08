@@ -1,3 +1,5 @@
+import { loadPdfRaster } from '../../services/pdfRasterService.js';
+import { cachedPagePreview } from '../../services/pagePreviewService.js';
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
 import { EditorToolbar } from './EditorToolbar';
 import { PageNavigation } from './PageNavigation';
@@ -534,6 +536,21 @@ export const NoteEditor = ({
     })();
     return () => { cancelled = true; };
   }, [isLoading, loadError, currentPageIndex, pages.length, scrollDirection, ensurePage]);
+  useEffect(()=>{
+    if(isLoading||loadError)return;
+    let cancelled=false,timer;const controller=new AbortController();
+    const nearby=pagesRef.current.slice(Math.max(0,currentPageIndex-3),currentPageIndex+4).filter(p=>p.pdfLazyRaster);
+    const prepare=async()=>{
+      for(const page of nearby){
+        if(cancelled)return;
+        if(window.__bn_pen_active||window.__bn_drag_active){timer=setTimeout(prepare,150);return;}
+        try{await loadPdfRaster(page,{signal:controller.signal,priority:1});}catch(_){ /* The ready small page stays visible. */ }
+      }
+    };
+    timer=setTimeout(prepare,80);
+    return()=>{cancelled=true;controller.abort();clearTimeout(timer);};
+  },[isLoading,loadError,currentPageIndex,notebook.id,pages.length]);
+
   const loadExportPages = useCallback(async () => {
     await pageSaveQueue.flush(notebook.id);
     return getPagesByNotebookId(notebook.id);
@@ -546,6 +563,17 @@ export const NoteEditor = ({
     if (!page || page.__unloaded) throw Error('Page unavailable');
     return page;
   }, [notebook.id, ensurePage]);
+
+  // Read only the exported page, without mounting it or retaining the entire notebook.
+  const loadExportPdfPage = useCallback(async index => {
+    if (index === 0) await pageSaveQueue.flush(notebook.id);
+    const summary = pagesRef.current[index];
+    if (!summary) throw Error('Page unavailable');
+    const page = summary.__pdfOriginalOwner || summary.__pdfOriginalOmitted
+      ? await loadPdfOwnerPage(notebook.id, summary.id) : await getPage(summary.id);
+    if (!page || page.notebookId !== notebook.id) throw Error('Page unavailable');
+    return page;
+  }, [notebook.id]);
 
   const loadBNoteExport = useCallback(async () => { await pageSaveQueue.flush(notebook.id); return exportPortableNotebook(notebook.id); }, [notebook.id]);
 
@@ -1329,7 +1357,16 @@ export const NoteEditor = ({
           )}
 
           {currentPage?.__unloaded && (scrollDirection !== 'vertical' || isWhiteboardPage(currentPage, notebook.templateId)) ? (
-            <div className="bn-loading-screen" role="status">{pageLoadError === currentPage.id ? <button onClick={() => { setPageLoadError(null); ensurePage(currentPage.id).catch(() => setPageLoadError(currentPage.id)); }}>{t('localLoadRetry')}</button> : t('loadingApp')}</div>
+            currentPage.pdfLazyRaster && cachedPagePreview(currentPage,notebook.templateId) ? (
+              <div ref={stageContentRef} className="bn-horizontal-page-container flex items-center justify-center min-w-full min-h-full">
+                <div className="bn-paper-sheet" style={{width:(currentPage.pageWidth||1200)*zoom,height:(currentPage.pageHeight||1600)*zoom}}>
+                  <img className="bn-pdf-ready-page" src={cachedPagePreview(currentPage,notebook.templateId)} alt={t('page')+' '+(currentPageIndex+1)}
+                    decoding="sync" style={{width:'100%',height:'100%',objectFit:'fill'}} />
+                  {pageLoadError===currentPage.id && <button style={{position:'absolute',bottom:12,right:12}}
+                    onClick={()=>{setPageLoadError(null);ensurePage(currentPage.id).catch(()=>setPageLoadError(currentPage.id));}}>{t('localLoadRetry')}</button>}
+                </div>
+              </div>
+            ) : <div className="bn-loading-screen" role="status">{pageLoadError === currentPage.id ? <button onClick={() => { setPageLoadError(null); ensurePage(currentPage.id).catch(() => setPageLoadError(currentPage.id)); }}>{t('localLoadRetry')}</button> : t('loadingApp')}</div>
           ) : currentPage && isWhiteboardPage(currentPage, notebook.templateId) ? (
             <div ref={stageContentRef} className="bn-whiteboard-page">
                 <WhiteboardBoard
@@ -1432,12 +1469,13 @@ export const NoteEditor = ({
                           overflow: 'hidden'
                         }}
                       >
-                        {(p.thumbnailUrl || p.pdfPageImage) ? (
+                        {(cachedPagePreview(p,notebook.templateId) || p.pdfPageImage) ? (
                           <img 
-                            src={p.thumbnailUrl || p.pdfPageImage} 
+                            src={cachedPagePreview(p,notebook.templateId) || p.pdfPageImage}
                             alt={`${t('page', 'หน้า')} ${idx + 1}`} 
                             style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.95 }}
-                            loading="lazy"
+                            loading={Math.abs(idx-currentPageIndex)<=4 ? "eager" : "lazy"}
+                            decoding="sync"
                           />
                         ) : (
                           <span style={{ color: '#94a3b8', fontSize: '15px', fontWeight: 600 }}>
@@ -1505,6 +1543,7 @@ export const NoteEditor = ({
         notebook={notebook}
         pages={pages}
         loadPages={loadExportPages}
+        loadPdfPage={loadExportPdfPage}
         loadPage={loadExportPage}
         loadBNote={loadBNoteExport}
         currentPageIndex={currentPageIndex}

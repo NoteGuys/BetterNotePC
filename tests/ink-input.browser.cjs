@@ -53,7 +53,7 @@ qa.burst=()=>{qa.holdFrames=true;qa.event('pointerdown',20,80);qa.clears=0;const
 `;
 (async()=>{
  const fixture=fs.mkdtempSync(path.join(qaRoot,'betternote-ink-input-')),errors=[],passed=[],metrics={};
- const bundle=await esbuild.build({stdin:{contents:entry,resolveDir:root,loader:'jsx'},bundle:true,write:false,platform:'browser',format:'iife',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
+ const bundle=await esbuild.build({stdin:{contents:entry,resolveDir:root,loader:'jsx'},bundle:true,write:false,platform:'browser',format:'iife',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent',plugins:[{name:'offline-workers',setup:require('./helpers/recovery-worker.cjs').setupRecoveryWorker}]});
  const html=path.join(fixture,'ink.html');fs.writeFileSync(html,'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="'+pathToFileURL(path.join(root,'src/index.css')).href+'"><div id="root"></div>');
  let application,context,page;
  if(native){

@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { getPagePdfDimensions } from './pdfExportEngine.js';
+import { backupPageDimensions } from './backupPageImage.js';
 import { renderExportPageImage } from './exportDocument.js';
 const verifyImage = src => new Promise((resolve, reject) => {
   if (!/^data:image\//i.test(src)) { reject(new Error('pdf-backup-image-unavailable')); return; }
@@ -14,7 +14,7 @@ const pageKey = (note, page) => JSON.stringify([note.id, page.id, page.updatedAt
   note.templateId, note.paperSize, note.orientation, page.templateId, page.pageWidth, page.pageHeight]);
 export const createVerifiedBackupPdfRenderer = ({ maxCacheBytes = 12 * 1024 * 1024,
   maxCachedPages = 8, maxRetainedDocumentBytes = 16 * 1024 * 1024, idleLifetime = 30000,
-  dimensions = getPagePdfDimensions, renderImage = renderExportPageImage, validateImage = verifyImage,
+  dimensions = backupPageDimensions, renderImage = renderExportPageImage, validateImage = verifyImage,
   yieldForPage = () => new Promise(resolve => setTimeout(resolve, 30)),
   output = pdf => 'data:application/pdf;base64,' + pdf.output('datauristring').replace(/^data:application\/pdf.*?;base64,/, '') } = {}) => {
   const cache = new Map();

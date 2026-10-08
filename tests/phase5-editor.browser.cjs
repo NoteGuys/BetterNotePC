@@ -160,4 +160,5 @@ module.exports=async({page,fixture,mount,flush,check,reload})=>{
   assert.ok(result.length>=2);assert.ok(result.every(([w,h])=>w===1&&h===1));
  });
  await require('./thumbnail-navigation.browser.cjs')({page,fixture,mount,flush,check,reload});
+ await require('./pdf-navigation.browser.cjs')({page,mount,flush,check});
 };

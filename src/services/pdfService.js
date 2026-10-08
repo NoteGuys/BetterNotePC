@@ -1,7 +1,8 @@
+import { pdfAssets } from '../utils/pdfAssetUrls.js';
 // PDF Service for BetterNote with High-DPI Rendering & Performance Optimization
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { saveNotebook, savePage } from './db';
+import { importNotebookPagesAtomic } from './db';
 
 // Setup worker with local offline bundle
 if (typeof window !== 'undefined') {
@@ -21,13 +22,13 @@ export const loadPdfFromFile = async (file) => {
 /**
  * Render a specific PDF page to a crisp high-DPI image data URL and a fast thumbnail
  */
-export const renderPageToImage = async (pdfDoc, pageNum, scale = 2.0) => {
+export const renderPageToImage = async (pdfDoc, pageNum, scale = 2.0, maxEdge = 16384, maxPixels = 16 * 1024 * 1024) => {
   const page = await pdfDoc.getPage(pageNum);
   const viewport = page.getViewport({ scale });
 
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { alpha: false });
-  const rasterScale = Math.min(1, Math.sqrt(16 * 1024 * 1024 / (viewport.width * viewport.height)), 16384 / viewport.width, 16384 / viewport.height);
+  const rasterScale = Math.min(1, Math.sqrt(maxPixels / (viewport.width * viewport.height)), maxEdge / viewport.width, maxEdge / viewport.height);
   canvas.width = Math.max(1, Math.floor(viewport.width * rasterScale));
   canvas.height = Math.max(1, Math.floor(viewport.height * rasterScale));
   let thumbCanvas;
@@ -76,10 +77,12 @@ export const renderPageToImage = async (pdfDoc, pageNum, scale = 2.0) => {
 /**
  * Import full PDF file into BetterNote database with cooperative multitasking
  */
-export const importPdfAsNotebook = async (file, folderId = null, onProgress = null) => {
+const importPdfLegacy = async (file, folderId = null, onProgress = null) => {
   const originalDataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file);
+    const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(new Blob([file],{type:'application/pdf'}));
   });
+  const bytes=await file.arrayBuffer();
+  const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(x=>x.toString(16).padStart(2,'0')).join('');
   const { pdfDoc } = await loadPdfFromFile(file);
   const numPages = pdfDoc.numPages;
   try {
@@ -100,7 +103,7 @@ export const importPdfAsNotebook = async (file, folderId = null, onProgress = nu
       pdfName: file.name
     };
 
-    const savedNotebook = await saveNotebook(notebook, { ensureUniqueName: true });
+    const importedPages=[];
 
     const originalId = notebookId + ':pdf';
     // Render and save each page with optimized resolution and non-blocking event loop yield
@@ -112,15 +115,15 @@ export const importPdfAsNotebook = async (file, folderId = null, onProgress = nu
       // Cooperative yield to keep UI responsive and prevent "Not Responding"
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      const { dataUrl, thumbnailUrl, width, height } = await renderPageToImage(pdfDoc, i, 2.0);
+      const { dataUrl, thumbnailUrl, width, height } = await renderPageToImage(pdfDoc, i, 2.0, 960);
 
       const pageRecord = {
         id: `${notebookId}_page_${i - 1}`,
         notebookId: notebookId,
         pageIndex: i - 1,
         templateId: 'blank',
-        pdfPageImage: dataUrl,
-        pdfOriginalId: originalId, pdfPageNumber: i,
+        pdfPageImage: dataUrl, pdfLazyRaster: 1, pdfNativeRaster: true,
+        pdfOriginalId: originalId, pdfOriginalDigest:digest, pdfPageNumber: i,
         ...(i === 1 ? { pdfOriginal: { id: originalId, name: file.name, dataUrl: originalDataUrl } } : {}),
         thumbnailUrl: thumbnailUrl,
         pageWidth: width,
@@ -130,10 +133,10 @@ export const importPdfAsNotebook = async (file, folderId = null, onProgress = nu
         updatedAt: Date.now()
       };
 
-      await savePage(pageRecord);
+      importedPages.push(pageRecord);
     }
 
-    return savedNotebook;
+    return await importNotebookPagesAtomic(notebook,importedPages);
   } finally { await pdfDoc.destroy(); }
 };
 
@@ -143,3 +146,25 @@ const canvasDataUrl = (canvas, type, quality) => new Promise((resolve, reject) =
     const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob);
   }, type, quality);
 });
+
+export const importPdfAsNotebook = async (file, folderId = null, onProgress = null) => {
+  const {default:RasterWorker}=await import('./pdfRaster.worker.js?worker&inline');
+  try {
+    return await new Promise((resolve,reject)=>{
+      const worker=new RasterWorker();let timer;
+      const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>finish(Error('PDF import timeout')),120000);};
+      const finish=(error,result)=>{clearTimeout(timer);worker.terminate();error?reject(error):resolve(result);};
+      worker.onmessage=({data})=>{
+        if(!data.progress && !data.error && !data.result)return;
+        if(data.progress){arm();onProgress?.(data.progress,data.total);return;}
+        finish(data.error?Error(data.error):null,data.result);
+      };
+      worker.onerror=e=>{e.preventDefault();finish(Error('PDF import unavailable'));};
+      arm();worker.postMessage({action:'import',file,folderId,assets:pdfAssets()});
+    });
+  } catch(error) {
+    if(error.message!=='pdf-native-filter-required')throw error;
+    // Preserve uncommon native PDF color filters that OffscreenCanvas cannot render.
+    return importPdfLegacy(file,folderId,onProgress);
+  }
+};

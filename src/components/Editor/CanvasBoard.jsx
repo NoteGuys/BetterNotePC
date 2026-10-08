@@ -1,3 +1,4 @@
+import { cachedPdfRaster, loadPdfRaster } from '../../services/pdfRasterService.js';
 import { canvasRasterScale, appendedStrokeStart } from '../../utils/canvasBudget.js';
 import React, { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import { renderPaperBackground } from '../../utils/paperRenderer';
@@ -351,6 +352,23 @@ export const CanvasBoard = ({
     return () => { for (const canvas of canvases) if (canvas) canvas.width = canvas.height = 1; };
   }, []);
 
+  // Keep the ready small PDF beneath the canvas while a sharper nearby raster arrives.
+  const [pdfRaster, setPdfRaster] = useState(null);
+  useEffect(() => {
+    if (!page?.pdfLazyRaster) { setPdfRaster(null); return; }
+    let cancelled=false,timer;const controller=new AbortController();
+    const ready=cachedPdfRaster(page);
+    setPdfRaster(ready?{id:page.id,digest:page.pdfOriginalDigest,url:ready}:null);
+    const prepare=()=>{
+      if(cancelled)return;
+      if(window.__bn_pen_active||window.__bn_drag_active){timer=setTimeout(prepare,100);return;}
+      loadPdfRaster(page,{signal:controller.signal}).then(url=>{if(!cancelled)setPdfRaster({id:page.id,digest:page.pdfOriginalDigest,url});}).catch(()=>{ /* Keep the available page image; exports report failures. */ });
+    };
+    if(!ready)prepare();
+    return()=>{cancelled=true;controller.abort();clearTimeout(timer);};
+  }, [page?.id,page?.pdfLazyRaster,page?.pdfOriginalId,page?.pdfOriginalDigest,page?.pdfPageNumber]);
+  const pdfBackground = pdfRaster?.id===page?.id && pdfRaster.digest===page?.pdfOriginalDigest ? pdfRaster.url : page?.pdfPageImage;
+
   // 1. Render Background Canvas with High-DPI
   useEffect(() => {
     const bgCanvas = bgCanvasRef.current;
@@ -362,18 +380,21 @@ export const CanvasBoard = ({
     const ctx = bgCanvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
-    if (page?.pdfPageImage) {
+    let cancelled=false;
+    if (pdfBackground) {
       const img = new Image();
       img.onload = () => {
+        if(cancelled)return;
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
       };
-      img.src = page.pdfPageImage;
+      img.src = pdfBackground;
     } else {
       const tmpl = PAPER_TEMPLATES.find(t => t.id === (page?.templateId || templateId)) || PAPER_TEMPLATES[0];
       renderPaperBackground(ctx, canvasWidth, canvasHeight, tmpl);
     }
-  }, [page?.id, page?.pdfPageImage, page?.templateId, templateId, canvasWidth, canvasHeight, rasterScale]);
+    return()=>{cancelled=true;};
+  }, [page?.id, pdfBackground, page?.templateId, templateId, canvasWidth, canvasHeight, rasterScale]);
 
   // 2. Render Static Strokes Layer with High-DPI
   useEffect(() => {
@@ -2497,6 +2518,8 @@ export const CanvasBoard = ({
           height: `${canvasHeight * zoom}px`
         }}
       >
+        {page?.pdfLazyRaster && page.pdfPageImage && <img className="bn-pdf-ready-background" src={page.pdfPageImage}
+          alt="" aria-hidden="true" decoding="sync" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'fill',pointerEvents:'none'}} />}
         {/* Layer 1: Background Paper / PDF Canvas (Hi-DPI) */}
         <canvas 
           ref={bgCanvasRef}

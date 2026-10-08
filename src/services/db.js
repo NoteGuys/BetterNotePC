@@ -831,3 +831,22 @@ export const getBackupNotebookSnapshot = async notebookId => {
     };
   });
 };
+
+// Publish only after every small page image is ready; aborted imports leave no partial notebook.
+export const importNotebookPagesAtomic = (notebook, pages) => writeTransaction(['notebooks','pages'], (tx,done,abort) => {
+  if (!pages?.length || pages.some((p,i)=>p.notebookId!==notebook.id || p.pageIndex!==i)) { abort(Error('Incomplete PDF import')); return; }
+  const notebooks=tx.objectStore('notebooks'), occupied=new Set(), names=notebooks.openCursor();
+  names.onsuccess=()=>{const cursor=names.result;if(cursor){occupied.add(notebookNameKey(cursor.value.name));cursor.continue();return;}
+    const saved={...notebook,name:uniqueNotebookName(notebook.name,occupied,notebookNameKey),pageCount:pages.length};
+    notebooks.add(saved);for(const page of pages)tx.objectStore('pages').add(page);done(saved);
+  };
+});
+// Find the one portable source without collecting notebook media.
+export const getPdfOriginalSource = async (notebookId, originalId) => {
+  const db=await openDB();return new Promise((resolve,reject)=>{
+    const tx=db.transaction('pages','readonly');let source=null;
+    const request=tx.objectStore('pages').index('notebookId').openCursor(notebookId);
+    request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;if(cursor.value.pdfOriginal?.id===originalId){source=cursor.value.pdfOriginal;return;}cursor.continue();};
+    tx.oncomplete=()=>resolve(source);tx.onabort=tx.onerror=()=>reject(Error('PDF source unavailable'));
+  });
+};
