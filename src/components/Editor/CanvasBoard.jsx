@@ -1,3 +1,4 @@
+import { canvasRasterScale, appendedStrokeStart } from '../../utils/canvasBudget.js';
 import React, { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import { renderPaperBackground } from '../../utils/paperRenderer';
 import { 
@@ -137,6 +138,7 @@ export const CanvasBoard = ({
   scribbleToErase = true,
   penOnly = true,
   zoom = 1.0,
+  rasterBudget = 96 * 1024 * 1024,
   onZoomChange,
   onToolChange,
   onBatchUpdatePage,
@@ -341,7 +343,13 @@ export const CanvasBoard = ({
     toastTimeoutRef.current = setTimeout(() => setGestureToast(''), 1800);
   };
 
-  const getDpr = () => (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+  const getDpr = () => canvasRasterScale(canvasWidth, canvasHeight, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, rasterBudget);
+  const rasterScale = getDpr();
+  const staticRenderRef = useRef(null);
+  useEffect(() => {
+    const canvases = [bgCanvasRef.current, staticCanvasRef.current, activeCanvasRef.current];
+    return () => { for (const canvas of canvases) if (canvas) canvas.width = canvas.height = 1; };
+  }, []);
 
   // 1. Render Background Canvas with High-DPI
   useEffect(() => {
@@ -365,21 +373,26 @@ export const CanvasBoard = ({
       const tmpl = PAPER_TEMPLATES.find(t => t.id === (page?.templateId || templateId)) || PAPER_TEMPLATES[0];
       renderPaperBackground(ctx, canvasWidth, canvasHeight, tmpl);
     }
-  }, [page?.id, page?.pdfPageImage, page?.templateId, templateId, canvasWidth, canvasHeight]);
+  }, [page?.id, page?.pdfPageImage, page?.templateId, templateId, canvasWidth, canvasHeight, rasterScale]);
 
   // 2. Render Static Strokes Layer with High-DPI
   useEffect(() => {
     const staticCanvas = staticCanvasRef.current;
     if (!staticCanvas) return;
     const dpr = getDpr();
-    staticCanvas.width = canvasWidth * dpr;
-    staticCanvas.height = canvasHeight * dpr;
-
+    const previous = staticRenderRef.current;
+    const appendAt = previous?.pageId === page?.id && previous.scale === dpr &&
+      previous.width === canvasWidth && previous.height === canvasHeight
+      ? appendedStrokeStart(previous.strokes, strokes) : -1;
     const ctx = staticCanvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    renderAllStrokes(ctx, strokes);
-  }, [page?.id, strokes, canvasWidth, canvasHeight]);
+    if (appendAt >= 0) {
+      for (let i = appendAt; i < strokes.length; i++) renderStroke(ctx, strokes[i]);
+    } else {
+      staticCanvas.width = canvasWidth * dpr; staticCanvas.height = canvasHeight * dpr;
+      ctx.scale(dpr, dpr); ctx.clearRect(0, 0, canvasWidth, canvasHeight); renderAllStrokes(ctx, strokes);
+    }
+    staticRenderRef.current = { pageId: page?.id, strokes, scale: dpr, width: canvasWidth, height: canvasHeight };
+  }, [page?.id, strokes, canvasWidth, canvasHeight, rasterScale]);
 
   // Initialize Active Canvas dimensions
   useEffect(() => {
@@ -388,7 +401,7 @@ export const CanvasBoard = ({
     const dpr = getDpr();
     activeCanvas.width = canvasWidth * dpr;
     activeCanvas.height = canvasHeight * dpr;
-  }, [canvasWidth, canvasHeight]);
+  }, [canvasWidth, canvasHeight, rasterScale]);
 
   // Transform client coordinates to canvas internal coordinates
   const getCanvasCoordinates = useCallback((e, bounds) => {
@@ -1770,6 +1783,7 @@ export const CanvasBoard = ({
     if (staticCanvas) {
       const dpr = getDpr();
       const sCtx = staticCanvas.getContext('2d');
+      staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
       sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       renderAllStrokes(sCtx, unselectedStrokes);
@@ -1900,6 +1914,7 @@ export const CanvasBoard = ({
         if (staticCanvas) {
           const dpr = getDpr();
           const sCtx = staticCanvas.getContext('2d');
+          staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
           sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
           sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
           renderAllStrokes(sCtx, newStrokes);
@@ -1985,6 +2000,7 @@ export const CanvasBoard = ({
         if (staticCanvas) {
           const dpr = getDpr();
           const sCtx = staticCanvas.getContext('2d');
+          staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
           sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
           sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
           renderAllStrokes(sCtx, initialStrokes);
@@ -2096,6 +2112,7 @@ export const CanvasBoard = ({
         if (staticCanvas) {
           const dpr = getDpr();
           const sCtx = staticCanvas.getContext('2d');
+          staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
           sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
           sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
           renderAllStrokes(sCtx, newStrokes);
@@ -2158,6 +2175,7 @@ export const CanvasBoard = ({
     if (staticCanvas) {
       const dpr = getDpr();
       const sCtx = staticCanvas.getContext('2d');
+      staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
       sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       renderAllStrokes(sCtx, newStrokes);
@@ -2195,6 +2213,7 @@ export const CanvasBoard = ({
     if (staticCanvas) {
       const dpr = getDpr();
       const sCtx = staticCanvas.getContext('2d');
+      staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
       sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       renderAllStrokes(sCtx, newAllStrokes);
@@ -2241,6 +2260,7 @@ export const CanvasBoard = ({
     if (staticCanvas) {
       const dpr = getDpr();
       const sCtx = staticCanvas.getContext('2d');
+      staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
       sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       renderAllStrokes(sCtx, remainingStrokes);

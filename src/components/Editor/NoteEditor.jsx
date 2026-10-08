@@ -8,12 +8,15 @@ import { isWhiteboardPage } from '../../utils/whiteboard';
 import { createTouchGuard, createTwoFingerTap, touchSnapshot, normalizeWheel, createWheelPageGate } from '../../utils/touchNavigation';
 import { ExportModal } from '../Common/ExportModal';
 import { 
-  getPagesByNotebookId, 
+  getPagesByNotebookId, getPage,
   savePage, 
   mutateNotebookPages,
   saveNotebook,
   duplicateNotebook 
 } from '../../services/db';
+import { loadPageManifest, loadPdfOwnerPage, exportPortableNotebook } from '../../services/editorPagesService.js';
+import { createPagePreviewSession } from '../../services/pagePreviewService.js';
+import { pageSummary, trimPageWindow, windowPageIds, editorPageView } from '../../utils/pageWindow.js';
 import { pageSaveQueue } from '../../services/localSaveService';
 import { pageContentSnapshot, findHistoryPageIndex } from '../../utils/pageHistory';
 import { notebookHistoryStore } from '../../services/notebookHistoryService';
@@ -167,6 +170,7 @@ export const NoteEditor = ({
     historySession.subscribe, historySession.getSnapshot, historySession.getSnapshot
   );
   const loadGenerationRef = useRef(0);
+  const manifestAbortRef = useRef(null);
 
   // Floating Gesture Toast
   const [gestureToast, setGestureToast] = useState(null);
@@ -430,11 +434,13 @@ export const NoteEditor = ({
   // Wait for this notebook's pending page operation before opening its view.
   const loadPages = useCallback(async () => {
     const generation = ++loadGenerationRef.current;
+    manifestAbortRef.current?.abort();
+    const manifestController = new AbortController(); manifestAbortRef.current = manifestController;
     setIsLoading(true);
     setLoadError(false);
     try {
       await historySession.wait();
-      let loadedPages = await getPagesByNotebookId(notebook.id);
+      let loadedPages = await loadPageManifest(notebook.id, { signal: manifestController.signal, templateId: notebook.templateId });
       if (generation !== loadGenerationRef.current) return;
       if (loadedPages.length === 0) {
         const initialPage = {
@@ -444,6 +450,15 @@ export const NoteEditor = ({
         };
         await savePage(initialPage);
         loadedPages = [initialPage];
+      }
+      if (generation !== loadGenerationRef.current) return;
+      const start = Math.min(Math.max(0, initialPageRef.current), Math.max(0, loadedPages.length - 1));
+      if (loadedPages[start]?.__unloaded) {
+        const active = loadedPages[start].__pdfOriginalOwner
+          ? await loadPdfOwnerPage(notebook.id, loadedPages[start].id, { signal: manifestController.signal })
+          : await getPage(loadedPages[start].id);
+        if (!active) throw Error('Page unavailable');
+        loadedPages[start] = active;
       }
       if (generation !== loadGenerationRef.current) return;
       loadedPages = pageSaveQueue.overlay(loadedPages, notebook.id);
@@ -464,8 +479,84 @@ export const NoteEditor = ({
 
   useEffect(() => {
     loadPages();
-    return () => { loadGenerationRef.current++; };
+    return () => { loadGenerationRef.current++; manifestAbortRef.current?.abort(); };
   }, [loadPages]);
+
+  const pageLoadsRef = useRef(new Map());
+  const ensurePage = useCallback(async pageId => {
+    const live = pagesRef.current.find(page => page.id === pageId);
+    if (!live || !live.__unloaded) return live;
+    const key = notebook.id + ':' + pageId;
+    if (pageLoadsRef.current.has(key)) return pageLoadsRef.current.get(key);
+    const generation = loadGenerationRef.current;
+    const task = (async () => {
+      const stored = live.__pdfOriginalOwner ? await loadPdfOwnerPage(notebook.id, pageId, { signal: manifestAbortRef.current?.signal }) : await getPage(pageId);
+      if (!stored || stored.notebookId !== notebook.id) throw Error('Page unavailable');
+      if (generation !== loadGenerationRef.current) return null;
+      const current = pagesRef.current.find(page => page.id === pageId);
+      if (!current) return null;
+      if (!current.__unloaded) return current;
+      const result = pageSaveQueue.overlay([{ ...stored, pageIndex: current.pageIndex }], notebook.id)[0];
+      const next = pagesRef.current.map(page => page.id === pageId ? result : page);
+      pagesRef.current = next; setPages(next);
+      return result;
+    })().finally(() => {
+      pageLoadsRef.current.delete(key);
+      setTimeout(() => {
+        if (generation !== loadGenerationRef.current) return;
+        const next = trimPageWindow(pagesRef.current, windowPageIds(pagesRef.current, currentPageIndexRef.current, 2));
+        if (next.some((page,i) => page !== pagesRef.current[i])) { pagesRef.current = next; setPages(next); }
+      }, 0);
+    });
+    pageLoadsRef.current.set(key, task);
+    return task;
+  }, [notebook.id]);
+  const [pageLoadError, setPageLoadError] = useState(null);
+  const wantedPageIds = useMemo(() => windowPageIds(pages, currentPageIndex, scrollDirection === 'vertical' ? 2 : 1), [pages.length, currentPageIndex, scrollDirection]);
+  useEffect(() => {
+    if (isLoading || loadError || !pages.length) return;
+    let cancelled = false;
+    const wanted = windowPageIds(pagesRef.current, currentPageIndex, scrollDirection === 'vertical' ? 2 : 1);
+    const trimmed = trimPageWindow(pagesRef.current, wanted);
+    if (trimmed.some((page,i) => page !== pagesRef.current[i])) { pagesRef.current = trimmed; setPages(trimmed); }
+    setPageLoadError(null);
+    (async () => {
+      const activeId = pagesRef.current[currentPageIndex]?.id;
+      try { if (activeId) await ensurePage(activeId); } catch (_) { if (!cancelled) setPageLoadError(activeId); }
+      for (const id of wanted) {
+        if (cancelled) break;
+        if (id !== activeId && !window.__bn_pen_active && !window.__bn_drag_active) { try { await ensurePage(id); } catch (_) { /* Neighbors retry when selected. */ } }
+      }
+      if (!cancelled) {
+        const next = trimPageWindow(pagesRef.current, wanted);
+        if (next.some((page,i) => page !== pagesRef.current[i])) { pagesRef.current = next; setPages(next); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isLoading, loadError, currentPageIndex, pages.length, scrollDirection, ensurePage]);
+  const loadExportPages = useCallback(async () => {
+    await pageSaveQueue.flush(notebook.id);
+    return getPagesByNotebookId(notebook.id);
+  }, [notebook.id]);
+
+  const loadExportPage = useCallback(async index => {
+    const pageId = pagesRef.current[index]?.id;
+    await pageSaveQueue.flush(notebook.id);
+    const page = await ensurePage(pageId);
+    if (!page || page.__unloaded) throw Error('Page unavailable');
+    return page;
+  }, [notebook.id, ensurePage]);
+
+  const loadBNoteExport = useCallback(async () => { await pageSaveQueue.flush(notebook.id); return exportPortableNotebook(notebook.id); }, [notebook.id]);
+
+  const previewSessionRef = useRef(null);
+  useEffect(() => {
+    const session = createPagePreviewSession(); previewSessionRef.current = session;
+    return () => { session.dispose(); if (previewSessionRef.current === session) previewSessionRef.current = null; };
+  }, [notebook.id]);
+  useEffect(() => {
+    if (!isLoading && !loadError) previewSessionRef.current?.update(pages, notebook.templateId);
+  }, [pages, notebook.templateId, isLoading, loadError]);
 
   const firstCoverPage = pages[0];
   useEffect(() => {
@@ -485,6 +576,7 @@ export const NoteEditor = ({
     const targetIndex = typeof target === 'string' ? prevPages.findIndex(page => page.id === target) : target;
     const targetPage = prevPages[targetIndex];
     if (!targetPage) return Promise.resolve(false);
+    if (targetPage.__unloaded) return ensurePage(targetPage.id).then(page => page ? applyBatchUpdatePage(updates, page.id, options) : false);
     const updatedPage = {
       ...targetPage,
       ...(updates.strokes !== undefined ? { strokes: updates.strokes } : {}),
@@ -512,7 +604,7 @@ export const NoteEditor = ({
   const handleBatchUpdatePage = (updates, target = currentPageIndexRef.current, options = {}) => {
     const pageId = typeof target === 'string' ? target : pagesRef.current[target]?.id;
     if (!pageId) return Promise.resolve(false);
-    if (historySession.getSnapshot().busy) {
+    if (historySession.getSnapshot().busy || pagesRef.current.find(page => page.id === pageId)?.__unloaded) {
       return historySession.run(() => applyBatchUpdatePage(updates, pageId, options));
     }
     return applyBatchUpdatePage(updates, pageId, options);
@@ -543,7 +635,8 @@ export const NoteEditor = ({
   const handleCaptureFullPage = async () => {
     if (!currentPage) return;
     try {
-      const dataUrl = await renderPageToCanvasDataUrl(currentPage, notebook.templateId);
+      const completePage = await ensurePage(currentPage.id);
+      const dataUrl = await renderPageToCanvasDataUrl(completePage, notebook.templateId);
       setClipboardImage({ dataUrl, width: 600, height: 800 });
       window.__bn_clipboard_image = { dataUrl, width: 600, height: 800 };
       alert(t('fullPageSnipSuccess', 'แคปภาพทั้งหน้าเรียบร้อยแล้ว! กดปุ่ม "วางภาพ" หรือ Ctrl+V เพื่อวางในหน้านี้หรือหน้าอื่นได้เลย'));
@@ -561,7 +654,7 @@ export const NoteEditor = ({
     img.onload = async () => {
       try {
         const targetPageIndex = pagesRef.current.findIndex(page => page.id === targetPageId);
-        const currentPage = pagesRef.current[targetPageIndex];
+        const currentPage = await ensurePage(targetPageId);
         if (!currentPage) { resolve(); return; }
         let w = img.naturalWidth || imgWidth || 400;
         let h = img.naturalHeight || imgHeight || 300;
@@ -823,7 +916,7 @@ export const NoteEditor = ({
     const livePages = new Map(pagesRef.current.map(page => [page.id, page]));
     const nextPages = result.pages.map(page => {
       const live = livePages.get(page.id);
-      return live ? { ...page, ...live, pageIndex: page.pageIndex } : page;
+      return live && !live.__unloaded ? editorPageView({ ...page, strokes: live.strokes, textElements: live.textElements, imageElements: live.imageElements }) : pageSummary(page);
     });
     pagesRef.current = nextPages;
     setPages(nextPages);
@@ -861,7 +954,9 @@ export const NoteEditor = ({
       }
       const targetIdx = findHistoryPageIndex(pagesRef.current, entry);
       if (targetIdx < 0) { historySession.reconcile(pagesRef.current); return false; }
-      const targetPage = pagesRef.current[targetIdx];
+      const candidate = pagesRef.current[targetIdx];
+      const targetPage = candidate.__unloaded ? await ensurePage(candidate.id) : candidate;
+      if (!targetPage) return false;
       const updatedPage = {
         ...targetPage, ...(direction === 'undo' ? entry.before : entry.after), updatedAt: Date.now()
       };
@@ -875,7 +970,8 @@ export const NoteEditor = ({
     const { stack, pointer, busy } = historySession.getSnapshot();
     const entry = stack[direction === 'undo' ? pointer : pointer + 1];
     const isStructural = entry?.kind === 'insert-page' || entry?.kind === 'delete-page';
-    const result = busy || isStructural ? historySession.run(perform) : perform();
+    const needsLoad = pagesRef.current.find(page => page.id === entry?.pageId)?.__unloaded;
+    const result = busy || isStructural || needsLoad ? historySession.run(perform) : perform();
     return result.catch(error => {
       console.error('History replay failed:', error);
       alert(t('localSavePageChangeFailed'));
@@ -1026,7 +1122,10 @@ export const NoteEditor = ({
 
   // Duplicate a specific page (from thumbnail 3-dots or wherever)
   const handleDuplicatePage = async (pageIndex = currentPageIndexRef.current) => {
-    const sourcePage = pagesRef.current[pageIndex];
+    const candidate = pagesRef.current[pageIndex];
+    let sourcePage;
+    try { sourcePage = candidate?.__unloaded ? await ensurePage(candidate.id) : candidate; }
+    catch (_) { alert(t('localSavePageChangeFailed')); return false; }
     if (!sourcePage) return;
     const clonedPage = {
       ...sourcePage,
@@ -1074,11 +1173,12 @@ export const NoteEditor = ({
 
   // Change Template for Current Page
   const handleChangeTemplate = (templateId, pageId = pagesRef.current[currentPageIndexRef.current]?.id) => {
-    if (historySession.getSnapshot().busy) return historySession.run(() => handleChangeTemplateNow(templateId, pageId));
+    if (historySession.getSnapshot().busy || pagesRef.current.find(page => page.id === pageId)?.__unloaded) return historySession.run(() => handleChangeTemplateNow(templateId, pageId)).catch(() => { alert(t('localSavePageChangeFailed')); return false; });
     return handleChangeTemplateNow(templateId, pageId);
   };
   const handleChangeTemplateNow = (templateId, pageId) => {
     const target = pagesRef.current.find(page => page.id === pageId);
+    if (target?.__unloaded) return ensurePage(pageId).then(page => page ? handleChangeTemplateNow(templateId, pageId) : false);
     if (!target) return;
     const updated = { ...target, templateId, updatedAt: Date.now() };
     const nextPages = pagesRef.current.map(page => page.id === target.id ? updated : page);
@@ -1090,11 +1190,12 @@ export const NoteEditor = ({
   // Toggle Favorite for a specific page (or current page)
   const handleToggleFavoritePage = (pageIndex = currentPageIndexRef.current) => {
     const pageId = pagesRef.current[pageIndex]?.id;
-    if (historySession.getSnapshot().busy) return historySession.run(() => handleToggleFavoritePageNow(pageId));
+    if (historySession.getSnapshot().busy || pagesRef.current.find(page => page.id === pageId)?.__unloaded) return historySession.run(() => handleToggleFavoritePageNow(pageId)).catch(() => { alert(t('localSavePageChangeFailed')); return false; });
     return handleToggleFavoritePageNow(pageId);
   };
   const handleToggleFavoritePageNow = pageId => {
     const target = pagesRef.current.find(page => page.id === pageId);
+    if (target?.__unloaded) return ensurePage(pageId).then(page => page ? handleToggleFavoritePageNow(pageId) : false);
     if (!target) return;
     const updated = { ...target, isFavorite: !target.isFavorite, updatedAt: Date.now() };
     const nextPages = pagesRef.current.map(page => page.id === target.id ? updated : page);
@@ -1196,7 +1297,7 @@ export const NoteEditor = ({
       <div className="bn-editor-workspace">
         {/* Thumbnail Sidebar */}
         {showThumbnails && (
-          <ThumbnailSidebar 
+          <ThumbnailSidebar templateId={notebook.templateId}
             pages={pages}
             currentPageIndex={currentPageIndex}
             onSelectPage={handleSelectPage}
@@ -1227,7 +1328,9 @@ export const NoteEditor = ({
             </div>
           )}
 
-          {currentPage && isWhiteboardPage(currentPage, notebook.templateId) ? (
+          {currentPage?.__unloaded && (scrollDirection !== 'vertical' || isWhiteboardPage(currentPage, notebook.templateId)) ? (
+            <div className="bn-loading-screen" role="status">{pageLoadError === currentPage.id ? <button onClick={() => { setPageLoadError(null); ensurePage(currentPage.id).catch(() => setPageLoadError(currentPage.id)); }}>{t('localLoadRetry')}</button> : t('loadingApp')}</div>
+          ) : currentPage && isWhiteboardPage(currentPage, notebook.templateId) ? (
             <div ref={stageContentRef} className="bn-whiteboard-page">
                 <WhiteboardBoard
                   key={currentPage.id || `horizontal-page-${currentPageIndex}`}
@@ -1266,7 +1369,7 @@ export const NoteEditor = ({
             <div ref={stageContentRef} className="bn-vertical-pages-stack">
               {pages.map((p, idx) => {
                 const PageBoard = isWhiteboardPage(p, notebook.templateId) ? WhiteboardBoard : CanvasBoard;
-                const isMounted = Math.abs(idx - currentPageIndex) <= 2;
+                const isMounted = wantedPageIds.has(p.id) && !p.__unloaded;
                 const pWidth = p.pageWidth || 1200;
                 const pHeight = p.pageHeight || 1600;
 
@@ -1282,6 +1385,7 @@ export const NoteEditor = ({
                       <PageBoard
                         key={p.id}
                         page={p}
+                        rasterBudget={(idx === currentPageIndex ? 96 : 12) * 1024 * 1024}
                         newlyPastedImageId={pastedImageSelection?.pageId === p.id ? pastedImageSelection.imageId : null}
                         onViewportChange={handleWhiteboardViewportChange}
                         templateId={notebook.templateId}
@@ -1337,7 +1441,7 @@ export const NoteEditor = ({
                           />
                         ) : (
                           <span style={{ color: '#94a3b8', fontSize: '15px', fontWeight: 600 }}>
-                            {t('page', 'หน้า')} {idx + 1}
+                            {pageLoadError === p.id ? <button onClick={() => { setPageLoadError(null); ensurePage(p.id).catch(() => setPageLoadError(p.id)); }}>{t('localLoadRetry')}</button> : <>{t('page', 'หน้า')} {idx + 1}</>}
                           </span>
                         )}
                       </div>
@@ -1400,6 +1504,9 @@ export const NoteEditor = ({
         onClose={() => setIsExportModalOpen(false)}
         notebook={notebook}
         pages={pages}
+        loadPages={loadExportPages}
+        loadPage={loadExportPage}
+        loadBNote={loadBNoteExport}
         currentPageIndex={currentPageIndex}
       />
 

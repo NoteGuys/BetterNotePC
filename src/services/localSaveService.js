@@ -103,7 +103,9 @@ export const createPageSaveQueue = (writePage) => {
 };
 
 export const pageSaveQueue = createPageSaveQueue(page =>
-  savePage(page, { preservePageIndex: true, requireExisting: true })
+  page.__pdfOriginalOmitted
+    ? import('./editorPagesService.js').then(({ savePdfOwnerPage }) => savePdfOwnerPage(page))
+    : savePage(page, { preservePageIndex: true, requireExisting: true })
 );
 
 let localSnapshot;

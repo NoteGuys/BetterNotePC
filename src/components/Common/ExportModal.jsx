@@ -30,7 +30,7 @@ const translateExportError = (error, t) => {
 // Store message keys so already-visible results also follow a language change.
 const exportMessage = (key, params = {}) => ({ key, params });
 
-export const ExportModal = ({ isOpen, onClose, notebook, pages, currentPageIndex }) => {
+export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadPage, loadBNote, currentPageIndex }) => {
   const { t } = useLanguage();
   const [isExporting, setIsExporting] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
@@ -47,7 +47,7 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, currentPageIndex
     setDoneMsg('');
 
     try {
-      await exportNotebookToPdf(notebook, pages, (current, total) => {
+      await exportNotebookToPdf(notebook, loadPages ? await loadPages() : pages, (current, total) => {
         setProgressMsg(exportMessage('exportDialogPdfProgress', { page: current, total }));
       });
       setDoneMsg(exportMessage('exportDialogPdfSuccess'));
@@ -67,7 +67,8 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, currentPageIndex
     setDoneMsg('');
 
     try {
-      const curPage = pages[currentPageIndex] || pages[0];
+      const curPage = loadPage ? await loadPage(currentPageIndex) : pages[currentPageIndex] || pages[0];
+      if (!curPage || curPage.__unloaded) throw Error(t('exportDialogMissingPage'));
       await exportSinglePageToPdf(notebook, curPage, currentPageIndex);
       setDoneMsg(exportMessage('exportDialogPagePdfSuccess', { page: currentPageIndex + 1 }));
     } catch (err) {
@@ -86,16 +87,20 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, currentPageIndex
     setDoneMsg('');
 
     try {
-      const bnoteData = {
-        format: 'BetterNote_Document',
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        notebook,
-        pages
-      };
+      let blob;
+      if (loadBNote) blob = new Blob([await loadBNote()], { type: 'application/json' });
+      else {
+        const bnoteData = {
+          format: 'BetterNote_Document',
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          notebook,
+          pages: loadPages ? await loadPages() : pages
+        };
 
-      const jsonStr = JSON.stringify(bnoteData, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
+        const jsonStr = JSON.stringify(bnoteData, null, 2);
+        blob = new Blob([jsonStr], { type: 'application/json' });
+      }
       const filename = `${notebook.name || 'Notebook'}.bnote`;
 
       await saveFileToDisk(blob, filename);
@@ -116,7 +121,8 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, currentPageIndex
     setDoneMsg('');
 
     try {
-      const curPage = pages[currentPageIndex] || pages[0];
+      const curPage = loadPage ? await loadPage(currentPageIndex) : pages[currentPageIndex] || pages[0];
+      if (!curPage || curPage.__unloaded) throw Error(t('exportDialogMissingPage'));
       const result = await exportPageAsImage(curPage, notebook.templateId, { format: imageFormat, dpi: imageDpi });
       const extension = imageFormat === 'png' ? 'png' : 'jpg';
       const filename = `${notebook.name}_Page_${(curPage.pageIndex || 0) + 1}.${extension}`;

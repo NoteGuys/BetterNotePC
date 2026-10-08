@@ -1,3 +1,4 @@
+import { preservePdfOriginals } from '../utils/pdfOriginal.js';
 import { NOTEBOOK_COPY_LABELS, localizeNotebookCopyName } from '../utils/notebookNames.js';
 import { THUMBNAIL_COVER_ID } from '../data/covers.js';
 import { syncPathKey, syncRevision } from '../../electron/backupSyncProtocol.js';
@@ -518,8 +519,10 @@ export const savePage = (page, { preservePageIndex = false, requireExisting = fa
         abort(new Error('The page no longer exists'));
         return;
       }
+      const { __pdfOriginalOmitted, ...pageData } = page;
       const saved = {
-        ...page,
+        ...pageData,
+        ...(__pdfOriginalOmitted && existing?.pdfOriginal ? { pdfOriginal: existing.pdfOriginal } : {}),
         ...(preservePageIndex && existing ? { pageIndex: existing.pageIndex } : {}),
         updatedAt: nextUpdatedAt(page.updatedAt, existing?.updatedAt)
       };
@@ -530,7 +533,7 @@ export const savePage = (page, { preservePageIndex = false, requireExisting = fa
       const notebook = notebookRequest.result;
       if (notebook) notebooks.put({ ...notebook, updatedAt: nextUpdatedAt(notebook.updatedAt, page.updatedAt) });
     };
-    if (preservePageIndex || requireExisting) {
+    if (preservePageIndex || requireExisting || page.__pdfOriginalOmitted) {
       const existingRequest = pages.get(page.id);
       existingRequest.onsuccess = () => put(existingRequest.result);
     } else put();
@@ -596,7 +599,8 @@ export const mutateNotebookPages = (notebookId, change) =>
           if (!Number.isInteger(insertAt) || insertAt < 0 || insertAt > pages.length) throw new Error('Invalid page position');
           if (change.page.notebookId !== notebookId || pages.some(page => page.id === change.page.id)) throw new Error('Invalid page');
           nextPages = [...pages];
-          changedPage = { ...change.page, pageIndex: insertAt, updatedAt: nextUpdatedAt(change.page.updatedAt) };
+          const { __pdfOriginalOmitted, ...insertedPage } = change.page;
+          changedPage = { ...insertedPage, pageIndex: insertAt, updatedAt: nextUpdatedAt(change.page.updatedAt) };
           nextPages.splice(insertAt, 0, changedPage);
           nextPages = nextPages.map((page, index) => ({ ...page, pageIndex: index }));
           for (let index = nextPages.length - 1; index > insertAt; index--) pageStore.put(nextPages[index]);
@@ -610,6 +614,9 @@ export const mutateNotebookPages = (notebookId, change) =>
           nextPages = pages.filter(page => page.id !== change.pageId).map((page, index) => ({ ...page, pageIndex: index }));
           for (let index = removeAt; index < nextPages.length; index++) pageStore.put(nextPages[index]);
         } else throw new Error('Invalid page operation');
+        const portablePages = preservePdfOriginals(nextPages, change.kind === 'delete' ? changedPage : null);
+        portablePages.forEach((page, index) => { if (page !== nextPages[index]) pageStore.put(page); });
+        nextPages = portablePages;
         const updatedNotebook = { ...notebook, pageCount: nextPages.length, updatedAt: nextUpdatedAt(notebook.updatedAt) };
         notebookStore.put(updatedNotebook);
         done({ pages: nextPages, notebook: updatedNotebook, changedPage });

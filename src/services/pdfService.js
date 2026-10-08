@@ -5,7 +5,7 @@ import { saveNotebook, savePage } from './db';
 
 // Setup worker with local offline bundle
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker || `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '4.10.38'}/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 }
 
 /**
@@ -27,100 +27,119 @@ export const renderPageToImage = async (pdfDoc, pageNum, scale = 2.0) => {
 
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { alpha: false });
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-
-  // Fill white background
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-
-  const renderContext = {
-    canvasContext: context,
-    viewport: viewport
-  };
-
-  await page.render(renderContext).promise;
-
-  // Main high-res page image (optimized 0.82 JPEG for fast loading and low memory)
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-
-  // Fast lightweight thumbnail (~15KB) for instant sidebar rendering without freezing
-  let thumbnailUrl = '';
+  const rasterScale = Math.min(1, Math.sqrt(16 * 1024 * 1024 / (viewport.width * viewport.height)), 16384 / viewport.width, 16384 / viewport.height);
+  canvas.width = Math.max(1, Math.floor(viewport.width * rasterScale));
+  canvas.height = Math.max(1, Math.floor(viewport.height * rasterScale));
+  let thumbCanvas;
   try {
-    const thumbCanvas = document.createElement('canvas');
-    thumbCanvas.width = Math.max(120, Math.round(viewport.width * 0.18));
-    thumbCanvas.height = Math.max(160, Math.round(viewport.height * 0.18));
-    const thumbCtx = thumbCanvas.getContext('2d', { alpha: false });
-    thumbCtx.fillStyle = '#ffffff';
-    thumbCtx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
-    thumbCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
-    thumbnailUrl = thumbCanvas.toDataURL('image/jpeg', 0.7);
-  } catch (_) {
-    thumbnailUrl = dataUrl;
-  }
+    // Fill white background
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
 
-  return {
-    dataUrl,
-    thumbnailUrl,
-    width: viewport.width,
-    height: viewport.height,
-    aspectRatio: viewport.width / viewport.height
-  };
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport,
+      transform: rasterScale === 1 ? undefined : [rasterScale, 0, 0, rasterScale, 0, 0]
+    };
+
+    await page.render(renderContext).promise;
+
+    // Main high-res page image (optimized 0.82 JPEG for fast loading and low memory)
+    const dataUrl = await canvasDataUrl(canvas, 'image/jpeg', 0.82);
+
+    // Fast lightweight thumbnail (~15KB) for instant sidebar rendering without freezing
+    let thumbnailUrl = '';
+    try {
+      thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = Math.max(1, Math.round(viewport.width * Math.min(1, 320 / viewport.width, 320 / viewport.height)));
+      thumbCanvas.height = Math.max(1, Math.round(viewport.height * Math.min(1, 320 / viewport.width, 320 / viewport.height)));
+      const thumbCtx = thumbCanvas.getContext('2d', { alpha: false });
+      thumbCtx.fillStyle = '#ffffff';
+      thumbCtx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
+      thumbCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+      thumbnailUrl = await canvasDataUrl(thumbCanvas, 'image/jpeg', 0.7);
+      thumbCanvas.width = thumbCanvas.height = 1;
+    } catch (_) {
+      thumbnailUrl = dataUrl;
+    }
+
+    return {
+      dataUrl,
+      thumbnailUrl,
+      width: viewport.width,
+      height: viewport.height,
+      aspectRatio: viewport.width / viewport.height
+    };
+  } finally { canvas.width = canvas.height = 1; if (thumbCanvas) thumbCanvas.width = thumbCanvas.height = 1; page.cleanup(); }
 };
 
 /**
  * Import full PDF file into BetterNote database with cooperative multitasking
  */
 export const importPdfAsNotebook = async (file, folderId = null, onProgress = null) => {
+  const originalDataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file);
+  });
   const { pdfDoc } = await loadPdfFromFile(file);
   const numPages = pdfDoc.numPages;
+  try {
+    const notebookId = `nb-pdf-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const notebookName = file.name.replace(/\.[^/.]+$/, "");
 
-  const notebookId = `nb-pdf-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-  const notebookName = file.name.replace(/\.[^/.]+$/, "");
-
-  // Create notebook record
-  const notebook = {
-    id: notebookId,
-    name: notebookName,
-    folderId: folderId,
-    coverId: 'nordic-slate',
-    templateId: 'blank',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    pageCount: numPages,
-    isPdf: true,
-    pdfName: file.name
-  };
-
-  const savedNotebook = await saveNotebook(notebook, { ensureUniqueName: true });
-
-  // Render and save each page with optimized resolution and non-blocking event loop yield
-  for (let i = 1; i <= numPages; i++) {
-    if (onProgress) {
-      onProgress(i, numPages);
-    }
-
-    // Cooperative yield to keep UI responsive and prevent "Not Responding"
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    const { dataUrl, thumbnailUrl, width, height } = await renderPageToImage(pdfDoc, i, 2.0);
-
-    const pageRecord = {
-      id: `${notebookId}_page_${i - 1}`,
-      notebookId: notebookId,
-      pageIndex: i - 1,
+    // Create notebook record
+    const notebook = {
+      id: notebookId,
+      name: notebookName,
+      folderId: folderId,
+      coverId: 'nordic-slate',
       templateId: 'blank',
-      pdfPageImage: dataUrl,
-      thumbnailUrl: thumbnailUrl,
-      pageWidth: width,
-      pageHeight: height,
-      strokes: [],
-      textElements: [],
-      updatedAt: Date.now()
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pageCount: numPages,
+      isPdf: true,
+      pdfName: file.name
     };
 
-    await savePage(pageRecord);
-  }
+    const savedNotebook = await saveNotebook(notebook, { ensureUniqueName: true });
 
-  return savedNotebook;
+    const originalId = notebookId + ':pdf';
+    // Render and save each page with optimized resolution and non-blocking event loop yield
+    for (let i = 1; i <= numPages; i++) {
+      if (onProgress) {
+        onProgress(i, numPages);
+      }
+
+      // Cooperative yield to keep UI responsive and prevent "Not Responding"
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const { dataUrl, thumbnailUrl, width, height } = await renderPageToImage(pdfDoc, i, 2.0);
+
+      const pageRecord = {
+        id: `${notebookId}_page_${i - 1}`,
+        notebookId: notebookId,
+        pageIndex: i - 1,
+        templateId: 'blank',
+        pdfPageImage: dataUrl,
+        pdfOriginalId: originalId, pdfPageNumber: i,
+        ...(i === 1 ? { pdfOriginal: { id: originalId, name: file.name, dataUrl: originalDataUrl } } : {}),
+        thumbnailUrl: thumbnailUrl,
+        pageWidth: width,
+        pageHeight: height,
+        strokes: [],
+        textElements: [],
+        updatedAt: Date.now()
+      };
+
+      await savePage(pageRecord);
+    }
+
+    return savedNotebook;
+  } finally { await pdfDoc.destroy(); }
 };
+
+const canvasDataUrl = (canvas, type, quality) => new Promise((resolve, reject) => {
+  canvas.toBlob(blob => {
+    if (!blob) { reject(Error('PDF image unavailable')); return; }
+    const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob);
+  }, type, quality);
+});

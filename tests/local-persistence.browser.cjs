@@ -16,20 +16,24 @@ const captures = new Map([
   ['EditorToolbar', 'window.qa.toolbar = props;'],
   ['ThumbnailSidebar', 'window.qa.thumbnails = props;'],
   ['AddPageModal', 'window.qa.addPage = props;'],
-  ['DocumentTabBar', 'window.qa.tabs = props;']
+  ['DocumentTabBar', 'window.qa.tabs = props;'],
+  ['ExportModal', 'window.qa.export = props;']
 ]);
 const targetPaths = new Map([...captures.keys()].map(name => [path.join(root, 'src', 'components', 'Editor', name + '.jsx'), name]));
 targetPaths.delete(path.join(root, 'src', 'components', 'Editor', 'DocumentTabBar.jsx'));
+targetPaths.delete(path.join(root, 'src', 'components', 'Editor', 'ExportModal.jsx'));
+targetPaths.set(path.join(root, 'src', 'components', 'Common', 'ExportModal.jsx'), 'ExportModal');
 targetPaths.set(path.join(root, 'src', 'components', 'Common', 'DocumentTabBar.jsx'), 'DocumentTabBar');
 const plugin = {
   name: 'capture-real-component-props',
   setup(build) {
     require('./helpers/recovery-worker.cjs').setupRecoveryWorker(build);
     build.onResolve({ filter: /^qa-original:/ }, args => ({ path: args.path.slice('qa-original:'.length), namespace: 'qa-original' }));
-    build.onLoad({ filter: /.*/, namespace: 'qa-original' }, args => ({ contents: fs.readFileSync(args.path, 'utf8'), loader: 'jsx', resolveDir: path.dirname(args.path) }));
+    build.onLoad({ filter: /.*/, namespace: 'qa-original' }, args => ({ contents: process.env.BETTERNOTE_QA_PHASE5_BASELINE === '1' ? require('node:child_process').execFileSync('git',['show','HEAD:'+path.relative(root,args.path).split(path.sep).join('/')],{cwd:root,encoding:'utf8'}) : fs.readFileSync(args.path, 'utf8'), loader: 'jsx', resolveDir: path.dirname(args.path) }));
     build.onResolve({ filter: /notebookCover\.worker\.js\?worker&inline$/ }, () => ({ path:'thumbnail-worker-factory', namespace:'qa-thumbnail-worker' }));
     build.onLoad({ filter: /.*/, namespace:'qa-thumbnail-worker' }, () => ({ contents:thumbnailWorkerFactorySource, loader:'js' }));
     build.onLoad({ filter: /\.jsx$/ }, args => {
+      if (process.env.BETTERNOTE_QA_PHASE5_BASELINE === '1' && args.path.endsWith(path.join('Editor','NoteEditor.jsx'))) return {contents:require('node:child_process').execFileSync('git',['show','HEAD:src/components/Editor/NoteEditor.jsx'],{cwd:root,encoding:'utf8'}),loader:'jsx',resolveDir:path.dirname(args.path)};
       const name = targetPaths.get(args.path);
       if (name) return { contents:
         "import React from 'react'; import {" + name + " as Actual} from " + JSON.stringify('qa-original:' + args.path) + ";" +
@@ -43,6 +47,8 @@ const plugin = {
 };
 const entry = [
   "import React from 'react'; import {createRoot} from 'react-dom/client';",
+  "import * as previewState from './src/services/pagePreviewState.js'; import * as previewStorage from './src/services/pagePreviewStorage.js'; import * as pageLoader from './src/services/editorPagesService.js';",
+  "import { appCacheService } from './src/services/appCacheService.js';",
   "import * as db from './src/services/db.js';",
   "import * as local from './src/services/localSaveService.js';",
   "import * as history from './src/services/notebookHistoryService.js';",
@@ -54,7 +60,7 @@ const entry = [
   "import * as names from './src/utils/notebookNames.js';",
   "import * as covers from './src/services/notebookCoverService.js';",
   "import {NewItemModal} from './src/components/Library/NewItemModal.jsx';",
-  "window.qa={db,local,lang,history,names,covers,boards:new Map(),replies:[],alerts:[]}; let renderer;",
+  "window.qa={db,local,lang,history,names,covers,previewState,previewStorage,pageLoader,cache:appCacheService,boards:new Map(),replies:[],alerts:[]}; let renderer;",
   "window.alert=message=>qa.alerts.push(message); window.confirm=()=>true;",
   "window.electronAPI={isElectron:true,saveBackup:async()=>({success:false,reason:'synthetic QA only'}),onCloseSaveRequest:f=>{qa.closeRequest=f;return()=>{qa.closeRequest=null;};},onCloseSaveCancelled:f=>{qa.closeCancel=f;return()=>{};},setLocalSaveGuardReady:s=>{qa.closeReady=s;},completeCloseSaveRequest:r=>qa.replies.push(r)};",
   "qa.unmount=()=>{if(renderer){renderer.unmount();renderer=null;}qa.boards.clear();qa.toolbar=null;qa.thumbnails=null;qa.library=null;qa.tabs=null;};",
@@ -65,7 +71,7 @@ const entry = [
   "qa.mountTabBar=(tabs,activeId=tabs[0]?.id)=>{qa.unmount();qa.tabClicks=[];qa.closedTabs=[];renderer=createRoot(document.getElementById('root'));const Harness=()=>{const [items,setItems]=React.useState(tabs),[active,setActive]=React.useState(activeId);qa.setTabActive=setActive;return React.createElement(DocumentTabBar,{tabs:items,activeTabId:active,onSelectTab:id=>{qa.tabClicks.push(id);setActive(id);},onCloseTab:id=>{qa.closedTabs.push(id);setItems(old=>old.filter(tab=>tab.id!==id));setActive(old=>old===id?null:old);},onGoHome:()=>setActive(null)});};renderer.render(React.createElement(Harness));};",
   "qa.ink=(count)=>Array.from({length:count},(_,i)=>({id:'qa-stroke-'+i,tool:'pen',color:'#2563eb',width:3,points:[{x:30+i*15,y:30,pressure:0.5},{x:80+i*15,y:70,pressure:0.5}]}));",
   "qa.fixture=async(id,count=3)=>{const nb=await db.saveNotebook({id,name:'Synthetic QA notebook',pageCount:count,templateId:'blank',updatedAt:1});for(let i=0;i<count;i++)await db.savePage({id:id+'-p'+i,notebookId:id,pageIndex:i,templateId:'blank',pageWidth:480,pageHeight:620,strokes:[],textElements:[],imageElements:[],updatedAt:1});return nb;};",
-  "qa.fault=async({store,method='put',key,once=false,throwRead=false})=>{const connection=await db.openDB(),original=connection.transaction.bind(connection);let triggered=0;connection.transaction=(...args)=>{const tx=original(...args),getStore=tx.objectStore.bind(tx);tx.objectStore=name=>{const target=getStore(name);if(name===store){if(throwRead&&args[1]==='readonly'){const getIndex=target.index.bind(target);target.index=indexName=>{const index=getIndex(indexName);index.getAll=()=>{throw new Error('Synthetic read failure');};return index;};}else if(args[1]==='readwrite'){const action=target[method].bind(target);target[method]=value=>{const req=action(value);const id=typeof value==='object'?value.id||value.key:value;if((!key||key===id)&&(!once||!triggered)){triggered++;req.addEventListener('success',()=>tx.abort(),{once:true});}return req;};}}return target;};return tx;};return()=>{connection.transaction=original;return triggered;};};",
+  "qa.fault=async({store,method='put',key,once=false,throwRead=false})=>{const connection=await db.openDB(),original=connection.transaction.bind(connection);let triggered=0;connection.transaction=(...args)=>{const tx=original(...args),getStore=tx.objectStore.bind(tx);tx.objectStore=name=>{const target=getStore(name);if(name===store){if(throwRead&&args[1]==='readonly'){target.get=()=>{throw new Error('Synthetic read failure');};const getIndex=target.index.bind(target);target.index=indexName=>{const index=getIndex(indexName);index.getAll=()=>{throw new Error('Synthetic read failure');};return index;};}else if(args[1]==='readwrite'){const action=target[method].bind(target);target[method]=value=>{const req=action(value);const id=typeof value==='object'?value.id||value.key:value;if((!key||key===id)&&(!once||!triggered)){triggered++;req.addEventListener('success',()=>tx.abort(),{once:true});}return req;};}}return target;};return tx;};return()=>{connection.transaction=original;return triggered;};};",
   "qa.holdCommit=async()=>{const connection=await db.openDB(),original=connection.transaction.bind(connection),descriptor=Object.getOwnPropertyDescriptor(IDBTransaction.prototype,'oncomplete');if(!descriptor?.set)throw new Error('Native IDB oncomplete setter is required');let armed=true;qa.releaseCommit=null;qa.restoreCommit=()=>{connection.transaction=original;};connection.transaction=(...args)=>{const tx=original(...args),stores=Array.isArray(args[0])?args[0]:[args[0]];if(armed&&args[1]==='readwrite'&&stores.includes('pages')){armed=false;Object.defineProperty(tx,'oncomplete',{configurable:true,get:()=>descriptor.get.call(tx),set:handler=>descriptor.set.call(tx,event=>{qa.releaseCommit=()=>handler.call(tx,event);})});}return tx;};};",
   "qa.clearSynthetic=async()=>{if(location.href!==" + JSON.stringify(origin) + ")throw new Error('Refusing non-QA origin');qa.unmount();await local.flushLocalSaves();history.notebookHistoryStore.clear();const connection=await db.openDB();await new Promise((resolve,reject)=>{const tx=connection.transaction(['folders','notebooks','pages','settings'],'readwrite');for(const name of ['folders','notebooks','pages','settings'])tx.objectStore(name).clear();tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});};"
 ].join('\n');
@@ -116,17 +122,27 @@ const entry = [
       await page.evaluate(([nb,index]) => qa.mountEditor(nb,index), [nb,index]);
       await page.waitForFunction(() => qa.toolbar && qa.boards.size);
     };
+    const reload = async () => {
+      await page.reload();
+      await page.addStyleTag({content:fs.readFileSync(path.join(root,'src/index.css'),'utf8')});
+      await page.addScriptTag({content:compiled.outputFiles[0].text});
+    };
     const showThumbnails = async () => {
       await page.evaluate(() => qa.toolbar.setShowThumbnails(true));
       await page.waitForFunction(() => !!qa.thumbnails);
     };
+    if(process.env.BETTERNOTE_QA_PHASE5_ONLY==='1') {
+      await require(process.env.BETTERNOTE_QA_THUMBNAIL_ONLY==='1' ? './thumbnail-navigation.browser.cjs' : './phase5-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
+      assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
+      console.log(JSON.stringify({tests:results.length,passed:results.length,rendererErrors:errors,syntheticDatabaseOnly:true}));return;
+    }
     if(process.env.BETTERNOTE_QA_SHAPE_ONLY==='1') {
-      await require('./shape-editor.browser.cjs')({page,fixture,mount,flush,check});
+      await require('./shape-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
       assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
       console.log(JSON.stringify({tests:results.length,passed:results.length,rendererErrors:errors,syntheticDatabaseOnly:true}));return;
     }
     if(process.env.BETTERNOTE_QA_INK_SESSION_ONLY==='1') {
-      await require('./ink-session-editor.browser.cjs')({page,fixture,mount,flush,check});
+      await require('./ink-session-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
       assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
       console.log(JSON.stringify({tests:results.length,passed:results.length,rendererErrors:errors,syntheticDatabaseOnly:true}));return;
     }
@@ -777,8 +793,9 @@ const entry = [
     await require('./language-tabs.browser.cjs')({page, fixture, mount, flush, check, preview});
     await require('./thumbnail-cover.browser.cjs')({page, fixture, mount, flush, check, preview});
     await require('./highlighter-ui.browser.cjs')({page, fixture, mount, flush, check, preview});
-    await require('./ink-session-editor.browser.cjs')({page,fixture,mount,flush,check});
-    await require('./shape-editor.browser.cjs')({page,fixture,mount,flush,check});
+    await require('./ink-session-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
+    await require('./shape-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
+    await require('./phase5-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
     assert.deepEqual(errors,[], 'Unexpected renderer errors');
     await page.evaluate(()=>qa.unmount());await flush();
     await context.close();

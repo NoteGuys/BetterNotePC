@@ -1,7 +1,7 @@
 // Bundle the actual offline workers for isolated browser tests.
 const fs = require('node:fs'), path = require('node:path'), esbuild = require('esbuild');
 exports.setupRecoveryWorker = build => {
-  build.onResolve({ filter: /backup(?:Recovery|Preparation)\.worker\.js\?worker&inline$/ }, args => ({ path: args.path.includes('backupPreparation') ? 'backupPreparation' : 'backupRecovery', namespace: 'qa-recovery-worker' }));
+  build.onResolve({ filter: /(?:backup(?:Recovery|Preparation)|editorPages)\.worker\.js\?worker&inline$/ }, args => ({ path: args.path.includes('editorPages') ? 'editorPages' : args.path.includes('backupPreparation') ? 'backupPreparation' : 'backupRecovery', namespace: 'qa-recovery-worker' }));
   build.onLoad({ filter: /.*/, namespace: 'qa-recovery-worker' }, async args => {
     const root = path.resolve(__dirname, '../..');
     if (process.env.BETTERNOTE_QA_BUILT_WORKER === '1') {

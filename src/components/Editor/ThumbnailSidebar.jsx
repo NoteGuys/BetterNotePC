@@ -1,9 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, FileText, Star, MoreVertical, Copy, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
+import { thumbnailLayout, thumbnailWindow } from '../../utils/thumbnailWindow.js';
+import { requestPagePreview, cachedPagePreview } from '../../services/pagePreviewService.js';
+import { appCacheService } from '../../services/appCacheService.js';
+
+const PagePreview = React.memo(({ page, templateId, label }) => {
+  const [preview, setPreview] = useState(() => cachedPagePreview(page, templateId)), [epoch, setEpoch] = useState(0);
+  useEffect(() => appCacheService.subscribeClear(() => { setPreview(null); setEpoch(value => value + 1); }), []);
+  useEffect(() => {
+    const cached = cachedPagePreview(page, templateId);
+    if (cached) setPreview(cached);
+    return requestPagePreview(page, templateId, setPreview);
+  }, [page, templateId, epoch]);
+  return preview ? <img src={preview} alt={label} className="bn-thumbnail-img" /> : <div className="bn-thumbnail-paper-preview"><div className="bn-mini-lines">{[0,1,2,3].map(i => <div key={i} className="bn-mini-line" />)}</div></div>;
+});
+
 
 export const ThumbnailSidebar = ({
   pages,
+  templateId,
   currentPageIndex,
   onSelectPage,
   onToggleFavoritePage,
@@ -18,31 +34,33 @@ export const ThumbnailSidebar = ({
   const [menuOpenIndex, setMenuOpenIndex] = useState(null);
 
   const handleInsert = onInsertPageAfter || onInsertAfter;
-  const activeItemRef = React.useRef(null);
-
-  const lastPageIndexRef = React.useRef(currentPageIndex);
-
-  // Auto-scroll sidebar list to keep active page thumbnail visible (strictly container-scoped, zero window bleed)
+  const listRef = React.useRef(null), frameRef = React.useRef(null);
+  const [viewport, setViewport] = useState({ top: 0, height: 700, width: 208 });
+  const offsets = React.useMemo(() => thumbnailLayout(pages, viewport.width), [pages, viewport.width]);
+  const range = thumbnailWindow(offsets, Math.max(0, viewport.top - 16), viewport.height);
+  const updateViewport = () => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      const list = listRef.current;
+      if (list) setViewport({ top: list.scrollTop, height: list.clientHeight, width: Math.max(1, list.clientWidth - 32) });
+    });
+  };
   useEffect(() => {
-    if (activeItemRef.current) {
-      const container = activeItemRef.current.closest('.bn-thumbnail-list');
-      if (container) {
-        const itemTop = activeItemRef.current.offsetTop;
-        const itemHeight = activeItemRef.current.offsetHeight;
-        const cTop = container.scrollTop;
-        const cHeight = container.clientHeight;
-        const isFar = Math.abs(currentPageIndex - (lastPageIndexRef.current ?? currentPageIndex)) > 2;
-        const behavior = isFar ? 'auto' : 'smooth';
-        lastPageIndexRef.current = currentPageIndex;
-
-        if (itemTop < cTop) {
-          container.scrollTo({ top: Math.max(0, itemTop - 12), behavior });
-        } else if (itemTop + itemHeight > cTop + cHeight) {
-          container.scrollTo({ top: itemTop + itemHeight - cHeight + 12, behavior });
-        }
-      }
-    }
-  }, [currentPageIndex]);
+    const observer = new ResizeObserver(updateViewport);
+    if (listRef.current) observer.observe(listRef.current);
+    updateViewport();
+    return () => { observer.disconnect(); if (frameRef.current !== null) cancelAnimationFrame(frameRef.current); frameRef.current = null; };
+  }, []);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || currentPageIndex < 0 || currentPageIndex >= pages.length) return;
+    const top = 16 + offsets[currentPageIndex], bottom = offsets[currentPageIndex + 1];
+    if (top < list.scrollTop) list.scrollTop = Math.max(0, top - 12);
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight + 12;
+    updateViewport();
+  }, [currentPageIndex, pages.length, viewport.width]);
+  useEffect(() => { if (menuOpenIndex !== null && (menuOpenIndex < range.start || menuOpenIndex >= range.end)) setMenuOpenIndex(null); }, [range.start, range.end, menuOpenIndex]);
 
   // Close popover when clicking anywhere else outside the menu
   useEffect(() => {
@@ -67,8 +85,10 @@ export const ThumbnailSidebar = ({
         </button>
       </div>
 
-      <div className="bn-thumbnail-list">
-        {pages.map((page, index) => {
+      <div className="bn-thumbnail-list" ref={listRef} onScroll={updateViewport}>
+        {range.start > 0 && <div aria-hidden="true" style={{ height: offsets[range.start] - 16, flexShrink: 0 }} />}
+        {pages.slice(range.start, range.end).map((page, visibleIndex) => {
+          const index = range.start + visibleIndex;
           const isActive = index === currentPageIndex;
           const pageRatio = (page.pageWidth && page.pageHeight) 
             ? (page.pageWidth / page.pageHeight) 
@@ -77,11 +97,11 @@ export const ThumbnailSidebar = ({
           return (
             <div 
               key={page.id || index}
-              ref={isActive ? activeItemRef : null}
+              data-page-index={index}
               className={`bn-thumbnail-item ${isActive ? 'bn-thumbnail-item-active' : ''}`}
               onClick={() => onSelectPage(index)}
               title={`${t('goToPage', 'ข้ามไปหน้าที่')} ${index + 1}`}
-              style={{ position: 'relative' }}
+              style={{ position: 'relative', flexShrink: 0 }}
             >
               {/* Thumbnail page preview miniature with accurate page aspect ratio */}
               <div 
@@ -91,67 +111,7 @@ export const ThumbnailSidebar = ({
                   maxHeight: '260px'
                 }}
               >
-                {(page.thumbnailUrl || page.pdfPageImage) ? (
-                  <img 
-                    src={page.thumbnailUrl || page.pdfPageImage} 
-                    alt={`${t('page', 'หน้า')} ${index + 1}`} 
-                    className="bn-thumbnail-img"
-                    loading="lazy"
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'contain',
-                      display: 'block',
-                      background: '#090d16'
-                    }}
-                  />
-                ) : (
-                  <div className="bn-thumbnail-paper-preview">
-                    {/* Miniature simulated lines */}
-                    <div className="bn-mini-lines">
-                      <div className="bn-mini-line"></div>
-                      <div className="bn-mini-line"></div>
-                      <div className="bn-mini-line"></div>
-                      <div className="bn-mini-line"></div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Real-time Ink Strokes Overlay: renders user's handwriting live on thumbnail */}
-                {page.strokes && page.strokes.length > 0 && (
-                  <svg
-                    viewBox={`0 0 ${page.pageWidth || 1200} ${page.pageHeight || 1600}`}
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      width: '100%',
-                      height: '100%',
-                      pointerEvents: 'none',
-                      zIndex: 3
-                    }}
-                  >
-                    {page.strokes.map((stroke, sIdx) => {
-                      if (!stroke.points || stroke.points.length < 2) return null;
-                      const pts = stroke.points;
-                      let d = `M ${pts[0].x} ${pts[0].y}`;
-                      for (let i = 1; i < pts.length; i++) {
-                        d += ` L ${pts[i].x} ${pts[i].y}`;
-                      }
-                      return (
-                        <path
-                          key={sIdx}
-                          d={d}
-                          stroke={stroke.color || '#2563eb'}
-                          strokeWidth={Math.max(4, (stroke.width || 4) * 1.5)}
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          opacity={stroke.tool === 'highlighter' ? 0.38 : 1}
-                        />
-                      );
-                    })}
-                  </svg>
-                )}
+                <PagePreview page={page} templateId={templateId} label={t("page", "หน้า") + " " + (index + 1)} />
 
                 {/* Star Favorite Button */}
                 <button
@@ -247,6 +207,7 @@ export const ThumbnailSidebar = ({
           );
         })}
 
+        {range.end < pages.length && <div aria-hidden="true" style={{ height: offsets.at(-1) - offsets[range.end] - 16, flexShrink: 0 }} />}
         {/* Add Page Button */}
         <button className="bn-thumbnail-add-btn" onClick={onAddPage} title={t('addPage', 'เพิ่มหน้าใหม่')}>
           <Plus size={20} />
