@@ -4,6 +4,7 @@ export {compareVersions,isNewerVersion,LAST_UPDATE_CHECK_DATE_KEY,STORE_PRODUCT_
 export const CURRENT_APP_VERSION = packageInfo.version;
 const checker=createUpdateChecker({
   currentVersion:CURRENT_APP_VERSION,
+  getStoreUpdate:async()=>window.electronAPI?.checkStoreUpdate?.(),
   storage:typeof window==='undefined'?null:window.localStorage,
   getAppInfo:async()=> window.electronAPI?.getAppInfo ? window.electronAPI.getAppInfo() : {version:CURRENT_APP_VERSION,distribution:'installer'}
 });

@@ -126,6 +126,7 @@ function createWindow() {
   });
 
   require('./bnoteSave.cjs').registerBnoteSave({ipcMain:guardedIpc,dialog,getWindow:()=>mainWindow});
+  require('./storeUpdates.cjs').registerStoreUpdates({ipcMain:guardedIpc,getWindow:()=>mainWindow,isStore:()=>Boolean(process.windowsStore)});
   guardedIpc.handle('get-app-info',()=>({version:app.getVersion(),distribution:process.windowsStore?'store':'installer'}));
   // Handle IPC Auto-Backup calls directly from renderer
   guardedIpc.handle('save-auto-backup', async (event, data) => {

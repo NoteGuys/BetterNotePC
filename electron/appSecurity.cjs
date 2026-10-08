@@ -16,6 +16,7 @@ const trustedSender = (event, window, appFile, devUrl) => Boolean(window && !win
 const validPath = value => value == null || (typeof value === 'string' && value.length <= 32767 &&
   !value.includes('\0') && path.isAbsolute(value) && !/^\\\\[.?]\\/.test(value));
 const validRequest = (channel, args) => {
+  if(channel==='check-store-update')return args.length===0;
   const value = args[0];
   if(channel==='save-bnote-file')return value && typeof value==='object' && (
     value.action==='begin' ? typeof value.name==='string' && value.name.length<=512 && Number.isInteger(value.size) && value.size>0 && value.size<=272*1048576 :

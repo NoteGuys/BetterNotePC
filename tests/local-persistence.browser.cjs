@@ -133,6 +133,11 @@ const entry = [
       await page.evaluate(() => qa.toolbar.setShowThumbnails(true));
       await page.waitForFunction(() => !!qa.thumbnails);
     };
+    if(process.env.BETTERNOTE_QA_DAILY_UPDATE_ONLY==='1') {
+      await require('./daily-update-app.browser.cjs')({page,fixture,mount,flush,check,reload});
+      assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
+      console.log(JSON.stringify({tests:results.length,passed:results.length,rendererErrors:errors,syntheticDatabaseOnly:true}));return;
+    }
     if(process.env.BETTERNOTE_QA_TOOLBAR_ZOOM_ONLY==='1') {
       await require('./toolbar-zoom.browser.cjs')({page,fixture,mount,flush,check,reload});
       assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();

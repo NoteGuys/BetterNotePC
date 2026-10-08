@@ -22,7 +22,8 @@ import {
 import { exportFullBackup, importFullBackup, importBnoteFile } from './services/fileSystemService';
 import { flushLocalSaves, getLocalSaveSnapshot } from './services/localSaveService';
 import { autoBackupService } from './services/autoBackupService';
-import { checkForStoreUpdate } from './services/updateService';
+import {useDailyUpdateNotice} from './services/useDailyUpdateNotice.js';
+import {UpdateToast} from './components/Common/UpdateToast.jsx';
 import { exportNotebookToPdf } from './utils/pdfExportEngine';
 import { getPaperSize } from './data/templates';
 import { getAppTheme, setAppTheme, applyThemeToDom } from './services/userPreferences';
@@ -61,36 +62,10 @@ export function App() {
       ? { ...item, firstPageThumbnail: saved.firstPageThumbnail } : item));
   }), []);
 
-  // Automatic Daily Microsoft Store Update Check
   const [updateModalData, setUpdateModalData] = useState(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
-  const updatePresentationAllowed = useRef(false);
-  updatePresentationAllowed.current = !hasOpenEditor && !recovery.active && !isLoading;
-
-  useEffect(() => {
-    let isMounted = true;
-    const runStartupUpdateCheck = async () => {
-      // Check after startup settles; present only after the user returns to the library.
-      await new Promise(r => setTimeout(r, 15000));
-      while (isMounted && (document.hidden || window.__bn_pen_active || window.__bn_drag_active)) await new Promise(r => setTimeout(r, 1000));
-      if (!isMounted) return;
-
-      try {
-        const updateResult = await checkForStoreUpdate();
-        if (isMounted && updateResult?.hasUpdate) {
-          while (isMounted && (!updatePresentationAllowed.current || document.hidden || window.__bn_pen_active || window.__bn_drag_active)) await new Promise(r => setTimeout(r, 1000));
-          if (!isMounted) return;
-          setUpdateModalData(updateResult);
-          setIsUpdateModalOpen(true);
-        }
-      } catch (err) {
-        console.warn('Startup update check notice:', err);
-      }
-    };
-
-    runStartupUpdateCheck();
-    return () => { isMounted = false; };
-  }, []);
+  const updateHomeVisible=!hasOpenEditor && !recovery.active && !isLoading;
+  const {notice:updateNotice,dismiss:dismissUpdateNotice}=useDailyUpdateNotice(updateHomeVisible);
 
   // Multi-Document Tabs (Max 9) & Last Opened Page per notebook
   const [openTabs, setOpenTabs] = useState(() => {
@@ -640,7 +615,8 @@ export function App() {
         notebooks={notebooks} onTriggerSync={opts => autoBackupService.runAutoBackup(opts)}
         onRestoreBackup={backupHub.restore} />
 
-      {/* Microsoft Store Update Notification Modal */}
+      <UpdateToast notice={updateNotice} visible={updateHomeVisible} onDismiss={dismissUpdateNotice} />
+      {/* Manual update details remain available in Settings. */}
       <UpdateNotificationModal 
         isOpen={isUpdateModalOpen}
         onClose={() => setIsUpdateModalOpen(false)}

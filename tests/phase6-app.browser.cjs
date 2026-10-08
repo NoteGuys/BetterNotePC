@@ -47,6 +47,15 @@ if(!base||!path.isAbsolute(base))throw Error('Isolated QA directory required');
   const prefs=await app.evaluate(({BrowserWindow})=>{const p=BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();return{webSecurity:p.webSecurity,sandbox:p.sandbox,nodeIntegration:p.nodeIntegration,contextIsolation:p.contextIsolation};});
   assert.deepEqual(prefs,{webSecurity:true,sandbox:true,nodeIntegration:false,contextIsolation:true});
   const info=await page.evaluate(()=>electronAPI.getAppInfo());assert.equal(info.version,require('../package.json').version);
+  if(process.env.BETTERNOTE_QA_DAILY_NATIVE==='1'){
+   const result=await page.evaluate(()=>electronAPI.checkStoreUpdate());assert.equal(result.status,'unavailable');assert.equal(result.hasUpdate,false);
+   const installedRoot=await app.evaluate(({app})=>app.getAppPath());
+   const script=(installedRoot.endsWith('.asar')?require('@electron/asar').extractFile(installedRoot,'electron/storeUpdateCheck.ps1').toString('utf8'):fs.readFileSync(path.join(installedRoot,'electron/storeUpdateCheck.ps1'),'utf8')).replace(/^\uFEFF/,'');
+   const command='& {\n'+script+'\n} -ProbeRuntime';
+   const stdout=await new Promise((resolve,reject)=>require('node:child_process').execFile(path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoLogo','-NoProfile','-NonInteractive','-Sta','-EncodedCommand',Buffer.from(command,'utf16le').toString('base64')],{windowsHide:true,timeout:16000,maxBuffer:8192},(error,output)=>error?reject(error):resolve(output)));
+   const probe=JSON.parse(stdout.toString().trim());
+   assert.equal(probe.status,'runtime-ready');console.log('PASS packaged Store-check preload IPC and WinRT helper loaded from ASAR');
+  }
   await page.evaluate(()=>localStorage.setItem('qa-existing-profile','retained'));
   await page.reload();await page.waitForFunction(()=>document.querySelectorAll('button').length>5);assert.equal(await page.evaluate(()=>localStorage.getItem('qa-existing-profile')),'retained');
   const fonts=await page.evaluate(async()=>{await document.fonts.ready;return Promise.all(['Inter','Sarabun','Caveat','Plus Jakarta Sans'].map(async name=>({name,count:(await document.fonts.load('600 16px "'+name+'"','ทดสอบ Test')).length})));});

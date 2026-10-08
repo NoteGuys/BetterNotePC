@@ -78,8 +78,9 @@ export const SettingsModal = ({
     setIsCheckingUpdate(true);
     setCheckingUpdateMsg(t('updateChecking', 'กำลังตรวจสอบการอัปเดตจาก Microsoft Store...'));
     try {
+      if(appInfo.distribution==='store'){setCheckingUpdateMsg(await openMicrosoftStore() ? t('updateStoreOpened') : t('updateOpenFailed'));return;}
       const res = await checkForStoreUpdate({ force: true });
-      if (res?.status==='store-managed') {
+      if (res?.distribution==='store') {
         setCheckingUpdateMsg(await openMicrosoftStore() ? t('updateStoreOpened') : t('updateOpenFailed'));
       } else if (res?.hasUpdate) {
         setCheckingUpdateMsg(null);

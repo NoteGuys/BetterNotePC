@@ -26,48 +26,64 @@ export function compareVersions(a,b) {
 export const isNewerVersion=(current,target)=>compareVersions(target,current)>0;
 const text=(value,max=500)=>typeof value==='string'&&value.length<=max?value:'';
 const textList=value=>Array.isArray(value)&&value.length<=50&&value.every(v=>typeof v==='string'&&v.length<=1000)?value:[];
-const day=now=>new Date(now()).toLocaleDateString('en-CA');
-export function createUpdateChecker({currentVersion,fetchImpl=(...args)=>fetch(...args),storage,now=Date.now,timeoutMs=4000,getAppInfo=async()=>({version:currentVersion,distribution:'installer'})}){
-  let pending,lastAttempt=0,lastSuccess=null;
-  const checked=()=>{try{return storage?.getItem(LAST_UPDATE_CHECK_DATE_KEY)===day(now);}catch(_){return false;}};
-  const clear=()=>{try{storage?.removeItem(LAST_UPDATE_CHECK_DATE_KEY);}catch(_){}lastSuccess=null;lastAttempt=0;};
-  const check=(options={})=>{
-    if(pending)return pending;
-    if(!options.force && (checked()||lastAttempt && now()-lastAttempt<300000))return Promise.resolve({
-      ...(lastSuccess||{hasUpdate:false,status:'unavailable',currentVersion}),throttled:true});
-    lastAttempt=now();
-    pending=(async()=>{
-      let timer;const controller=new AbortController();
-      try{
-        const work=(async()=>{
-          const info=await getAppInfo();
-          const version=versionParts(info?.version)?info.version:currentVersion;
-          if(info?.distribution==='store')return{hasUpdate:false,status:'store-managed',currentVersion:version,distribution:'store',updateUrl:STORE_URL};
-          const res=await fetchImpl(UPDATE_FEED_URL,{signal:controller.signal,cache:'no-cache',credentials:'omit',redirect:'error',headers:{Accept:'application/json'}});
-          if(!res.ok)throw Object.assign(Error('unavailable'),{reason:res.status===404?'feed-not-configured':'unavailable'});
-          if(Number(res.headers?.get('content-length'))>MAX_FEED_BYTES)throw Error('invalid-feed');
-          let body='';
-          if(res.body?.getReader){
-            const reader=res.body.getReader(),decoder=new TextDecoder();let size=0;
-            try{while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>MAX_FEED_BYTES)throw Error('invalid-feed');body+=decoder.decode(part.value,{stream:true});}body+=decoder.decode();}
-            finally{reader.cancel().catch(()=>{});}
-          }else {body=await res.text();if(new TextEncoder().encode(body).length>MAX_FEED_BYTES)throw Error('invalid-feed');}
-          const data=JSON.parse(body),latest=data?.version||data?.latestVersion;
-          if(!versionParts(latest))throw Error('invalid-feed');
-          const hasUpdate=isNewerVersion(version,latest),distribution=info?.distribution==='store'?'store':'installer';
-          return {hasUpdate,status:hasUpdate?'available':'current',currentVersion:version,latestVersion:latest,distribution,
-            title:text(data.title),releaseDate:text(data.releaseDate,40),bugFixes:textList(data.bugFixes),features:textList(data.features),
-            storeUrl:STORE_URL,storeWebUrl:STORE_WEB_URL,updateUrl:distribution==='store'?STORE_URL:RELEASES_URL};
-        })();
-        const result=await Promise.race([work,new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('timeout'));},timeoutMs);})]);
-        lastSuccess=result;try{storage?.setItem(LAST_UPDATE_CHECK_DATE_KEY,day(now));}catch(_){}
-        return result;
-      }catch(error){return {hasUpdate:false,status:'unavailable',reason:error.reason||'unavailable',currentVersion};}
-      finally{clearTimeout(timer);}
-    })().finally(()=>{pending=null;});
-    return pending;
-  };
-  return {check,checked,clear};
+export const UPDATE_RESULT_KEY='betternote_update_result_v2';
+export const AUTO_UPDATE_ATTEMPT_KEY='betternote_update_attempt_v2';
+export const localUpdateDay=timestamp=>{const d=new Date(timestamp);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+export function createUpdateChecker({currentVersion,fetchImpl=(...args)=>fetch(...args),storage,now=Date.now,timeoutMs=4000,storeTimeoutMs=20000,
+ getAppInfo=async()=>({version:currentVersion,distribution:'installer'}),getStoreUpdate=async()=>null}){
+ let pending=null,lastSuccess=null;
+ const read=key=>{try{return storage?.getItem(key);}catch(_){return null;}};
+ const save=(key,value)=>{try{storage?.setItem(key,value);}catch(_){}};
+ const today=()=>localUpdateDay(now());
+ const checked=()=>read(LAST_UPDATE_CHECK_DATE_KEY)===today();
+ const clear=()=>{for(const key of [LAST_UPDATE_CHECK_DATE_KEY,UPDATE_RESULT_KEY,AUTO_UPDATE_ATTEMPT_KEY])try{storage?.removeItem(key);}catch(_){}lastSuccess=null;};
+ const unavailable=(version=currentVersion,distribution='installer',reason='unavailable')=>({hasUpdate:false,status:'unavailable',reason,currentVersion:version,distribution});
+ const check=(options={})=>{
+  if(pending)return pending;
+  pending=(async()=>{
+   let version=currentVersion,distribution='installer';const started=performance.now();
+   const controller=new AbortController();
+   const bounded=async(work,ms)=>{let timer;try{return await Promise.race([work,new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('timeout'));},ms);})]);}finally{clearTimeout(timer);}};
+   try{
+    const info=await bounded(Promise.resolve().then(getAppInfo),timeoutMs);
+    version=versionParts(info?.version)?info.version:currentVersion;distribution=info?.distribution==='store'?'store':'installer';
+    const signature=JSON.stringify({day:today(),version,distribution});
+    if(!options.force && read(AUTO_UPDATE_ATTEMPT_KEY)===signature){
+     let cached=lastSuccess;try{cached=JSON.parse(read(UPDATE_RESULT_KEY))||cached;}catch(_){}
+     if(cached?.currentVersion!==version || cached?.distribution!==distribution || !['current','available'].includes(cached?.status) || cached?.hasUpdate!==(cached.status==='available'))cached=null;
+     return{...(cached||unavailable(version,distribution)),throttled:true};
+    }
+    // Persist attempts as well as successful results: automatic work runs once a local day.
+    save(AUTO_UPDATE_ATTEMPT_KEY,signature);
+    let result;
+    if(distribution==='store'){
+     const native=await bounded(Promise.resolve().then(getStoreUpdate),Math.max(1,storeTimeoutMs-(performance.now()-started)));
+     if(native?.success!==true || !['available','current'].includes(native.status) || native.hasUpdate!==(native.status==='available'))throw Error('store-unavailable');
+     result={hasUpdate:native.hasUpdate,status:native.status,currentVersion:version,distribution,source:'microsoft-store',updateUrl:STORE_URL};
+    }else{
+     result=await bounded((async()=>{
+      const res=await fetchImpl(UPDATE_FEED_URL,{signal:controller.signal,cache:'no-cache',credentials:'omit',redirect:'error',headers:{Accept:'application/json'}});
+      if(!res.ok)throw Object.assign(Error('unavailable'),{reason:res.status===404?'feed-not-configured':'unavailable'});
+      if(Number(res.headers?.get('content-length'))>MAX_FEED_BYTES)throw Error('invalid-feed');
+      let body='';
+      if(res.body?.getReader){
+       const reader=res.body.getReader(),decoder=new TextDecoder();let size=0;
+       try{while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>MAX_FEED_BYTES)throw Error('invalid-feed');body+=decoder.decode(part.value,{stream:true});}body+=decoder.decode();}
+       finally{reader.cancel().catch(()=>{});}
+      }else{body=await res.text();if(new TextEncoder().encode(body).length>MAX_FEED_BYTES)throw Error('invalid-feed');}
+      const data=JSON.parse(body),latest=data?.version||data?.latestVersion;if(!versionParts(latest))throw Error('invalid-feed');
+      const hasUpdate=isNewerVersion(version,latest);
+      return{hasUpdate,status:hasUpdate?'available':'current',currentVersion:version,latestVersion:latest,distribution,
+       title:text(data.title),releaseDate:text(data.releaseDate,40),bugFixes:textList(data.bugFixes),features:textList(data.features),updateUrl:RELEASES_URL};
+     })(),Math.max(1,timeoutMs-(performance.now()-started)));
+    }
+    result={...result,storeUrl:STORE_URL,storeWebUrl:STORE_WEB_URL};lastSuccess=result;
+    save(LAST_UPDATE_CHECK_DATE_KEY,today());save(UPDATE_RESULT_KEY,JSON.stringify(result));return result;
+   }catch(error){lastSuccess=null;try{storage?.removeItem(UPDATE_RESULT_KEY);}catch(_){}return unavailable(version,distribution,error.reason||'unavailable');}
+  })().finally(()=>{pending=null;});
+  return pending;
+ };
+ return{check,checked,clear};
 }
 export async function openUpdateDestination(target,{native,openWeb}={}){
   if(![STORE_URL,STORE_WEB_URL,RELEASES_URL].includes(target))return false;
