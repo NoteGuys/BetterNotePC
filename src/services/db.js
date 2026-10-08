@@ -833,8 +833,9 @@ export const getBackupNotebookSnapshot = async notebookId => {
 };
 
 // Publish only after every small page image is ready; aborted imports leave no partial notebook.
-export const importNotebookPagesAtomic = (notebook, pages) => writeTransaction(['notebooks','pages'], (tx,done,abort) => {
+export const importNotebookPagesAtomic = (notebook, pages, { requireFolder = false } = {}) => writeTransaction(requireFolder ? ['notebooks','pages','folders'] : ['notebooks','pages'], (tx,done,abort) => {
   if (!pages?.length || pages.some((p,i)=>p.notebookId!==notebook.id || p.pageIndex!==i)) { abort(Error('Incomplete PDF import')); return; }
+  if(requireFolder && notebook.folderId!=null){const folder=tx.objectStore('folders').get(notebook.folderId);folder.onsuccess=()=>{if(!folder.result || folder.result.isDeleted)abort(Object.assign(Error('bnote-folder-missing'),{code:'bnote-folder-missing'}));};}
   const notebooks=tx.objectStore('notebooks'), occupied=new Set(), names=notebooks.openCursor();
   names.onsuccess=()=>{const cursor=names.result;if(cursor){occupied.add(notebookNameKey(cursor.value.name));cursor.continue();return;}
     const saved={...notebook,name:uniqueNotebookName(notebook.name,occupied,notebookNameKey),pageCount:pages.length};

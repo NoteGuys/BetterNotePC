@@ -146,7 +146,7 @@ export const LibraryView = ({
         alert(t('cloudRestoreFailed', 'กู้คืนไม่สำเร็จ: {reason}', { reason: t(backupReadErrorKey(res.reason)) }));
       }
     } catch (err) {
-      alert(t('cloudRestoreError', 'เกิดข้อผิดพลาดในการกู้คืน: {error}', { error: err.message }));
+      alert(t('cloudRestoreError', 'เกิดข้อผิดพลาดในการกู้คืน: {error}', { error: t(({ 'bnote-empty':'bnoteEmpty','bnote-invalid':'bnoteInvalid','bnote-incomplete':'bnoteIncomplete','bnote-too-large':'bnoteTooLarge','bnote-folder-missing':'bnoteFolderMissing' })[err.code] || 'bnoteImportFailed') }));
     } finally {
       setIsAutoRestoring(false);
     }

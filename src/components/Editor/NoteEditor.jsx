@@ -228,8 +228,9 @@ export const NoteEditor = ({
   // including centered pages and the fixed spacing between vertically stacked pages.
   const applyNavigationAnchor = anchor => {
     const stage = stageRef.current;
-    if (!stage || !anchor?.element.isConnected) return;
-    const rect = anchor.element.getBoundingClientRect();
+    const element=anchor?.wrapper?.querySelector('.bn-canvas-container, .bn-vertical-page-placeholder') || anchor?.element;
+    if (!stage || !element?.isConnected) return;
+    const rect = element.getBoundingClientRect();
     stage.scrollLeft += rect.left + anchor.x * zoomRef.current - anchor.screenX;
     stage.scrollTop += rect.top + anchor.y * zoomRef.current - anchor.screenY;
   };
@@ -267,11 +268,30 @@ export const NoteEditor = ({
 
   const chooseNavigationAnchor = (x, y) => {
     const stage = stageRef.current;
-    const hit = document.elementFromPoint(x, y)?.closest('.bn-canvas-container');
-    const element = hit && stage?.contains(hit) ? hit : stage?.querySelector('.bn-canvas-container');
+    const hit = document.elementFromPoint(x, y)?.closest('.bn-canvas-container, .bn-vertical-page-placeholder');
+    // The pointer/viewport center may land in the fixed gap between pages.
+    // Choose the nearest visible sheet, never the first sheet in a long notebook.
+    const element = hit && stage?.contains(hit) ? hit : [...(stage?.querySelectorAll('.bn-canvas-container, .bn-vertical-page-placeholder') || [])].sort((a,b)=>{
+      const distance=el=>{const r=el.getBoundingClientRect();return Math.max(r.top-y,0,y-r.bottom)+Math.max(r.left-x,0,x-r.right);};
+      return distance(a)-distance(b);
+    })[0];
     if (!element) return null;
     const rect = element.getBoundingClientRect();
-    return { element, x: (x - rect.left) / zoomRef.current, y: (y - rect.top) / zoomRef.current, screenX: x, screenY: y };
+    return { element, wrapper:element.closest('.bn-vertical-page-wrapper'), x: (x - rect.left) / zoomRef.current, y: (y - rect.top) / zoomRef.current, screenX: x, screenY: y };
+  };
+  const changeToolbarZoom = next => {
+    const stage=stageRef.current;
+    resetNavigationRef.current();
+    if (!stage || isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) { setZoom(next); return; }
+    const rect=stage.getBoundingClientRect();
+    nav.anchor=chooseNavigationAnchor(rect.left+rect.width/2,rect.top+rect.height/2);
+    const index=Number(nav.anchor?.wrapper?.dataset.pageIndex);
+    if(nav.anchor?.wrapper && Number.isInteger(index) && index!==currentPageIndexRef.current){currentPageIndexRef.current=index;setCurrentPageIndex(index);}
+    isProgrammaticScrollRef.current=true;
+    if(programmaticScrollTimerRef.current)clearTimeout(programmaticScrollTimerRef.current);
+    programmaticScrollTimerRef.current=setTimeout(()=>{isProgrammaticScrollRef.current=false;},350);
+    if(next===zoomRef.current){nav.anchor=null;return;}
+    setZoom(next);
   };
   const settlePinch = () => {
     const pinch = nav.pinch;
@@ -1305,9 +1325,9 @@ export const NoteEditor = ({
         onUndo={handleUndo}
         onRedo={handleRedo}
         zoom={zoom}
-        onZoomIn={() => setZoom(prev => Math.min(3.5, Number((prev + 0.15).toFixed(2))))}
-        onZoomOut={() => setZoom(prev => Math.max(0.35, Number((prev - 0.15).toFixed(2))))}
-        onResetZoom={() => setZoom(1.0)}
+        onZoomIn={() => changeToolbarZoom(Math.min(3.5, Number((zoomRef.current + 0.15).toFixed(2))))}
+        onZoomOut={() => changeToolbarZoom(Math.max(0.35, Number((zoomRef.current - 0.15).toFixed(2))))}
+        onResetZoom={() => changeToolbarZoom(1.0)}
         onOpenExport={() => setIsExportModalOpen(true)}
         onExportCurrentPagePdf={handleExportCurrentPagePdf}
         showThumbnails={showThumbnails}

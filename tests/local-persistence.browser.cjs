@@ -133,6 +133,11 @@ const entry = [
       await page.evaluate(() => qa.toolbar.setShowThumbnails(true));
       await page.waitForFunction(() => !!qa.thumbnails);
     };
+    if(process.env.BETTERNOTE_QA_TOOLBAR_ZOOM_ONLY==='1') {
+      await require('./toolbar-zoom.browser.cjs')({page,fixture,mount,flush,check,reload});
+      assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
+      console.log(JSON.stringify({tests:results.length,passed:results.length,rendererErrors:errors,syntheticDatabaseOnly:true}));return;
+    }
     if(process.env.BETTERNOTE_QA_PHASE5_ONLY==='1') {
       await require(process.env.BETTERNOTE_QA_THUMBNAIL_ONLY==='1' ? './thumbnail-navigation.browser.cjs' : './phase5-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
       assert.deepEqual(errors,[]);await page.evaluate(()=>qa.unmount());await flush();await context.close();
@@ -797,6 +802,7 @@ const entry = [
     await require('./highlighter-ui.browser.cjs')({page, fixture, mount, flush, check, preview});
     await require('./ink-session-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
     await require('./shape-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
+    await require('./toolbar-zoom.browser.cjs')({page,fixture,mount,flush,check,reload});
     await require('./phase5-editor.browser.cjs')({page,fixture,mount,flush,check,reload});
     assert.deepEqual(errors,[], 'Unexpected renderer errors');
     await page.evaluate(()=>qa.unmount());await flush();

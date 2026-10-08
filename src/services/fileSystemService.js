@@ -1,11 +1,19 @@
 // File System Service for Local Disk & Synced Cloud Drive (Google Drive/OneDrive folder)
-import { getAllFolders, getAllNotebooks, getPagesByNotebookId, saveNotebook, savePage } from './db';
+import { getAllFolders, getAllNotebooks, getPagesByNotebookId } from './db';
 import { restoreBackup } from './backupRecoveryService.js';
+import { importPortableBnote, validateBnoteBlob, saveNativeBnote } from './bnoteService.js';
 
 /**
  * Save data as a local file (using File System Access API or Blob download)
  */
 export const saveFileToDisk = async (blob, suggestedName, fileTypes = null) => {
+  if (/\.bnote$/i.test(suggestedName)) {
+    await validateBnoteBlob(blob);
+    if (window.electronAPI?.isElectron) {
+      if (!window.electronAPI.saveBnote) throw Error('bnote-restart-required');
+      return saveNativeBnote(blob, suggestedName, window.electronAPI);
+    }
+  }
   if ('showSaveFilePicker' in window) {
     try {
       const handle = await window.showSaveFilePicker({
@@ -83,70 +91,4 @@ export const importFullBackup = file => restoreBackup(() => ({ file }));
 /**
  * Import a single .bnote file and save its notebook and pages to IndexedDB
  */
-export const importBnoteFile = async (file, targetFolderId = null) => {
-  const text = await file.text();
-  const data = JSON.parse(text);
-
-  let rawNotebook = null;
-  let rawPages = [];
-
-  if (data.format === 'BetterNote_Document' && data.notebook) {
-    rawNotebook = data.notebook;
-    rawPages = data.pages || [];
-  } else if (data.notebook && Array.isArray(data.pages)) {
-    rawNotebook = data.notebook;
-    rawPages = data.pages;
-  } else if (data.pages && Array.isArray(data.pages) && (data.name || data.id)) {
-    const { pages, ...nbMeta } = data;
-    rawNotebook = nbMeta;
-    rawPages = pages;
-  } else {
-    throw new Error('รูปแบบไฟล์ .bnote ไม่ถูกต้อง หรือไม่พบข้อมูลเนื้อหาของสมุด');
-  }
-
-  // Generate a distinct notebook ID to prevent accidental collisions
-  const newNotebookId = `nb-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-  const cleanName = rawNotebook.name || file.name.replace(/\.bnote$/i, '') || 'สมุดโน้ตนำเข้า';
-
-  const importedNotebook = {
-    ...rawNotebook,
-    id: newNotebookId,
-    name: cleanName,
-    folderId: targetFolderId !== undefined && targetFolderId !== null ? targetFolderId : (rawNotebook.folderId || null),
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    pageCount: rawPages.length || 1
-  };
-
-  // Save notebook metadata
-  const savedNotebook = await saveNotebook(importedNotebook, { ensureUniqueName: true });
-
-  // Save all pages with newly linked notebookId
-  if (Array.isArray(rawPages) && rawPages.length > 0) {
-    for (let i = 0; i < rawPages.length; i++) {
-      const page = rawPages[i];
-      const newPageId = `page-${newNotebookId}-${i + 1}`;
-      await savePage({
-        ...page,
-        id: newPageId,
-        notebookId: newNotebookId,
-        pageIndex: typeof page.pageIndex === 'number' ? page.pageIndex : i
-      });
-    }
-  } else {
-    // Create at least one initial page if empty
-    const firstPageId = `page-${newNotebookId}-1`;
-    await savePage({
-      id: firstPageId,
-      notebookId: newNotebookId,
-      pageIndex: 0,
-      strokes: [],
-      drawings: [],
-      textBlocks: [],
-      images: [],
-      templateId: importedNotebook.templateId || 'blank'
-    });
-  }
-
-  return savedNotebook;
-};
+export const importBnoteFile = (file, targetFolderId = null) => importPortableBnote(file, targetFolderId);

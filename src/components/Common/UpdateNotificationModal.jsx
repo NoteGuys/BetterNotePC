@@ -17,7 +17,8 @@ import { openMicrosoftStore } from '../../services/updateService';
 export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
   const { t, language } = useLanguage();
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'bugs', 'features'
-  const isThai = language === 'th';
+  const [opening,setOpening]=useState(false);
+  const [openError,setOpenError]=useState(false);
 
   if (!isOpen || !updateData) return null;
 
@@ -28,50 +29,20 @@ export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
   const currentLocale = localeMap[language] || 'en-US';
 
   // Format release date according to active language locale
-  let displayReleaseDate = updateData.releaseDate;
-  if (updateData.releaseDateRaw) {
-    try {
-      displayReleaseDate = new Date(updateData.releaseDateRaw).toLocaleDateString(currentLocale, { year: 'numeric', month: 'long', day: 'numeric' });
-    } catch (_) {}
-  } else if (!displayReleaseDate || displayReleaseDate.includes('2569') || displayReleaseDate.includes('กันยายน')) {
-    displayReleaseDate = new Date().toLocaleDateString(currentLocale, { year: 'numeric', month: 'long', day: 'numeric' });
-  }
+  const dateValue=updateData.releaseDateRaw || updateData.releaseDate;
+  const date=dateValue ? new Date(dateValue) : null;
+  const displayReleaseDate=date && Number.isFinite(date.getTime())
+    ? date.toLocaleDateString(currentLocale,{year:'numeric',month:'long',day:'numeric'}) : '';
 
-  // Dynamic localization for bug fixes and features:
-  const defaultFixKeys = ['updateFix1', 'updateFix2', 'updateFix3', 'updateFix4'];
-  const defaultFeatKeys = ['updateFeat1', 'updateFeat2', 'updateFeat3', 'updateFeat4'];
-
-  const bugFixes = (updateData.bugFixKeys && Array.isArray(updateData.bugFixKeys))
-    ? updateData.bugFixKeys.map(k => t(k))
-    : (updateData.isMock || !updateData.bugFixes || updateData.bugFixes.length === 0)
-      ? defaultFixKeys.map(k => t(k))
-      : updateData.bugFixes.map(fix => {
-          if (typeof fix === 'string') {
-            if (fix.includes('สำรองข้อมูล') || fix.includes('slowdown')) return t('updateFix1');
-            if (fix.includes('ลบไฟล์ถาวร') || fix.includes('batch delete')) return t('updateFix2');
-            if (fix.includes('Google Drive') || fix.includes('sync stability')) return t('updateFix3');
-            if (fix.includes('ไฟล์ติดล็อก') || fix.includes('file lock')) return t('updateFix4');
-          }
-          return fix;
-        });
-
-  const features = (updateData.featureKeys && Array.isArray(updateData.featureKeys))
-    ? updateData.featureKeys.map(k => t(k))
-    : (updateData.isMock || !updateData.features || updateData.features.length === 0)
-      ? defaultFeatKeys.map(k => t(k))
-      : updateData.features.map(feat => {
-          if (typeof feat === 'string') {
-            if (feat.includes('แจ้งเตือนการอัปเดต') || feat.includes('update notifications')) return t('updateFeat1');
-            if (feat.includes('สรุปการอัปเดต') || feat.includes('changelog summary')) return t('updateFeat2');
-            if (feat.includes('Zero-Bloat') || feat.includes('throughput')) return t('updateFeat3');
-            if (feat.includes('ระดับฐานข้อมูล') || feat.includes('batch deletion')) return t('updateFeat4');
-          }
-          return feat;
-        });
-
+  const bugFixes = Array.isArray(updateData.bugFixes) ? updateData.bugFixes : [];
+  const features = Array.isArray(updateData.features) ? updateData.features : [];
   const handleGoToStore = async () => {
-    await openMicrosoftStore(updateData.storeUrl);
-    if (onClose) onClose();
+    if (opening) return;
+    setOpening(true);setOpenError(false);
+    try {
+      if (await openMicrosoftStore(updateData.updateUrl || updateData.storeUrl)) onClose?.();
+      else setOpenError(true);
+    } finally { setOpening(false); }
   };
 
   return (
@@ -148,7 +119,7 @@ export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
                   {t('updateAvailableBadge', 'Microsoft Store')}
                 </span>
                 <span style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Calendar size={12} /> {displayReleaseDate}
+                  {displayReleaseDate && <><Calendar size={12} /> {displayReleaseDate}</>}
                 </span>
               </div>
               <h3 style={{
@@ -394,6 +365,7 @@ export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
           </div>
         </div>
 
+        {openError && <div role="alert" style={{padding:'12px 24px',color:'#fca5a5'}}>{t('updateOpenFailed')}</div>}
         {/* Footer Actions */}
         <div style={{
           padding: '16px 24px',
@@ -425,6 +397,7 @@ export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
           <button
             type="button"
             onClick={handleGoToStore}
+            disabled={opening}
             style={{
               padding: '10px 22px',
               borderRadius: '10px',
@@ -442,7 +415,7 @@ export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
             }}
           >
             <Download size={15} />
-            <span>{t('updateOnMicrosoftStore', 'Update on Microsoft Store')}</span>
+            <span>{t(updateData.distribution === 'installer' ? 'updateOpenReleases' : 'updateOnMicrosoftStore')}</span>
             <ExternalLink size={13} style={{ opacity: 0.8 }} />
           </button>
         </div>

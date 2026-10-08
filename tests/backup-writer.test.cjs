@@ -390,3 +390,12 @@ test('Invalid encoded snapshots and truncated binary PDFs cannot acknowledge or 
  assert.equal((await writer.execute({action:'pdf',notebookId:n.id,revision:notebookBackupRevision(n),pdfRevision:'bad',pdfBytes:new TextEncoder().encode('%PDF-truncated').buffer})).success,false);
  assert.deepEqual(await fs.readFile(fullFile(root)),before);
 });
+
+test('Readable names start with the title and migrate verified legacy names with history kept',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root}),n=note('name','ชื่อ อ่านง่าย');await run(writer,[n]);
+ const manifestFile=path.join(root,'Full_System/backup_manifest.json'),manifest=JSON.parse(await fs.readFile(manifestFile));
+ for(const kind of ['editable','pdf']){const artifact=manifest.notebooks.name[kind];assert.ok(path.basename(artifact.path).startsWith('ชื่อ อ่านง่าย--'));const legacy=path.join(path.dirname(artifact.path),'Notebook-'+path.basename(artifact.path));await fs.rename(path.join(root,artifact.path),path.join(root,legacy));artifact.path=legacy;}
+ await fs.writeFile(manifestFile,JSON.stringify(manifest));const fresh=createBackupWriter({localDir:root});const result=await run(fresh,[n]);assert.equal(result.success,true);
+ const current=JSON.parse(await fs.readFile(manifestFile));for(const kind of ['editable','pdf']){const artifact=current.notebooks.name[kind];assert.ok(!path.basename(artifact.path).startsWith('Notebook-'));assert.equal((await fs.stat(path.join(root,artifact.path))).size,artifact.size);const old=manifest.notebooks.name[kind];assert.equal((await fs.stat(path.join(root,path.dirname(old.path),'.history',path.basename(old.path),old.hash+'.previous'))).size,old.size);}
+ assert.equal((await fs.readdir(path.join(root,'Editable_Notes'))).filter(f=>f.endsWith('.bnote')).length,1);
+});

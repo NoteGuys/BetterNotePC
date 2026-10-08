@@ -155,3 +155,12 @@ test('A pending Drive guard never prunes an unreceived notebook',async()=>{
  const result=await createBackupWriter({localDir:local}).execute({action:'prune',notebookIds:['a'],driveBackupPath:root,driveSyncGuard:{ready:false,reason:'drive-sync-pending'}});
  assert.equal(result.targets.find(t=>t.kind==='drive').error,'drive-sync-pending');assert.deepEqual(await fs.readFile(path.join(root,'Full_System/BetterNote_Latest_Backup.json')),before);
 });
+
+test('Legacy title-prefix migration preserves guarded Drive sync hashes and remains recoverable',async()=>{
+ const {root,notes,manifestFile}=await fixture(),manifest=JSON.parse(await fs.readFile(manifestFile));
+ for(const entry of Object.values(manifest.notebooks)){const artifact=entry.editable,legacy=path.join(path.dirname(artifact.path),'Notebook-'+path.basename(artifact.path));await fs.rename(path.join(root,artifact.path),path.join(root,legacy));artifact.path=legacy;}
+ await fs.writeFile(manifestFile,JSON.stringify(manifest));const guard=await guardFor(root),local=await fs.mkdtemp(path.join(qa,'guarded-readable-'));
+ const result=await guardedRound(createBackupWriter({localDir:local}),notes,root,guard);assert.equal(result.finish.targets.find(t=>t.kind==='drive').dataSuccess,true);
+ const current=JSON.parse(await fs.readFile(manifestFile));for(const entry of Object.values(current.notebooks))assert.ok(!path.basename(entry.editable.path).startsWith('Notebook-'));
+ const preview=await createBackupSyncReader().execute({folderPath:root,syncMode:'preview',syncDeviceId:'synthetic-device'});assert.equal(preview.success,true);assert.equal(preview.notes.length,2);
+});

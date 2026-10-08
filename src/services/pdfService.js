@@ -1,3 +1,4 @@
+import { localAssetUrl } from '../utils/localAssetUrl.js';
 import { pdfAssets } from '../utils/pdfAssetUrls.js';
 // PDF Service for BetterNote with High-DPI Rendering & Performance Optimization
 import * as pdfjsLib from 'pdfjs-dist';
@@ -6,7 +7,7 @@ import { importNotebookPagesAtomic } from './db';
 
 // Setup worker with local offline bundle
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = localAssetUrl(pdfWorker);
 }
 
 /**
@@ -14,7 +15,7 @@ if (typeof window !== 'undefined') {
  */
 export const loadPdfFromFile = async (file) => {
   const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer, isEvalSupported:false, enableScripting:false });
   const pdfDoc = await loadingTask.promise;
   return { pdfDoc, arrayBuffer };
 };

@@ -1,7 +1,9 @@
-const { contextBridge, ipcRenderer, clipboard } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
+  saveBnote: command => ipcRenderer.invoke('save-bnote-file', command),
+  getAppInfo: () => ipcRenderer.invoke('get-app-info'),
   setLocalSaveGuardReady: (state) => ipcRenderer.send('local-save-ready', state),
   completeCloseSaveRequest: (result) => ipcRenderer.send('local-save-close-result', result),
   onCloseSaveRequest: (listener) => {

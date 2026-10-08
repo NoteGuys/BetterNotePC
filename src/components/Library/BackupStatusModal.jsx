@@ -72,11 +72,11 @@ export default function BackupStatusModal({ isOpen, onClose, notebooks = [], onT
   };
   const openFolder = async () => {
     const result = await autoBackupService.openBackupFolder(folder || null);
-    if (!result?.success) setNotice({ type: 'error', text: t('backupActionFailed') });
+    if (!result?.success) setNotice({ type: 'error', text: t(result?.reason === 'open-timeout' ? 'backupFolderOpenTimeout' : 'backupActionFailed') });
   };
   const reveal = async path => {
     const result = await autoBackupService.revealBackupFile(path);
-    if (!result?.success) setNotice({ type: 'error', text: t('backupActionFailed') });
+    if (!result?.success) setNotice({ type: 'error', text: t(result?.reason === 'open-timeout' ? 'backupFolderOpenTimeout' : 'backupActionFailed') });
   };
   const restore = () => {
     if (window.confirm(t('backupRestoreConfirm'))) onRestoreBackup?.(folder || null);

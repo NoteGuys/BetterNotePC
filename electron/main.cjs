@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { registerPdfExport } = require('./pdfExport.cjs');
@@ -15,7 +15,12 @@ app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('high-dpi-support', '1');
 
+const { ASSET_SCHEME, createGuardedIpc, protectWindow, registerAssetProtocol } = require('./appSecurity.cjs');
+protocol.registerSchemesAsPrivileged([{scheme:ASSET_SCHEME,privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);
+const distPath = path.join(__dirname,'../dist/index.html');
+const devUrl = process.env.NODE_ENV === 'development' && process.argv.includes('--dev') ? 'http://localhost:3000/' : null;
 let mainWindow = null;
+const guardedIpc = createGuardedIpc(ipcMain,()=>mainWindow,distPath,devUrl);
 
 // Backup disk work and serialization run in a worker, not the Electron UI process.
 let backupClient;
@@ -82,6 +87,7 @@ async function getBackupStatusDetails(customPath = null) {
   return getBackupClient().execute({ action: 'inspect', customBackupPath: customPath, includeFiles: true });
 }
 
+const externalActions = require('./externalActions.cjs').createExternalActions({shell});
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -103,13 +109,15 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false
+      webSecurity: true,
+      sandbox: true
     }
   });
 
+  protectWindow(mainWindow,distPath,devUrl);
   installLocalSaveGuard({ window: mainWindow, ipcMain, dialog });
-  registerDriveDesktop({ ipcMain, shell, getWindow: () => mainWindow });
-  registerGoogleDesktopAuth({ ipcMain, shell, getWindow: () => mainWindow,
+  registerDriveDesktop({ ipcMain: guardedIpc, shell, getWindow: () => mainWindow });
+  registerGoogleDesktopAuth({ ipcMain: guardedIpc, shell, getWindow: () => mainWindow,
     exchangeToken: createGoogleTokenExchange({
       brokerUrl: process.env.BETTERNOTE_GOOGLE_TOKEN_ENDPOINT || GOOGLE_TOKEN_BROKER_URL,
       credentialFile: app.isPackaged ? '' : process.env.BETTERNOTE_GOOGLE_OAUTH_FILE || ''
@@ -117,29 +125,31 @@ function createWindow() {
     onComplete: () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.restore(); mainWindow.focus(); } }
   });
 
+  require('./bnoteSave.cjs').registerBnoteSave({ipcMain:guardedIpc,dialog,getWindow:()=>mainWindow});
+  guardedIpc.handle('get-app-info',()=>({version:app.getVersion(),distribution:process.windowsStore?'store':'installer'}));
   // Handle IPC Auto-Backup calls directly from renderer
-  ipcMain.handle('save-auto-backup', async (event, data) => {
+  guardedIpc.handle('save-auto-backup', async (event, data) => {
     return await writeBackupData(data, event.sender);
   });
 
   // Handle immediate pruning of a deleted notebook from backups
-  ipcMain.handle('prune-backup-notebook', async (event, notebookName) => {
+  guardedIpc.handle('prune-backup-notebook', async (event, notebookName) => {
     return await pruneNotebookFromBackups(notebookName);
   });
 
   // Handle batch pruning of multiple deleted notebooks from backups
-  ipcMain.handle('prune-backup-notebooks-batch', async (event, notebookNames) => {
+  guardedIpc.handle('prune-backup-notebooks-batch', async (event, notebookNames) => {
     return await pruneNotebooksBatchFromBackups(notebookNames);
   });
 
   // Handle scanning and restoring from Google Drive or local backup folder
-  ipcMain.handle('drive-sync-capabilities', async event => {
+  guardedIpc.handle('drive-sync-capabilities', async event => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
         event.senderFrame !== mainWindow.webContents.mainFrame) return { protocol: 0 };
     return { protocol: 1 };
   });
 
-  ipcMain.handle('scan-backup-folder', async (event, customPath, options) => {
+  guardedIpc.handle('scan-backup-folder', async (event, customPath, options) => {
     if (options?.syncMode) {
       if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
           event.senderFrame !== mainWindow.webContents.mainFrame || typeof customPath !== 'string') {
@@ -151,50 +161,21 @@ function createWindow() {
     return await scanAndLoadBackups(customPath, options?.previewOnly === true);
   });
 
-  ipcMain.handle('restore-backup-from-folder', async (event, customPath) => {
+  guardedIpc.handle('restore-backup-from-folder', async (event, customPath) => {
     return await scanAndLoadBackups(customPath);
   });
 
   // Handle detailed backup status & file inspection
-  ipcMain.handle('get-backup-status-details', async (event, customPath) => {
+  guardedIpc.handle('get-backup-status-details', async (event, customPath) => {
     return await getBackupStatusDetails(customPath);
   });
 
   // Handle opening backup destination folder in Windows Explorer
-  ipcMain.handle('open-backup-folder', async (event, folderPath) => {
-    try {
-      const target = folderPath || await getBackupTargetDir();
-      if ((await fs.promises.stat(target).catch(() => null))?.isDirectory()) {
-        await shell.openPath(target);
-        return { success: true };
-      } else {
-        // Create if needed
-        await fs.promises.mkdir(target, { recursive: true });
-        await shell.openPath(target);
-        return { success: true };
-      }
-    } catch (err) {
-      console.error('open-backup-folder error:', err);
-      return { success: false, error: err.message };
-    }
-  });
-
-  // Handle revealing and highlighting a specific backup file in Windows Explorer
-  ipcMain.handle('reveal-backup-file', async (event, filePath) => {
-    try {
-      if (filePath && fs.existsSync(filePath)) {
-        shell.showItemInFolder(filePath);
-        return { success: true };
-      }
-      return { success: false, error: 'File not found on disk' };
-    } catch (err) {
-      console.error('reveal-backup-file error:', err);
-      return { success: false, error: err.message };
-    }
-  });
+  guardedIpc.handle('open-backup-folder', async (event, folderPath) => externalActions.openFolder(folderPath || await getBackupTargetDir()));
+  guardedIpc.handle('reveal-backup-file', (event, filePath) => externalActions.revealFile(filePath));
 
   // Handle native folder picker dialog
-  ipcMain.handle('select-folder', async () => {
+  guardedIpc.handle('select-folder', async () => {
     try {
       const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory', 'createDirectory'],
@@ -211,78 +192,15 @@ function createWindow() {
   });
 
   // Handle opening external URLs in default system web browser
-  ipcMain.handle('open-external', async (event, url) => {
-    try {
-      if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
-        await shell.openExternal(url);
-        return { success: true };
-      }
-      return { success: false, error: 'Invalid URL scheme' };
-    } catch (err) {
-      console.error('open-external error:', err);
-      return { success: false, error: err.message };
-    }
-  });
+  guardedIpc.handle('open-external', (event,url) => externalActions.openExternal(url));
 
-  // Handle opening Google Sign-In popup window
-  ipcMain.handle('open-google-signin', async () => {
-    return new Promise((resolve) => {
-      try {
-        let authWindow = new BrowserWindow({
-          width: 540,
-          height: 680,
-          title: 'Sign in - Google Accounts',
-          autoHideMenuBar: true,
-          parent: mainWindow,
-          modal: true,
-          webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true
-          }
-        });
-
-        const targetUrl = 'https://accounts.google.com/AccountChooser?service=wise&continue=https%3A%2F%2Fdrive.google.com%2F';
-        authWindow.loadURL(targetUrl);
-
-        let finished = false;
-
-        const checkNavigation = (navUrl) => {
-          if (finished || !navUrl) return;
-          try {
-            const u = new URL(navUrl);
-            // Must actually land on drive.google.com hostname (not accounts.google.com which has drive.google.com in query param!)
-            if (u.hostname === 'drive.google.com' || u.hostname.endsWith('.drive.google.com')) {
-              finished = true;
-              setTimeout(() => {
-                if (authWindow && !authWindow.isDestroyed()) {
-                  authWindow.close();
-                }
-                resolve({ success: true, loggedIn: true });
-              }, 1000);
-            }
-          } catch (_) {}
-        };
-
-        authWindow.webContents.on('did-navigate', (event, url) => checkNavigation(url));
-        authWindow.webContents.on('did-redirect-navigation', (event, url) => checkNavigation(url));
-
-        authWindow.on('closed', () => {
-          authWindow = null;
-          if (!finished) {
-            resolve({ success: false, reason: 'closed_by_user' });
-          }
-        });
-      } catch (err) {
-        console.error('open-google-signin error:', err);
-        resolve({ success: false, error: err.message });
-      }
-    });
-  });
+  // Legacy direct sign-in stays unavailable while the UI is Coming soon.
+  guardedIpc.handle('open-google-signin', () => ({success:false,reason:'coming-soon'}));
 
   // Import one image explicitly chosen in the native Windows file picker.
-  registerPdfExport(ipcMain, BrowserWindow, () => mainWindow);
+  registerPdfExport(guardedIpc, BrowserWindow, () => mainWindow);
 
-  ipcMain.handle('select-image', async (_event, options = {}) => {
+  guardedIpc.handle('select-image', async (_event, options = {}) => {
     const mimeTypes = {
       png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
       webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp',
@@ -316,7 +234,7 @@ function createWindow() {
   });
 
   // Handle reading image from Windows / system clipboard (for Long-Press Paste, External Copy, Win+Shift+S, Explorer)
-  ipcMain.handle('read-clipboard-image', async () => {
+  guardedIpc.handle('read-clipboard-image', async () => {
     try {
       // 1. Modern Electron Clipboard (W3C Clipboard API: clipboard.read() returns Promise<ClipboardItem[]>)
       if (typeof clipboard.read === 'function') {
@@ -432,7 +350,6 @@ function createWindow() {
   });
 
   // Load the offline production app directly from disk
-  const distPath = path.join(__dirname, '../dist/index.html');
   const isDev = process.env.NODE_ENV === 'development' && process.argv.includes('--dev');
 
   if (isDev) {
@@ -442,13 +359,6 @@ function createWindow() {
   } else {
     mainWindow.loadFile(distPath);
   }
-
-  // Prevent navigation outside the application
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('file://')) {
-      event.preventDefault();
-    }
-  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -472,7 +382,7 @@ if (!gotTheLock) {
     }
   });
 
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => { registerAssetProtocol(protocol,net,path.dirname(distPath)); createWindow(); });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {

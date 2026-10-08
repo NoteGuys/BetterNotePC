@@ -108,7 +108,7 @@ export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotic
         <a className="bn-backup-hub-button" href={downloadUrl} target="_blank" rel="noopener noreferrer" onClick={event => {
           if (window.electronAPI?.openExternal) {
             event.preventDefault();
-            Promise.resolve(window.electronAPI.openExternal(event.currentTarget.href)).catch(() => onNotice?.({ type: 'error', text: t('driveDesktopOpenFailed') }));
+            Promise.resolve(window.electronAPI.openExternal(event.currentTarget.href)).then(result => { if (!result?.success) onNotice?.({ type: 'error', text: t('externalOpenFailed') }); }).catch(() => onNotice?.({ type: 'error', text: t('externalOpenFailed') }));
           }
         }}><ExternalLink size={14} />{t('driveDownloadOfficial')}</a>
         {!drivePath && <button type="button" className="bn-backup-inline-action" style={{ marginTop: 12 }}

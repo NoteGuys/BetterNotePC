@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useSyncExternalStore, useRef } from 'react';
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
 import BackupStatusModal from './components/Library/BackupStatusModal';
@@ -64,17 +64,22 @@ export function App() {
   // Automatic Daily Microsoft Store Update Check
   const [updateModalData, setUpdateModalData] = useState(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const updatePresentationAllowed = useRef(false);
+  updatePresentationAllowed.current = !hasOpenEditor && !recovery.active && !isLoading;
 
   useEffect(() => {
     let isMounted = true;
     const runStartupUpdateCheck = async () => {
-      // Delay slightly (1500ms) so startup database loading settles smoothly
-      await new Promise(r => setTimeout(r, 1500));
+      // Check after startup settles; present only after the user returns to the library.
+      await new Promise(r => setTimeout(r, 15000));
+      while (isMounted && (document.hidden || window.__bn_pen_active || window.__bn_drag_active)) await new Promise(r => setTimeout(r, 1000));
       if (!isMounted) return;
 
       try {
         const updateResult = await checkForStoreUpdate();
         if (isMounted && updateResult?.hasUpdate) {
+          while (isMounted && (!updatePresentationAllowed.current || document.hidden || window.__bn_pen_active || window.__bn_drag_active)) await new Promise(r => setTimeout(r, 1000));
+          if (!isMounted) return;
           setUpdateModalData(updateResult);
           setIsUpdateModalOpen(true);
         }

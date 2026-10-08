@@ -30,7 +30,8 @@ import { useBackupSnapshot, backupStateKey } from '../Common/BackupStatusIndicat
 import { appCacheService } from '../../services/appCacheService';
 import { useLanguage } from '../../services/i18n';
 import { 
-  CURRENT_APP_VERSION, 
+  CURRENT_APP_VERSION,
+  getInstalledAppInfo,
   checkForStoreUpdate, 
   openMicrosoftStore,
   STORE_URL,
@@ -67,60 +68,35 @@ export const SettingsModal = ({
   const [cacheClearedToast, setCacheClearedToast] = useState(false);
   const [showFolderHelp, setShowFolderHelp] = useState(false);
   const [showMigrationHelp, setShowMigrationHelp] = useState(false);
+  const [appInfo,setAppInfo]=useState({version:CURRENT_APP_VERSION,distribution:'installer'});
+  useEffect(()=>{let live=true;getInstalledAppInfo().then(info=>{if(live)setAppInfo(info);});return()=>{live=false;};},[]);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [checkingUpdateMsg, setCheckingUpdateMsg] = useState(null);
 
   const handleManualCheckUpdate = async () => {
+    if (isCheckingUpdate) return;
     setIsCheckingUpdate(true);
     setCheckingUpdateMsg(t('updateChecking', 'กำลังตรวจสอบการอัปเดตจาก Microsoft Store...'));
     try {
       const res = await checkForStoreUpdate({ force: true });
-      if (res?.hasUpdate) {
+      if (res?.status==='store-managed') {
+        setCheckingUpdateMsg(await openMicrosoftStore() ? t('updateStoreOpened') : t('updateOpenFailed'));
+      } else if (res?.hasUpdate) {
         setCheckingUpdateMsg(null);
         if (onOpenUpdateModal) {
           onOpenUpdateModal(res);
         }
-      } else {
-        setCheckingUpdateMsg(t('updateIsLatest', `BetterNote ของคุณเป็นเวอร์ชันล่าสุดแล้ว (v${CURRENT_APP_VERSION})`, { version: CURRENT_APP_VERSION }));
+      } else if (res?.status === 'current') {
+        setCheckingUpdateMsg(t('updateIsLatest', `BetterNote ของคุณเป็นเวอร์ชันล่าสุดแล้ว (v${CURRENT_APP_VERSION})`, { version: res.currentVersion || appInfo.version }));
         setTimeout(() => setCheckingUpdateMsg(null), 4000);
+      } else {
+        setCheckingUpdateMsg(t(res?.reason==='feed-not-configured'?'updateFeedUnavailable':'updateConnectError'));
       }
     } catch (err) {
       setCheckingUpdateMsg(t('updateConnectError', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์อัปเดตได้'));
       setTimeout(() => setCheckingUpdateMsg(null), 3000);
     } finally {
       setIsCheckingUpdate(false);
-    }
-  };
-
-  const handlePreviewUpdateModal = () => {
-    if (onOpenUpdateModal) {
-      const localeMap = { en: 'en-US', th: 'th-TH', zh: 'zh-CN', ru: 'ru-RU' };
-      const currentLocale = localeMap[language] || 'en-US';
-      onOpenUpdateModal({
-        hasUpdate: true,
-        isMock: true,
-        currentVersion: CURRENT_APP_VERSION,
-        latestVersion: '1.2.2',
-        releaseDateRaw: new Date().toISOString(),
-        releaseDate: new Date().toLocaleDateString(currentLocale, { year: 'numeric', month: 'long', day: 'numeric' }),
-        title: `BetterNote Pro Studio Update v1.2.2`,
-        storeUrl: STORE_URL,
-        storeWebUrl: STORE_WEB_URL,
-        bugFixKeys: ['updateFix1', 'updateFix2', 'updateFix3', 'updateFix4'],
-        featureKeys: ['updateFeat1', 'updateFeat2', 'updateFeat3', 'updateFeat4'],
-        bugFixes: [
-          t('updateFix1'),
-          t('updateFix2'),
-          t('updateFix3'),
-          t('updateFix4')
-        ],
-        features: [
-          t('updateFeat1'),
-          t('updateFeat2'),
-          t('updateFeat3'),
-          t('updateFeat4')
-        ]
-      });
     }
   };
 
@@ -637,11 +613,11 @@ export const SettingsModal = ({
                         BetterNote Pro Studio
                       </h4>
                       <span className="bn-settings-badge-connected" style={{ background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', borderColor: 'rgba(168, 85, 247, 0.4)' }}>
-                        Microsoft Store Edition
+                        {t(appInfo.distribution==='store'?'updateStoreEdition':'updateInstallerEdition')}
                       </span>
                     </div>
                     <p className="bn-settings-card-desc">
-                      {t('updateSectionTitle', 'เวอร์ชันและการอัปเดต')} • Version {CURRENT_APP_VERSION} (Build 2026.09)
+                      {t('updateSectionTitle', 'เวอร์ชันและการอัปเดต')} • Version {appInfo.version}
                     </p>
                   </div>
                 </div>
@@ -649,7 +625,7 @@ export const SettingsModal = ({
                 <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#cbd5e1' }}>
                     <CheckCircle2 size={16} style={{ color: '#34d399' }} />
-                    <span>{t('updateDailyCheckNotice', 'ระบบจะแจ้งเตือนการอัปเดตใหม่จาก Microsoft Store อัตโนมัติวันละ 1 ครั้งเมื่อเปิดเข้าใช้งาน')}</span>
+                    <span>{t(appInfo.distribution==='store'?'updateStoreNotice':'updateDailyCheckNotice')}</span>
                   </div>
 
                   {checkingUpdateMsg && (
@@ -685,29 +661,13 @@ export const SettingsModal = ({
                       }}
                     >
                       <RefreshCw size={14} className={isCheckingUpdate ? 'animate-spin' : ''} />
-                      <span>{isCheckingUpdate ? t('updateChecking', 'กำลังตรวจสอบ...') : t('updateCheckNow', 'ตรวจสอบการอัปเดตตอนนี้')}</span>
+                      <span>{isCheckingUpdate ? t('updateChecking', 'กำลังตรวจสอบ...') : t(appInfo.distribution==='store'?'updateStoreCheck':'updateCheckNow')}</span>
                     </button>
+
 
                     <button
                       type="button"
-                      onClick={handlePreviewUpdateModal}
-                      className="bn-settings-btn-alt"
-                      style={{
-                        background: 'rgba(168, 85, 247, 0.15)',
-                        borderColor: 'rgba(168, 85, 247, 0.35)',
-                        color: '#d8b4fe',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <Sparkles size={14} />
-                      <span>{t('updatePreviewDialog', 'Preview Update Dialog')}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => openMicrosoftStore()}
+                      onClick={async () => { if (!await openMicrosoftStore()) setCheckingUpdateMsg(t('updateOpenFailed')); }}
                       className="bn-settings-btn-alt"
                       style={{
                         background: 'rgba(255, 255, 255, 0.06)',

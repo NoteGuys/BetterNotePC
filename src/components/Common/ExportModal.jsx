@@ -6,6 +6,13 @@ import { useLanguage } from '../../services/i18n';
 import { localizeNotebookCopyName } from '../../utils/notebookNames';
 
 const EXPORT_ERROR_TRANSLATIONS = {
+  'bnote-empty':'bnoteEmpty',
+  'bnote-invalid':'bnoteInvalid',
+  'bnote-incomplete':'bnoteIncomplete',
+  'bnote-too-large':'bnoteTooLarge',
+  'bnote-timeout':'bnoteTimeout',
+  'bnote-save-failed':'bnoteSaveFailed',
+  'bnote-restart-required':'bnoteRestartRequired',
   "pdf-restart-required": "exportDialogPdfRestart",
   "pdf-print-failed": "exportDialogPdfPrintFailed",
   "pdf-load-failed": "exportDialogPdfLoadFailed",
@@ -117,8 +124,8 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadP
       }
       const filename = `${notebook.name || 'Notebook'}.bnote`;
 
-      await saveFileToDisk(blob, filename);
-      setDoneMsg(exportMessage('exportDialogEditableSuccess'));
+      const saved = await saveFileToDisk(blob, filename);
+      setDoneMsg(saved ? exportMessage('exportDialogEditableSuccess') : '');
     } catch (err) {
       console.error(err);
       alert(t('exportDialogEditableError') + translateExportError(err, t));

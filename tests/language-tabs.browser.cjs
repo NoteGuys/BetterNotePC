@@ -52,7 +52,7 @@ module.exports = async ({page, fixture, mount, flush, check, preview}) => {
     assert.ok((await page.locator('.bn-modal-subtitle').textContent()).includes('Physics(1) (Copy)(1) (Copy)'));
     // Intercept the save picker entirely in memory; no .bnote file is written.
     await page.evaluate(()=>{
-      qa.originalSavePicker=window.showSaveFilePicker;
+      qa.originalSavePicker=window.showSaveFilePicker;qa.originalElectronFlag=window.electronAPI.isElectron;window.electronAPI.isElectron=false;
       window.showSaveFilePicker=async options=>({createWritable:async()=>({write:async blob=>{qa.exportName=options.suggestedName;qa.exportPayload=JSON.parse(await blob.text());},close:async()=>{}})});
     });
     try {
@@ -61,7 +61,7 @@ module.exports = async ({page, fixture, mount, flush, check, preview}) => {
       assert.equal(await page.evaluate(()=>qa.exportName),legacyName+'.bnote');
       assert.equal(await page.evaluate(()=>qa.exportPayload.notebook.name),legacyName);
     } finally {
-      await page.evaluate(()=>{if(qa.originalSavePicker)window.showSaveFilePicker=qa.originalSavePicker;else delete window.showSaveFilePicker;delete qa.exportPayload;delete qa.exportName;});
+      await page.evaluate(()=>{window.electronAPI.isElectron=qa.originalElectronFlag;if(qa.originalSavePicker)window.showSaveFilePicker=qa.originalSavePicker;else delete window.showSaveFilePicker;delete qa.exportPayload;delete qa.exportName;});
     }
     assert.equal(await page.evaluate(async()=>(await qa.db.getNotebookById('language-card')).name),legacyName);
   });

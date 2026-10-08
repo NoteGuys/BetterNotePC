@@ -4,7 +4,7 @@ const installLocalSaveGuard = ({ window, ipcMain, dialog, timeoutMs = 15000,
   schedule = setTimeout, cancel = clearTimeout }) => {
   let ready = false, allowed = false, pending = null, sequence = 0, showingDialog = false, readyLabels;
   const trusted = event => event.sender === window.webContents &&
-    (!event.senderFrame || event.senderFrame === window.webContents.mainFrame);
+    event.senderFrame === window.webContents.mainFrame;
   const defaults = {
     title: 'BetterNote',
     message: 'Saving has not finished. Your window will stay open to protect your work.',

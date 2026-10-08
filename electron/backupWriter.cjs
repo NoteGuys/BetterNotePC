@@ -224,6 +224,27 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
    return digest===artifact.hash;
   }catch(_){return false;}
  };
+ // Upgrade only verified, manifest-owned names. Keep the original in history.
+ const readableArtifactNames=async(target,current)=>{
+  for(const [id,entry]of Object.entries(target.manifest.notebooks))for(const kind of ['editable','pdf']){
+   const artifact=entry[kind];if(entry.backupConflict || !artifact?.path || !path.basename(artifact.path).startsWith('Notebook-'))continue;
+   if(!await artifactMatches(target,artifact,artifact.revision,{current}))continue;
+   const relative=path.join(path.dirname(artifact.path),path.basename(artifact.path).slice('Notebook-'.length));
+   const oldFile=within(target.root,artifact.path),bytes=await read(oldFile);if(!bytes || hash(bytes)!==artifact.hash)throw fault('backup-changed-externally');
+   const existing=await read(within(target.root,relative));if(existing && hash(existing)!==artifact.hash)throw fault('backup-changed-externally');
+   const saved=await atomic(target.root,relative,bytes,null,current,0);
+   const oldPath=artifact.path;
+   entry[kind]={...artifact,...saved};
+   try{await saveManifest(target,current);}catch(error){entry[kind]=artifact;throw error;}
+   // Preserve this exact managed file before taking the old name out of the file list.
+   await current.beforeInstall?.();
+   if(!current() || hash(await fs.readFile(oldFile))!==artifact.hash)throw fault('backup-changed-externally');
+   const archive=path.join(path.dirname(oldPath),'.history',path.basename(oldPath),artifact.hash+'.previous');
+   const history=within(target.root,archive);await fs.mkdir(path.dirname(history),{recursive:true});
+   const retained=await read(history);if(retained && hash(retained)!==artifact.hash)throw fault('history-verification-failed');
+   await fs.rename(oldFile,history);
+  }
+ };
  const fullArtifact=target=>({path:'Full_System/BetterNote_Latest_Backup.json',hash:target.manifest.fullHash,
   size:target.manifest.fullSize,revision:target.manifest.fullRevision});
  const targetResult=target=>({
@@ -266,6 +287,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
      notebooks:target.manifest.syncPending?.deviceId===target.syncDeviceId?target.manifest.syncPending.notebooks||{}:{}};
     await saveManifest(target,current);
    }
+   await readableArtifactNames(target,current);
    for(const info of command.metadata.notebooks){
     const entry=entryFor(target,info.id);
     if(!entry?.backupConflict&&await artifactMatches(target,entry?.editable,revision(info),{current}))target.verifiedEditableIds.push(info.id);
@@ -304,7 +326,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
     if(target.syncExpected&&old.backupConflict){delete old.backupConflict;delete target.notebookIssues[note.id];setEntry(target,note.id,old);await saveManifest(target,current);}
     return;
    }
-   const stem='Notebook-'+cleanName(note.name)+'--'+hash(note.id).slice(0,32);
+   const stem=cleanName(note.name)+'--'+hash(note.id).slice(0,32);
    const relative=old.editable?.path||path.join('Editable_Notes',stem+'.bnote'),existing=await read(within(target.root,relative));
    let authorized=false;
    if(target.syncExpected){
@@ -431,7 +453,7 @@ function createBackupWriter({localDir,driveCandidates=[],fs=nodeFs,deadlineMs=10
    if(entry?.editable?.revision!==command.revision)throw fault('pdf-backup-superseded');
    if(command.pdfError){setEntry(target,command.notebookId,{...entry,pdfError:command.pdfError});target.pdfError=command.pdfError;await saveManifest(target,current);return;}
    const bytes=command.pdfBytes instanceof ArrayBuffer ? Buffer.from(command.pdfBytes) : pdfBuffer(command.pdfBase64);if(!bytes||bytes.length>272*1048576||!bytes.subarray(0,5).equals(Buffer.from('%PDF-'))||!bytes.subarray(-1024).includes(Buffer.from('%%EOF')))throw fault('invalid-pdf');
-   const stem='Notebook-'+cleanName(entry.name)+'--'+hash(command.notebookId).slice(0,32);
+   const stem=cleanName(entry.name)+'--'+hash(command.notebookId).slice(0,32);
    const saved=await atomic(target.root,entry.pdf?.path||path.join('PDF_Documents',stem+'.pdf'),bytes,
     buffer=>buffer.subarray(0,5).equals(Buffer.from('%PDF-')),current);
    setEntry(target,command.notebookId,{...entry,pdfError:null,pdf:{...saved,revision:command.revision,contentRevision:command.pdfRevision,savedAt:now()}});

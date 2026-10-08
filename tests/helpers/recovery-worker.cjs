@@ -2,7 +2,7 @@
 const fs = require('node:fs'), path = require('node:path'), esbuild = require('esbuild');
 exports.setupRecoveryWorker = build => {
   exports.setupPdfAssets(build);
-  build.onResolve({ filter: /(?:backup(?:Recovery|Preparation)|editorPages|pdfRaster)\.worker\.js\?worker&inline$/ }, args => ({ path: args.path.includes('pdfRaster') ? 'pdfRaster' : args.path.includes('editorPages') ? 'editorPages' : args.path.includes('backupPreparation') ? 'backupPreparation' : 'backupRecovery', namespace: 'qa-recovery-worker' }));
+  build.onResolve({ filter: /(?:backup(?:Recovery|Preparation)|editorPages|bnote|pdfRaster)\.worker\.js\?worker&inline$/ }, args => ({ path: args.path.includes('bnote.worker') ? 'bnote' : args.path.includes('pdfRaster') ? 'pdfRaster' : args.path.includes('editorPages') ? 'editorPages' : args.path.includes('backupPreparation') ? 'backupPreparation' : 'backupRecovery', namespace: 'qa-recovery-worker' }));
   build.onLoad({ filter: /.*/, namespace: 'qa-recovery-worker' }, async args => {
     const root = path.resolve(__dirname, '../..');
     if (process.env.BETTERNOTE_QA_BUILT_WORKER === '1') {
@@ -55,5 +55,5 @@ exports.setupPdfAssets = build => {
     return{contents,loader:'js',resolveDir:path.dirname(args.path)};
   });
   build.onResolve({filter:/pdf\.worker\.min\.mjs\?url$/},()=>({path:'pdf-worker-url',namespace:'qa-pdf-url'}));
-  build.onLoad({filter:/.*/,namespace:'qa-pdf-url'},()=>({contents:'export default '+JSON.stringify(require('node:url').pathToFileURL(path.resolve(__dirname,'../../node_modules/pdfjs-dist/build/pdf.worker.min.mjs')).href),loader:'js'}));
+  build.onLoad({filter:/.*/,namespace:'qa-pdf-url'},()=>({contents:'export default '+JSON.stringify(require('node:url').pathToFileURL(process.env.BETTERNOTE_QA_HARDENED === '1' ? path.resolve(__dirname,'../../dist/assets',fs.readdirSync(path.resolve(__dirname,'../../dist/assets')).find(n=>n.startsWith('pdf.worker.min-')&&n.endsWith('.mjs'))) : path.resolve(__dirname,'../../node_modules/pdfjs-dist/build/pdf.worker.min.mjs')).href),loader:'js'}));
 };

@@ -1,5 +1,6 @@
 import { openDB, getPage, savePage, getSetting, getBackupNotebookSnapshot } from './db.js';
 import { pageSummary } from '../utils/pageWindow.js';
+import { decodeBnote } from '../../electron/bnoteFormat.js';
 import { readPagePreviews } from './pagePreviewStorage.js';
 self.onmessage = async ({ data }) => {
   try {
@@ -21,6 +22,7 @@ self.onmessage = async ({ data }) => {
       if (!snapshot) throw Error('Notebook unavailable');
       const { pages, ...notebook } = snapshot;
       const bytes = new TextEncoder().encode(JSON.stringify({format:'BetterNote_Document',version:1,exportedAt:new Date().toISOString(),notebook,pages})).buffer;
+      decodeBnote(new Uint8Array(bytes));
       self.postMessage({ bytes }, [bytes]); return;
     }
     const db = await openDB();
@@ -35,5 +37,5 @@ self.onmessage = async ({ data }) => {
     const previewEpoch = receipt?.operationId || '';
     const previews = await readPagePreviews(data.notebookId, pages, data.templateId, previewEpoch);
     self.postMessage({ pages, previews, previewEpoch });
-  } catch (_) { self.postMessage({ error: 'Page data unavailable' }); }
+  } catch (error) { self.postMessage({ error: error.code || 'Page data unavailable' }); }
 };
