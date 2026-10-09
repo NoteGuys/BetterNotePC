@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pruneBackupNotebooksBatch: (notebookIds, customBackupPath) => ipcRenderer.invoke('prune-backup-notebooks-batch', { notebookIds, customBackupPath }),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   getDriveSyncCapabilities: () => ipcRenderer.invoke('drive-sync-capabilities'),
+  onRecoveryProgress: handler => {
+    const listener = (_event, progress) => handler(progress);
+    ipcRenderer.on('backup-recovery-progress', listener);
+    return () => ipcRenderer.removeListener('backup-recovery-progress', listener);
+  },
+  cancelRecoveryRead: id => ipcRenderer.invoke('cancel-backup-recovery-read', id),
   scanBackupFolder: (folderPath, options) => ipcRenderer.invoke('scan-backup-folder', folderPath, options),
   restoreBackupFromFolder: (folderPath) => ipcRenderer.invoke('restore-backup-from-folder', folderPath),
   getBackupStatusDetails: (customPath) => ipcRenderer.invoke('get-backup-status-details', customPath),

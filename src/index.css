@@ -7689,3 +7689,42 @@ svg.bn-star-gold {
   border-color: #fff;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
 }
+
+/* Surface pen/touch targets: enlarge actual buttons, never overlapping hit areas. */
+.bn-export-dialog .bn-modal-close-btn { width: 44px; height: 44px; flex-shrink: 0; touch-action: manipulation; }
+
+.bn-editor-toolbar-container { display: flex; flex-wrap: nowrap; height: 56px; min-height: 56px; max-height: 56px; padding: 0 8px; gap: 6px; }
+.bn-editor-toolbar-left, .bn-editor-toolbar-right, .bn-editor-toolbar-center { flex-wrap: nowrap; flex-shrink: 0; gap: 4px; }
+.bn-editor-toolbar-container .bn-tool-pill { flex-wrap: nowrap; gap: 2px; }
+.bn-editor-toolbar-container .bn-tool-pill > * { flex-shrink: 0; }
+.bn-toolbar-more { display: none; position: relative; }
+.bn-toolbar-more-panel { position: absolute; top: calc(100% + 8px); right: 0; width: 260px; max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); overflow-y: auto; padding: 6px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-secondary); box-shadow: var(--shadow-lg); -webkit-app-region: no-drag; }
+.bn-toolbar-more-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 10px; border-radius: 8px; color: var(--text-primary); text-align: left; font-size: 12px; }
+.bn-toolbar-more-item > svg { flex-shrink: 0; }
+.bn-toolbar-more-item:hover, .bn-toolbar-more-item:focus-visible { background: var(--bg-tertiary); }
+.bn-toolbar-more-panel .bn-title-input { width: 100%; box-sizing: border-box; }
+.bn-toolbar-more-zoom, .bn-toolbar-more-small, .bn-toolbar-more-tools { display: none; }
+@media (any-pointer: coarse) {
+  .bn-editor-toolbar-container .bn-tool-btn,
+  .bn-editor-toolbar-container .bn-btn-icon { width: 44px; height: 44px; flex-shrink: 0; touch-action: manipulation; }
+}
+@media (max-width: 1700px) {
+  .bn-editor-toolbar-container .bn-toolbar-extra-action { display: none; }
+  .bn-toolbar-more { display: block; }
+}
+@media (max-width: 1200px) {
+  .bn-editor-toolbar-container .bn-toolbar-zoom-action { display: none; }
+  .bn-toolbar-more-zoom { display: flex; }
+}
+@media (max-width: 1100px) {
+  .bn-editor-toolbar-container .bn-toolbar-small-action { display: none; }
+  .bn-toolbar-more-small { display: flex; }
+}
+@media (max-width: 900px) {
+  .bn-editor-toolbar-container .bn-toolbar-secondary-tool { display: none; }
+  .bn-toolbar-more-tools { display: flex; }
+}
+.bn-editor-canvas-stage.bn-stage-whiteboard { padding: 0 !important; overflow: hidden !important; min-height: 0; }
+.bn-whiteboard-controls { left: 0; bottom: 0; border-bottom-left-radius: 0; }
+.bn-library-export-progress { width: 100%; margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
+.bn-library-export-progress progress { width: 100%; height: 6px; accent-color: #3b82f6; display: block; margin-top: 4px; }

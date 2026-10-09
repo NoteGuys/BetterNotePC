@@ -8,7 +8,8 @@ export const hasBackupRole = (target, role) => (target.roles || [target.kind]).i
 export const backupStateKey = state => state.status === 'current' ? 'backupLocalCurrent'
   : 'backupState' + state.status.charAt(0).toUpperCase() + state.status.slice(1);
 export const BackupStatusIndicator = ({ onClick, compact = false }) => {
-  const state = useBackupSnapshot(), { t } = useLanguage();
+  const actual=useBackupSnapshot(),{t}=useLanguage();
+  const state=actual.status==='current'&&actual.hasDriveFolder&&!actual.allDestinationsCurrent?{...actual,status:actual.syncing?'working':'partial'}:actual;
   const Icon = state.status === 'working' ? LoaderCircle : state.status === 'current' ? ShieldCheck
     : ['partial', 'error'].includes(state.status) ? AlertCircle : Clock3;
   return <button type="button" className={'bn-backup-indicator bn-backup-indicator-' + state.status + (compact ? ' is-compact' : '')}
@@ -73,13 +74,14 @@ export const BackupProgress = ({ role = 'local' }) => {
   if (!state.syncing || role === 'drive' && (!scoped.length || scoped.every(target => state.phase === 'pdf' ? target.pdfCurrent : target.dataCurrent))) return null;
   const data = state.progress, pdf = state.pdfProgress;
   const io = data.io, isPdf = state.phase === 'pdf';
-  const percent = isPdf ? pdf.total ? Math.round(pdf.done / pdf.total * 100) : 100
+  const percent = isPdf ? pdf.total ? Math.min(100,Math.round((pdf.done+(!pdf.currentCompleted&&pdf.totalPages?pdf.page/pdf.totalPages:0)) / pdf.total * 100)) : 100
     : data.stage === 'data-complete' ? 100 : data.total ? Math.min(90, Math.round(data.done / data.total * 90)) : 0;
   return <div className="bn-backup-progress" role="status" aria-live="polite" data-backup-phase={state.phase}>
     <div><LoaderCircle size={15} className="bn-local-save-spinner" /><strong>{t(role === 'drive' ? 'driveDesktopPreparationTitle' : isPdf ? 'backupPdfBackground' : stageKey(data.stage))}</strong></div>
     <progress max="100" value={percent} aria-label={t(isPdf ? 'backupPdfCopies' : 'backupRecoveryData')} />
     <span>{isPdf && pdf.name ? t('backupPdfProgress', '', { name: pdf.name, page: pdf.page, totalPages: pdf.totalPages })
       : t('backupProgressCount', '', { done: data.done || 0, total: data.total || 0 })}</span>
+    {isPdf && pdf.rendered!==undefined && <small>{t('backupPdfReuseProgress','',{reused:pdf.reused||0,rendered:pdf.rendered||0})}</small>}
     {!isPdf && io?.totalBytes > 0 && <small>{t(stageKey(io.stage))} {formatBackupSize(io.bytesDone)}/{formatBackupSize(io.totalBytes)}</small>}
   </div>;
 };

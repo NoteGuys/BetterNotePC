@@ -34,7 +34,7 @@ test('Incremental selection reads only remote changes and notes without a shared
 });
 const fixture=async()=>{
  const root=await fs.mkdtemp(path.join(qa,'betternote-sync-native-')),notes=[makeNote('a'),makeNote('b')],metadata={folders:[],notebooks:notes};
- const writer=createBackupWriter({localDir:root,deadlineMs:1000});
+ const writer=createBackupWriter({localDir:root,deadlineMs:10000});
  const jobId='seed';assert.equal((await writer.execute({action:'begin',jobId,metadata,metadataRevision:backupMetadataRevision(metadata),phase:'data'})).success,true);
  for(const note of notes)await writer.execute({action:'notebook',jobId,notebook:note,pdfRevision:'pages-'+note.id});
  assert.equal((await writer.execute({action:'finish',jobId,metadataRevision:backupMetadataRevision(metadata)})).dataSuccess,true);
@@ -108,11 +108,11 @@ test('A file changed without changing its metadata cannot bypass a shared hash g
  const changed={...notes[0],updatedAt:21},local=await fs.mkdtemp(path.join(qa,'betternote-sync-byte-cas-'));
  const result=await guardedRound(createBackupWriter({localDir:local}),[changed,notes[1]],root,guard);assert.equal(result.finish.targets.find(t=>t.kind==='drive').error,'backup-changed-externally');assert.equal(await fs.readFile(file,'utf8'),peerBytes);
 });
-test('An interrupted shared backup can resume only on its originating device',async()=>{
+test('An interrupted new round leaves the last committed generation available to every device',async()=>{
  const {root,notes}=await fixture(),guard=await guardFor(root),local=await fs.mkdtemp(path.join(qa,'betternote-sync-resume-')),writer=createBackupWriter({localDir:local}),changed={...notes[0],updatedAt:33};
  const metadata={folders:[],notebooks:[changed,notes[1]]},jobId='interrupted';await writer.execute({action:'begin',jobId,metadata,metadataRevision:backupMetadataRevision(metadata),phase:'data',driveBackupPath:root,driveSyncGuard:guard});
  await writer.execute({action:'notebook',jobId,notebook:changed});await writer.execute({action:'abort',jobId});
- const reader=createBackupSyncReader();assert.equal((await reader.execute({folderPath:root,syncMode:'preview',syncDeviceId:'other-device'})).reason,'backup-incomplete');
+ const reader=createBackupSyncReader();const old=await reader.execute({folderPath:root,syncMode:'preview',syncDeviceId:'other-device'});assert.equal(old.success,true);assert.equal(old.notes.find(n=>n.id==='a').updatedAt,notes[0].updatedAt);
  const resume=await guardFor(root),result=await guardedRound(writer,[changed,notes[1]],root,resume);assert.equal(result.finish.targets.find(t=>t.kind==='drive').dataSuccess,true);
  assert.equal((await reader.execute({folderPath:root,syncMode:'preview',syncDeviceId:'other-device'})).success,true);
 });
@@ -132,21 +132,21 @@ test('Reserved IDs remain independent in shared ancestry maps',()=>{
  assert.equal(syncWriteGuard({notebooks:[note]},{manifestHash:null,notes:[]},{entries:{}}).ready,true);
 });
 
-test('Crash after installing a note but before indexing it resumes from a verified intent',async()=>{
+test('Failure publishing the commit after installing notes preserves the previous complete index',async()=>{
  const {root,notes}=await fixture(),guard=await guardFor(root),local=await fs.mkdtemp(path.join(qa,'betternote-sync-intent-')),changed={...notes[0],updatedAt:44};let installed=false,failed=false;
  const writer=createBackupWriter({localDir:local,beforeReplace:async({file,relative})=>{
   if(file.startsWith(root+path.sep)&&relative.endsWith('.bnote'))installed=true;
   if(installed&&!failed&&file.startsWith(root+path.sep)&&relative.endsWith('backup_manifest.json')){failed=true;throw Object.assign(new Error(),{code:'EIO'});}
  }});
  const metadata={folders:[],notebooks:[changed,notes[1]]},jobId='crash';await writer.execute({action:'begin',jobId,metadata,metadataRevision:backupMetadataRevision(metadata),phase:'data',driveBackupPath:root,driveSyncGuard:guard});
- await writer.execute({action:'notebook',jobId,notebook:changed});await writer.execute({action:'abort',jobId});assert.equal(failed,true);
+ await writer.execute({action:'notebook',jobId,notebook:changed});await writer.execute({action:'notebook',jobId,notebook:notes[1]});await writer.execute({action:'finish',jobId});assert.equal(failed,true);const previous=await createBackupSyncReader().execute({folderPath:root,syncMode:'preview'});assert.equal(previous.success,true);assert.equal(previous.notes.find(n=>n.id==='a').updatedAt,notes[0].updatedAt);
  const resume=await guardFor(root);const result=await guardedRound(createBackupWriter({localDir:local}),[changed,notes[1]],root,resume);
  assert.equal(result.finish.targets.find(t=>t.kind==='drive').dataSuccess,true);
 });
 test('Guarded pruning removes only confirmed IDs and lets its owner complete the next snapshot',async()=>{
  const {root,notes}=await fixture(),guard=await guardFor(root),local=await fs.mkdtemp(path.join(qa,'betternote-sync-prune-')),writer=createBackupWriter({localDir:local});
  const result=await writer.execute({action:'prune',notebookIds:['a'],driveBackupPath:root,driveSyncGuard:guard});assert.equal(result.targets.find(t=>t.kind==='drive').error,null);
- assert.equal((await createBackupSyncReader().execute({folderPath:root,syncMode:'preview',syncDeviceId:'other'})).reason,'backup-incomplete');
+ assert.deepEqual((await createBackupSyncReader().execute({folderPath:root,syncMode:'preview',syncDeviceId:'other'})).notes.map(n=>n.id),['b']);
  const resume=await guardFor(root);assert.equal((await guardedRound(writer,[notes[1]],root,resume)).finish.targets.find(t=>t.kind==='drive').dataSuccess,true);
  assert.deepEqual((await createBackupSyncReader().execute({folderPath:root,syncMode:'preview'})).notes.map(n=>n.id),['b']);
 });

@@ -45,6 +45,7 @@ export const createBackupPreparationService = ({ createWorker = async () => { co
           },error=>{ if (worker === instance) instance.postMessage({action:'image',requestId:data.requestId,imageError:error.message==='pdf-backup-deferred'?'pdf-backup-deferred':'pdf-backup-image-invalid'}); });
           return;
         }
+        if(data.pdfCacheProgress){item.arm();try{item.check?.(data.pdfCacheProgress);}catch(_){}return;}
         if (data.progress) {
           item.arm(); let proceed = true;
           try { item.check?.(data.progress); } catch (_) { proceed = false; }

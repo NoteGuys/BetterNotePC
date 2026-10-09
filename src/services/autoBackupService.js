@@ -5,7 +5,8 @@ import { createBackupController } from './backupController.js';
 import { resolveBackupReadFolder, backupReadErrorKey } from './backupReadStatus.js';
 import { t } from './i18n';
 import { restoreBackup, configureRecoveryBackups } from './backupRecoveryService.js';
-import { createDriveSyncService } from './backupSyncService.js';
+// Backup is outbound only. Import is performed exclusively by an explicit recovery action.
+const idleSync=()=>{const snapshot=Object.freeze({status:'idle'});return {getSnapshot:()=>snapshot,subscribe:()=>()=>{},stop:()=>{}};};
 
 class AutoBackupService {
   constructor() {
@@ -13,16 +14,14 @@ class AutoBackupService {
     this.pointerIds = new Set();
     this.canvasPointerIds = new Set();
     this.lastInput = 0;
-    this.driveSync = createDriveSyncService();
+    this.driveSync=idleSync();this.localSync=idleSync();
+    this.devicePromise=null;
     this.preparation = createBackupPreparationService();
     this.controller = createBackupController({
-      beforeBackup: options => this.driveSync.beforeBackup(options),
-      beforePrune: ids => this.driveSync.beforePrune(ids),
-      onDataBackup: result => this.driveSync.acknowledged(result),
       getMetadata: () => this.preparation.getMetadata(), getNotebook: (id, options) => this.preparation.getNotebook(id, options),
       waitForLocalSaves: () => flushLocalSaves(), getLocalState: getLocalSaveSnapshot,
       native: command => typeof window !== 'undefined' && window.electronAPI?.saveBackup
-        ? window.electronAPI.saveBackup(command) : Promise.resolve({ success: false, reason: 'unsupported-environment' }),
+        ? this.backupCommand(command) : Promise.resolve({ success: false, reason: 'unsupported-environment' }),
       getPath: async () => ({
         localBackupPath: (await getSetting('local_backup_path')) || null,
         driveBackupPath: (await getSetting('gdrive_backup_method')) === 'desktop'
@@ -38,6 +37,25 @@ class AutoBackupService {
       lastSyncTime: this.controller.getSnapshot().lastSuccess,
       success: this.controller.getSnapshot().status === 'current'
     }));
+  }
+  async getBackupDevice(){
+    if(!this.devicePromise)this.devicePromise=(async()=>{
+      const saved=await getSetting('backup_device_v2');
+      if(saved&&/^[a-z0-9-]{8,80}$/.test(saved.id))return saved;
+      const info=await window.electronAPI?.getAppInfo?.().catch(()=>null);
+      const device={id:crypto.randomUUID(),name:info?.deviceName||'PC'};
+      await saveSetting('backup_device_v2',device);return device;
+    })().catch(error=>{this.devicePromise=null;throw error;});
+    return this.devicePromise;
+  }
+  async backupCommand(command){return window.electronAPI.saveBackup({...command,backupDevice:await this.getBackupDevice()});}
+  async listRestoreSources(folder){
+    if(!folder)return {success:false,reason:'backup-folder-choice-required'};
+    const result=await window.electronAPI?.scanBackupFolder?.(folder,{listDevices:true});
+    if(result?.success&&result.folders?.length)return result;
+    // An explicitly selected device or old backup folder can still be read directly.
+    const preview=await this.scanAvailableBackups(folder,{previewOnly:true});
+    return preview?.success?{success:true,folders:[{folder:preview.folder,count:preview.count||0,legacy:true}]}:result||preview;
   }
   get isSyncing() { return this.controller.getSnapshot().syncing; }
   get lastSyncTime() { return this.controller.getSnapshot().lastSuccess; }
@@ -88,16 +106,16 @@ class AutoBackupService {
       this.pointerIds.clear(); this.canvasPointerIds.clear();
     };
     this.controller.start();
-    this.driveSync.start(options => this.runAutoBackup(options));
+    // No background receive or restore from either destination.
   }
   stopScheduledSync() { this.stopSubscriptions?.(); this.stopSubscriptions = null; this.controller.stop(); this.driveSync.stop(); }
   async pruneDeletedNotebook(_name, notebookId = null) {
     if (!notebookId) return { success: false, reason: 'notebook-id-required' };
-    return this.controller.prune([notebookId]);
+    this.controller.markDirty();return {success:true,queued:true};
   }
   async pruneDeletedNotebooks(_names, notebookIds = []) {
     if (!notebookIds.length) return { success: false, reason: 'notebook-id-required' };
-    return this.controller.prune(notebookIds);
+    this.controller.markDirty();return {success:true,queued:true};
   }
 
   /**
@@ -109,7 +127,7 @@ class AutoBackupService {
     }
     try {
       const folder = await resolveBackupReadFolder(getSetting, customPath);
-      return await window.electronAPI.scanBackupFolder(folder, { previewOnly: options.previewOnly === true });
+      return await window.electronAPI.scanBackupFolder(folder, { previewOnly: options.previewOnly === true, allowPrevious:options.allowPrevious === true,encodedRecovery:options.encodedRecovery === true });
     } catch (_) {
       return { success: false, reason: 'backup-read-failed' };
     }
@@ -121,10 +139,28 @@ class AutoBackupService {
   async restoreFromCloudBackup(customPath = null) {
     try {
       this.notify({ syncing: true, message: t('backupReadRestoring') });
-      const restoreResult = await restoreBackup(async () => {
-        const scan = await this.scanAvailableBackups(customPath);
-        if (!scan?.success || !scan.data) throw Object.assign(new Error(), { code: scan?.reason || 'backup-read-failed' });
-        return { data: scan.data, folder: scan.folder, source: scan.source, recoveredFolderNotebookIds: scan.recoveredFolderNotebookIds || [], ignoredRetiredNotebookIds: scan.ignoredRetiredNotebookIds || [] };
+      const restoreResult = await restoreBackup(async ({signal,report}) => {
+        const recoveryId = crypto.randomUUID();
+        const folder = await resolveBackupReadFolder(getSetting,customPath);
+        const api = window.electronAPI;
+        const unsubscribe = api?.onRecoveryProgress?.(progress => {
+          if (progress.recoveryId === recoveryId) report(progress);
+        });
+        const cancel = () => { api?.cancelRecoveryRead?.(recoveryId)?.catch?.(()=>{}); };
+        let scan;
+        try {
+          if (signal.aborted) throw Object.assign(new Error(),{code:'backup-recovery-cancelled'});
+          // Dispatch first; cancellation then follows on the same IPC channel ordering.
+          const pending = api?.scanBackupFolder?.(folder,{allowPrevious:true,encodedRecovery:true,snapshotRecovery:true,recoveryId});
+          signal.addEventListener('abort',cancel,{once:true});
+          if (signal.aborted) cancel();
+          scan = await pending;
+        } finally { unsubscribe?.();signal.removeEventListener('abort',cancel); }
+        if (signal.aborted) throw Object.assign(new Error(),{code:'backup-recovery-cancelled'});
+        if (!scan?.success || !scan.data && !(scan.encoded instanceof Uint8Array)) throw Object.assign(new Error(), { code: scan?.reason || 'backup-read-failed', diagnostics: scan?.diagnostics });
+        if(scan.previousGeneration&&!window.confirm(t('backupRestorePreviousConfirm','',{date:new Date(scan.previousGeneration.savedAt).toLocaleString()})))throw Object.assign(new Error(),{code:'backup-recovery-cancelled'});
+        const encoded=scan.encoded instanceof Uint8Array ? scan.encoded.byteOffset===0&&scan.encoded.byteLength===scan.encoded.buffer.byteLength?scan.encoded.buffer:scan.encoded.slice().buffer:undefined;
+        return { data: scan.data, encoded,folder: scan.folder, source: scan.source, recoveredFolderNotebookIds: scan.recoveredFolderNotebookIds || [], ignoredRetiredNotebookIds: scan.ignoredRetiredNotebookIds || [] };
       });
       this.notify({
         syncing: false,
@@ -140,6 +176,7 @@ class AutoBackupService {
       };
     } catch (err) {
       const reason = err.code || 'backup-recovery-write-failed';
+      if (err.diagnostics) console.warn('Backup recovery stopped', { reason, ...err.diagnostics });
       this.notify({ syncing: false, success: false, message: t(backupReadErrorKey(reason)) });
       return { success: false, reason };
     }

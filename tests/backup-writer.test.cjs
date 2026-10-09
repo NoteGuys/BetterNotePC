@@ -38,30 +38,54 @@ test('Duplicate and Windows-sanitized names cannot overwrite another notebook', 
   assert.equal(files.length, 4);
   assert.deepEqual(new Set((await Promise.all(files.map(async f => JSON.parse(await fs.readFile(path.join(root, 'Editable_Notes', f))).id)))), new Set(['a','b','c','d']));
 });
-test('Rename keeps a stable backup path and does not delete the other same-name notebook', async () => {
+test('Rename publishes a readable new version and preserves the previous file and same-name notebook', async () => {
   const root = await fixture(), writer = createBackupWriter({ localDir: root });
   await run(writer, [note('a', 'Old'), note('b', 'New')]);
   const before = (await writer.execute({ action: 'inspect' })).targets[0].notebooks.a.editable.path;
   await run(writer, [note('a', 'New', 20), note('b', 'New')]);
-  assert.equal((await writer.execute({ action: 'inspect' })).targets[0].notebooks.a.editable.path, before);
+  const after=(await writer.execute({ action: 'inspect' })).targets[0].notebooks.a.editable.path;assert.notEqual(after,before);assert.ok(path.basename(after).startsWith('New--'));assert.equal(JSON.parse(await fs.readFile(path.join(root,'Backup_History',before))).name,'Old');
   assert.equal(JSON.parse(await fs.readFile(fullFile(root))).notebooks.length, 2);
 });
-test('Only three previous complete note versions are retained', async () => {
-  const root = await fixture(), writer = createBackupWriter({ localDir: root });
-  for (let time=1; time<=6; time++) await run(writer, [note('a', 'Versions', time)]);
-  const relative = (await writer.execute({ action: 'inspect' })).targets[0].notebooks.a.editable.path;
-  const history = path.join(root, path.dirname(relative), '.history', path.basename(relative));
-  const archived = await fs.readdir(history);
-  assert.equal(archived.length, 3);
-  for (const f of archived) assert.ok(JSON.parse(await fs.readFile(path.join(history,f))).pages.length);
-  assert.equal(JSON.parse(await fs.readFile(path.join(root,relative))).updatedAt, 6);
+test('Retention keeps the latest and three complete previous data generations',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});
+ for(let time=1;time<=6;time++)assert.equal((await run(writer,[note('a','Versions',time)])).success,true);
+ const history=path.join(root,'Backup_History/Manifests'),archived=await fs.readdir(history);assert.equal(archived.length,3);
+ const manifests=[JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')))];
+ for(const f of archived)manifests.push(JSON.parse(await fs.readFile(path.join(history,f))));
+ assert.deepEqual(manifests.map(m=>m.generation).sort(),[3,4,5,6]);
+ for(const m of manifests){
+  const base=m.generation===6?root:path.join(root,'Backup_History');
+  const full=JSON.parse(await fs.readFile(path.join(base,m.fullPath)));assert.equal(full.notebooks[0].updatedAt,m.generation);
+  for(const kind of ['editable','pdf'])assert.equal((await fs.stat(path.join(kind==='pdf'?root:base,m.notebooks.a[kind].path))).size,m.notebooks.a[kind].size);
+ }
+ assert.equal((await fs.readdir(path.join(root,'Editable_Notes'))).filter(f=>f.endsWith('.bnote')).length,1);
+ assert.equal((await fs.readdir(path.join(root,'Backup_History','Editable_Notes'))).filter(f=>f.endsWith('.bnote')).length,3);
+ assert.equal((await fs.readdir(path.join(root,'Full_System'))).filter(f=>f.startsWith('Backup--')).length,1);
+ assert.equal((await fs.readdir(path.join(root,'Backup_History','Full_System'))).filter(f=>f.startsWith('Backup--')).length,3);
+ const n=note('a','Versions',6);
+ for(let p=1;p<=8;p++)assert.equal((await writer.execute({action:'pdf',notebookId:n.id,revision:notebookBackupRevision(n),pdfRevision:'pdf-'+p,pdfBase64:Buffer.from('%PDF-1.7\nvariant '+p+'\n%%EOF').toString('base64')})).success,true);
+ assert.deepEqual((await fs.readdir(history)).sort(),archived.sort());
+ assert.equal((await fs.readdir(path.join(root,'PDF_Documents'))).filter(f=>f.endsWith('.pdf')).length,1);
+ assert.equal((await fs.readdir(path.join(root,'Backup_History','PDF_Documents'))).filter(f=>f.endsWith('.pdf')).length,1);
 });
+
+test('Retention preserves unknown files and retired bytes that no longer match their recorded hash',async()=>{
+ const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note('a','Versions',1)]);
+ const first=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json'))),tampered=path.join(root,first.notebooks.a.editable.path);
+ await fs.writeFile(path.join(root,'Editable_Notes','user-owned.bnote'),'personal file');
+ // Modify only after the next committed generation stops referencing it.
+ await run(writer,[note('a','Versions',2)]);await fs.writeFile(tampered,'changed externally');
+ for(let time=3;time<=6;time++)assert.equal((await run(writer,[note('a','Versions',time)])).success,true);
+ assert.equal(await fs.readFile(tampered,'utf8'),'changed externally');
+ assert.equal(await fs.readFile(path.join(root,'Editable_Notes','user-owned.bnote'),'utf8'),'personal file');
+});
+
 test('A failed Windows replacement leaves the previous file byte-for-byte intact', async () => {
   const root = await fixture(), writer = createBackupWriter({ localDir: root });
   await run(writer, [note()]);
   const info = (await writer.execute({ action:'inspect' })).targets[0];
   const file = path.join(root,info.notebooks.n1.editable.path), before = await fs.readFile(file);
-  const bad = createBackupWriter({ localDir:root, fs:{ ...fs, rename:async (a,b)=>{ if(b===file)throw Object.assign(new Error('held'),{code:'EPERM'});return fs.rename(a,b); } } });
+  const bad = createBackupWriter({ localDir:root, fs:{ ...fs, rename:async (a,b)=>{ if(b.endsWith('.bnote'))throw Object.assign(new Error('held'),{code:'EPERM'});return fs.rename(a,b); } } });
   const result = await run(bad, [note('n1','Example',20)]);
   assert.equal(result.success,false); assert.deepEqual(await fs.readFile(file),before);
   assert.deepEqual((await fs.readdir(path.dirname(file))).filter(n=>n.includes('.pending-')),[]);
@@ -146,12 +170,12 @@ test('Cancellation before replacement leaves the old version and removes the pen
 });
 test('External modification during replacement is detected without overwriting that modification', async () => {
   const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note()]);
-  const concurrent=note('n1','Example',30),bad=createBackupWriter({localDir:root,beforeReplace:async ({file,relative})=>{
-    if(relative.endsWith('.bnote'))await fs.writeFile(file,JSON.stringify(concurrent));
+  let concurrentFile;const concurrent=note('n1','Example',30),bad=createBackupWriter({localDir:root,beforeReplace:async ({file,relative})=>{
+    if(relative.endsWith('.bnote')){concurrentFile=file;await fs.writeFile(file,JSON.stringify(concurrent));}
   }});
   assert.equal((await run(bad,[note('n1','Example',20)])).success,false);
   const info=(await writer.execute({action:'inspect'})).targets[0];
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(root,info.notebooks.n1.editable.path))),concurrent);
+  assert.deepEqual(JSON.parse(await fs.readFile(concurrentFile)),concurrent);assert.deepEqual(JSON.parse(await fs.readFile(path.join(root,info.notebooks.n1.editable.path))),note());
 });
 test('The inspection path is read-only and does not create backup directories', async () => {
   const parent=await fixture(),root=path.join(parent,'missing'),writer=createBackupWriter({localDir:root});
@@ -199,7 +223,7 @@ test('Legacy archives remain visible without claiming their unknown revision is 
 test('A corrupt full snapshot prevents pruning any existing notebook artifact',async()=>{
  const root=await fixture(),writer=createBackupWriter({localDir:root});await run(writer,[note()]);
  const relative=(await writer.execute({action:'inspect'})).targets[0].notebooks.n1.editable.path;
- const before=await fs.readFile(path.join(root,relative));await fs.writeFile(fullFile(root),'{broken');
+ const before=await fs.readFile(path.join(root,relative)),manifest=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));await fs.writeFile(path.join(root,manifest.fullPath),'{broken');
  assert.equal((await writer.execute({action:'prune',notebookIds:['n1']})).success,false);
  assert.deepEqual(await fs.readFile(path.join(root,relative)),before);
 });
@@ -355,9 +379,9 @@ test('Inactive files with real retained data and newer staged entries are not re
  let manifest=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));assert.ok(manifest.notebooks.b);assert.ok(JSON.parse(await fs.readFile(fullFile(root))).notebooks.some(note=>note.id==='b'));
  const staged=note('late-stage');
  assert.equal((await writer.execute({action:'begin',jobId:'staged',metadata:meta([staged]),metadataRevision:'staged',phase:'data'})).success,true);
- assert.equal((await writer.execute({action:'notebook',jobId:'staged',notebook:staged,pdfBase64:null,pdfRevision:'pending'})).success,true);
+ const stagedResult=await writer.execute({action:'notebook',jobId:'staged',notebook:staged,pdfBase64:null,pdfRevision:'pending'});assert.equal(stagedResult.success,true);
  await writer.execute({action:'abort',jobId:'staged'});
- manifest=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));manifest.notebooks['late-stage'].editable.savedAt=Date.now()+60000;
+ manifest=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));assert.equal(manifest.notebooks['late-stage'],undefined);manifest.notebooks['late-stage']=stagedResult.targets[0].notebooks['late-stage'];manifest.notebooks['late-stage'].editable.savedAt=Date.now()+60000;
  await fs.unlink(path.join(root,manifest.notebooks['late-stage'].editable.path));
  await fs.writeFile(path.join(root,'Full_System/backup_manifest.json'),JSON.stringify(manifest));assert.equal((await run(createBackupWriter({localDir:root}),[note('a')])).success,true);
  manifest=JSON.parse(await fs.readFile(path.join(root,'Full_System/backup_manifest.json')));assert.ok(manifest.notebooks.b);assert.ok(manifest.notebooks['late-stage']);
@@ -396,6 +420,6 @@ test('Readable names start with the title and migrate verified legacy names with
  const manifestFile=path.join(root,'Full_System/backup_manifest.json'),manifest=JSON.parse(await fs.readFile(manifestFile));
  for(const kind of ['editable','pdf']){const artifact=manifest.notebooks.name[kind];assert.ok(path.basename(artifact.path).startsWith('ชื่อ อ่านง่าย--'));const legacy=path.join(path.dirname(artifact.path),'Notebook-'+path.basename(artifact.path));await fs.rename(path.join(root,artifact.path),path.join(root,legacy));artifact.path=legacy;}
  await fs.writeFile(manifestFile,JSON.stringify(manifest));const fresh=createBackupWriter({localDir:root});const result=await run(fresh,[n]);assert.equal(result.success,true);
- const current=JSON.parse(await fs.readFile(manifestFile));for(const kind of ['editable','pdf']){const artifact=current.notebooks.name[kind];assert.ok(!path.basename(artifact.path).startsWith('Notebook-'));assert.equal((await fs.stat(path.join(root,artifact.path))).size,artifact.size);const old=manifest.notebooks.name[kind];assert.equal((await fs.stat(path.join(root,path.dirname(old.path),'.history',path.basename(old.path),old.hash+'.previous'))).size,old.size);}
- assert.equal((await fs.readdir(path.join(root,'Editable_Notes'))).filter(f=>f.endsWith('.bnote')).length,1);
+ const current=JSON.parse(await fs.readFile(manifestFile));for(const kind of ['editable','pdf']){const artifact=current.notebooks.name[kind];assert.ok(!path.basename(artifact.path).startsWith('Notebook-'));assert.equal((await fs.stat(path.join(root,artifact.path))).size,artifact.size);const old=manifest.notebooks.name[kind];assert.equal((await fs.stat(path.join(root,old.path))).size,old.size);}
+ assert.equal((await fs.readdir(path.join(root,'Editable_Notes'))).filter(f=>f.endsWith('.bnote')).length,2);
 });

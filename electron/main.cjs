@@ -127,7 +127,7 @@ function createWindow() {
 
   require('./bnoteSave.cjs').registerBnoteSave({ipcMain:guardedIpc,dialog,getWindow:()=>mainWindow});
   require('./storeUpdates.cjs').registerStoreUpdates({ipcMain:guardedIpc,getWindow:()=>mainWindow,isStore:()=>Boolean(process.windowsStore)});
-  guardedIpc.handle('get-app-info',()=>({version:app.getVersion(),distribution:process.windowsStore?'store':'installer'}));
+  guardedIpc.handle('get-app-info',()=>({version:app.getVersion(),distribution:process.windowsStore?'store':'installer',deviceName:require('node:os').hostname()}));
   // Handle IPC Auto-Backup calls directly from renderer
   guardedIpc.handle('save-auto-backup', async (event, data) => {
     return await writeBackupData(data, event.sender);
@@ -150,7 +150,31 @@ function createWindow() {
     return { protocol: 1 };
   });
 
+  const recoveryReads = new Map();
+  guardedIpc.handle('cancel-backup-recovery-read', async (event, recoveryId) => {
+    const job = recoveryReads.get(recoveryId);
+    if (!job || job.sender !== event.sender) return false;
+    await job.client.cancel(); return true;
+  });
   guardedIpc.handle('scan-backup-folder', async (event, customPath, options) => {
+    if (options?.snapshotRecovery && options?.encodedRecovery && !options.previewOnly) {
+      const id = options.recoveryId;
+      if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id) || recoveryReads.size || typeof customPath !== 'string')
+        return {success:false,reason:'backup-reader-busy'};
+      const {createBackupReaderClient} = require('./backupReaderClient.cjs');
+      const client = createBackupReaderClient();
+      recoveryReads.set(id,{client,sender:event.sender});
+      const destroyed = () => { client.cancel(); };
+      event.sender.once('destroyed',destroyed);
+      try {
+        return await client.execute({folderPath:customPath,allowPrevious:options.allowPrevious===true,encodedRecovery:true,snapshotRecovery:true},progress=>{
+          if (!event.sender.isDestroyed()) event.sender.send('backup-recovery-progress',{...progress,recoveryId:id});
+        });
+      } finally {
+        event.sender.removeListener('destroyed',destroyed);
+        recoveryReads.delete(id);await client.close();
+      }
+    }
     if (options?.syncMode) {
       if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
           event.senderFrame !== mainWindow.webContents.mainFrame || typeof customPath !== 'string') {
@@ -159,7 +183,7 @@ function createWindow() {
       return scanAndLoadBackups(customPath, false, { syncMode: options.syncMode,
         syncNotebookId: options.syncNotebookId, manifestHash: options.manifestHash, syncDeviceId: options.syncDeviceId });
     }
-    return await scanAndLoadBackups(customPath, options?.previewOnly === true);
+    return await scanAndLoadBackups(customPath, options?.previewOnly === true, {allowPrevious: options?.allowPrevious === true,encodedRecovery:options?.encodedRecovery === true,listDevices:options?.listDevices === true});
   });
 
   guardedIpc.handle('restore-backup-from-folder', async (event, customPath) => {

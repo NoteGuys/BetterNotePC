@@ -1,6 +1,7 @@
 import { preservePdfOriginals } from '../utils/pdfOriginal.js';
 import { NOTEBOOK_COPY_LABELS, localizeNotebookCopyName } from '../utils/notebookNames.js';
 import { THUMBNAIL_COVER_ID } from '../data/covers.js';
+import { folderToken, reconcileFolders } from '../../electron/folderSyncProtocol.js';
 import { syncPathKey, syncRevision } from '../../electron/backupSyncProtocol.js';
 
 // High-Performance IndexedDB Storage for BetterNote
@@ -131,6 +132,8 @@ export const restoreBackupAtomic = (data, operationId, syncOptions = null) => wr
       try {
         if (index >= data.notebooks.length) {
           for (const setting of syncOptions?.settingsUpdates || []) tx.objectStore('settings').put(setting);
+          const restoredIds=new Set(data.notebooks.map(note=>note.id)),deleted=tx.objectStore('settings').get('backup_deleted_notebooks_v2');
+          deleted.onsuccess=()=>tx.objectStore('settings').put({key:'backup_deleted_notebooks_v2',value:(deleted.result?.value||[]).filter(item=>!restoredIds.has(item.id))});
           tx.objectStore('settings').put({ key: 'backup_recovery_receipt', value: { operationId, result } });
           done(result); return;
         }
@@ -166,13 +169,30 @@ export const restoreBackupAtomic = (data, operationId, syncOptions = null) => wr
       };
     };
     const begin = () => {
-      for (const folder of data.folders) tx.objectStore('folders').put(folder);
-      deleteNextNotebook(0);
+      const folderStore = tx.objectStore('folders');
+      for (const folder of data.folders) folderStore.put(folder);
+      if (!syncOptions?.folderPlan) { deleteNextNotebook(0); return; }
+      const { remaps = {}, folders } = syncOptions.folderPlan;
+      const plan = reconcileFolders(folders, []), folderMap = new Map(folders.map(folder=>[folder.id,folder]));
+      // Only lightweight notebook records are visited. Rich pages stay untouched.
+      const request = notebookStore.openCursor();
+      request.onsuccess = () => {
+        try {
+          const cursor = request.result;
+          if (!cursor) { deleteNextNotebook(0); return; }
+          const note = cursor.value, mapped = remaps[note.folderId] || note.folderId;
+          const folder = folderMap.get(mapped);
+          const folderId = folder?.permanentlyDeleted ? plan.destination(folder.restoreParentId) : mapped;
+          if ((note.folderId || null) !== (folderId || null)) cursor.update({ ...note, folderId: folderId || null, updatedAt: nextUpdatedAt(note.updatedAt) });
+          cursor.continue();
+        } catch (error) { abort(error); }
+      };
     };
     if (!syncOptions) { begin(); return; }
     // Compare versions and the selected destination in the SAME transaction as incoming pages.
     const expected = syncOptions.expectedRevisions || [];
-    let remaining = expected.length + 2;
+    const folderExpected = syncOptions.expectedFolders || [];
+    let remaining = expected.length + folderExpected.length + (syncOptions.path ? syncOptions.sourceKind === 'local' ? 1 : 2 : 0) + 1 + (syncOptions.folderCount !== undefined ? 1 : 0);
     const checked = () => { if (--remaining === 0) begin(); };
     for (const item of expected) {
       const request = notebookStore.get(item.id);
@@ -182,6 +202,23 @@ export const restoreBackupAtomic = (data, operationId, syncOptions = null) => wr
         }
         checked();
       };
+    }
+    for (const item of folderExpected) {
+      const request = tx.objectStore('folders').get(item.id);
+      request.onsuccess = () => {
+        if (item.token === null ? !!request.result : !request.result || folderToken(request.result) !== item.token) { fail('drive-sync-local-changed'); return; }
+        checked();
+      };
+    }
+    if (syncOptions.folderCount !== undefined) {
+      const count = tx.objectStore('folders').count();
+      count.onsuccess = () => { if (count.result !== syncOptions.folderCount) { fail('drive-sync-local-changed'); return; } checked(); };
+    }
+    checked();
+    if (!syncOptions.path) return;
+    if(syncOptions.sourceKind==='local') {
+      const selected=tx.objectStore('settings').get('local_backup_path');
+      selected.onsuccess=()=>{if(syncPathKey(selected.result?.value)!==syncPathKey(syncOptions.expectedConfiguredPath)){fail('drive-sync-destination-changed');return;}checked();};return;
     }
     const method = tx.objectStore('settings').get('gdrive_backup_method');
     method.onsuccess = () => { if (method.result?.value !== 'desktop') { fail('drive-sync-destination-changed'); return; } checked(); };
@@ -204,7 +241,7 @@ export const getFolders = async (parentId = null) => {
   return new Promise((resolve, reject) => {
     const request = store.getAll();
     request.onsuccess = () => {
-      const all = request.result || [];
+      const all = (request.result || []).filter(folder => !folder.permanentlyDeleted);
       if (parentId === null) {
         resolve(all.filter(f => !f.parentId));
       } else {
@@ -215,18 +252,23 @@ export const getFolders = async (parentId = null) => {
   });
 };
 
-export const getAllFolders = async () => {
+export const getAllFolders = async ({ includeRetired = false } = {}) => {
   const store = await getStore('folders', 'readonly');
   return new Promise((resolve, reject) => {
     const req = store.getAll();
-    req.onsuccess = () => resolve(req.result || []);
+    req.onsuccess = () => resolve((req.result || []).filter(folder => includeRetired || !folder.permanentlyDeleted));
     req.onerror = () => reject(req.error);
   });
 };
 
-export const saveFolder = folder => writeTransaction('folders', (tx, done) => {
-  tx.objectStore('folders').put(folder);
-  done(folder);
+export const saveFolder = folder => writeTransaction('folders', (tx, done, abort) => {
+  const store = tx.objectStore('folders'), request = store.get(folder.id);
+  request.onsuccess = () => {
+    if (request.result?.permanentlyDeleted && !folder.permanentlyDeleted) {
+      abort(Object.assign(new Error('folder-deleted'), {code:'folder-deleted'})); return;
+    }
+    store.put(folder); done(folder);
+  };
 });
 
 export const deleteFolder = folderId => writeTransaction(['folders', 'notebooks'], (tx, done, abort) => {
@@ -259,8 +301,9 @@ export const deleteFolder = folderId => writeTransaction(['folders', 'notebooks'
         notebookStore.put(moved);
         return moved;
       });
-      folderStore.delete(folderId);
-      done({ parentId, folders: remainingFolders, notebooks: movedNotebooks });
+      if (folder) folderStore.put({ ...folder, parentId: null, restoreParentId: parentId,
+        isDeleted: true, permanentlyDeleted: true, deletedAt: Date.now(), updatedAt: nextUpdatedAt(folder.updatedAt) });
+      done({ parentId, folders: remainingFolders.filter(item => !item.permanentlyDeleted), notebooks: movedNotebooks });
     } catch (error) { abort(error); }
   };
   foldersRequest.onsuccess = () => { folders = foldersRequest.result || []; finish(); };
@@ -383,7 +426,9 @@ export const deleteNotebook = notebookId => batchDeleteNotebooks([notebookId]);
 
 export const batchDeleteNotebooks = (notebookIds = []) => {
   if (!Array.isArray(notebookIds) || !notebookIds.length) return Promise.resolve();
-  return writeTransaction(['notebooks', 'pages'], tx => {
+  return writeTransaction(['notebooks', 'pages', 'settings'], tx => {
+    const settingStore=tx.objectStore('settings'),request=settingStore.get('backup_deleted_notebooks_v2');
+    request.onsuccess=()=>{const deleted=new Map((request.result?.value||[]).map(item=>[item.id,item]));for(const id of notebookIds)deleted.set(id,{id,deletedAt:Date.now()});settingStore.put({key:'backup_deleted_notebooks_v2',value:[...deleted.values()]});};
     const notebookStore = tx.objectStore('notebooks');
     const pageStore = tx.objectStore('pages');
     const pageIndex = pageStore.index('notebookId');
@@ -647,7 +692,7 @@ export const seedInitialData = async () => {
 
   // Create default sample folder
   const lectureFolder = {
-    id: 'folder-demo-1',
+    id: crypto.randomUUID(),
     name: 'Lecture Notes (วิชาเรียน)',
     parentId: null,
     color: '#06b6d4',
@@ -655,7 +700,7 @@ export const seedInitialData = async () => {
     createdAt: Date.now()
   };
   const workFolder = {
-    id: 'folder-demo-2',
+    id: crypto.randomUUID(),
     name: 'Work & Projects (โครงการงาน)',
     parentId: null,
     color: '#10b981',
@@ -665,7 +710,7 @@ export const seedInitialData = async () => {
 
 
   // Create default Welcome Notebook
-  const welcomeNotebookId = 'nb-welcome-1';
+  const welcomeNotebookId = crypto.randomUUID();
   const welcomeNotebook = {
     id: welcomeNotebookId,
     name: 'ยินดีต้อนรับสู่ BetterNote',
@@ -789,8 +834,10 @@ export const seedInitialData = async () => {
 export const getBackupMetadata = async () => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(['folders', 'notebooks'], 'readonly');
-    const metadata = { folders: [], notebooks: [] };
+    const tx = db.transaction(['folders', 'notebooks', 'settings'], 'readonly');
+    const metadata = { folders: [], notebooks: [], deletedNotebooks:[] };
+    const retired=tx.objectStore('settings').get('backup_deleted_notebooks_v2');
+    retired.onsuccess=()=>{metadata.deletedNotebooks=retired.result?.value||[];};
     tx.oncomplete = () => resolve(metadata);
     tx.onabort = () => reject(tx.error || new Error('Backup metadata read aborted'));
     tx.onerror = () => {};

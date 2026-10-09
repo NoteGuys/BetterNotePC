@@ -15,11 +15,11 @@ import{autoBackupService as backup}from'./src/services/autoBackupService.js';imp
 import{notebookHistoryStore as history}from'./src/services/notebookHistoryService.js';
 import{prepareBackup}from'./electron/backupValidation.js';
 window.qa={db,recovery,backup,lang,history,native:[],reads:[],errors:[]};window.alert=text=>qa.errors.push(text);window.confirm=()=>true;
-window.electronAPI={isElectron:true,getDriveSyncCapabilities:async()=>({protocol:1}),saveBackup:async command=>{qa.native.push(command.action);return writeBridge(await qaEncodeBackupCommand(command));},
+window.electronAPI={isElectron:true,getAppInfo:async()=>({deviceName:qa.deviceName||'Synthetic PC'}),getDriveSyncCapabilities:async()=>({protocol:1}),saveBackup:async command=>{qa.native.push(command.action);return writeBridge(await qaEncodeBackupCommand(command));},
  scanBackupFolder:async(folder,options)=>{qa.reads.push(options);if(qa.holdRead&&options?.syncMode==='note')await qa.readGate;
  const result=await readBridge(folder,options);if(result.encoded)result.encoded=Uint8Array.from(result.encoded);return result;},
  onCloseSaveRequest:()=>()=>{},onCloseSaveCancelled:()=>()=>{},setLocalSaveGuardReady:()=>{},completeCloseSaveRequest:()=>{}};
-qa.seed=async(source,paths)=>{await db.saveSetting('initialDataSeeded',true);if(source.notebooks.length)await db.restoreBackupAtomic(prepareBackup(source),'seed');
+qa.seed=async(source,paths)=>{qa.deviceName=paths.local.endsWith('A')?'Desktop QA':'Surface QA';await db.saveSetting('initialDataSeeded',true);if(source.notebooks.length)await db.restoreBackupAtomic(prepareBackup(source),'seed');
  await db.saveSetting('local_backup_path',paths.local);await db.saveSetting('gdrive_backup_method','desktop');await db.saveSetting('gdrive_backup_path',paths.drive);};
 qa.mount=()=>{qa.renderer=createRoot(document.getElementById('root'));qa.renderer.render(<App/>);};
 qa.edit=source=>db.restoreBackupAtomic(prepareBackup(source),'edit-'+crypto.randomUUID());
@@ -37,7 +37,7 @@ qa.gate=()=>{qa.holdRead=true;qa.readGate=new Promise(resolve=>qa.releaseRead=()
    build.onResolve({filter:/notebookCover\.worker\.js\?worker&inline$/},()=>({path:'cover',namespace:'qa-cover'}));build.onLoad({filter:/.*/,namespace:'qa-cover'},()=>({contents:fs.readFileSync(path.join(assets,cover),'utf8'),loader:'js'}));
    build.onLoad({filter:/autoBackupService\.js$/},args=>({contents:fs.readFileSync(args.path,'utf8').replace('canRenderPdf: () => this.pointerIds.size','canRenderPdf: () => false && this.pointerIds.size'),loader:'js'}));
    build.onLoad({filter:/\.jsx$/},args=>{
-    if(args.path.endsWith(path.join('Library','LibraryView.jsx')))return{contents:'export const LibraryView=props=>{window.qa.library=props;return null;};',loader:'jsx'};
+    if(args.path.endsWith(path.join('Library','LibraryView.jsx')))return{contents:fs.readFileSync(args.path,'utf8').replace("  const { t, language } = useLanguage();","  window.qa.library={onDeleteNotebook,onUpdateNotebook,onOpenBackupStatus,notebooks}; const { t, language } = useLanguage();"),loader:'jsx'};
     if(args.path.endsWith(path.join('Editor','NoteEditor.jsx')))return{contents:'export const NoteEditor=props=>{window.qa.editor=props;return null;};',loader:'jsx'};
     if(args.path.endsWith(path.join('Common','DocumentTabBar.jsx')))return{contents:'export const DocumentTabBar=props=>{window.qa.tabs=props;return null;};',loader:'jsx'};
    });
@@ -49,7 +49,7 @@ qa.gate=()=>{qa.holdRead=true;qa.readGate=new Promise(resolve=>qa.releaseRead=()
    const context=await browser.newContext({viewport:{width:1360,height:900}});await context.route('**/*',r=>r.request().url()===origin?r.fulfill({status:200,contentType:'text/html',body:'<!doctype html><div id="root"></div>'}):r.abort());
    const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
    await page.exposeFunction('writeBridge',command=>{command=require('./helpers/recovery-worker.cjs').decodeBinaryCommand(command);for(const p of [command.localBackupPath,command.driveBackupPath].filter(Boolean))assert.ok(path.resolve(p).startsWith(fixture+path.sep));return clients[i].execute(command);});
-   await page.exposeFunction('readBridge',async(folder,options)=>{assert.equal(path.resolve(folder),path.resolve(drive));const result=await reader.execute({folderPath:folder,...options});if(result.encoded)result.encoded=Array.from(result.encoded);return result;});
+   await page.exposeFunction('readBridge',async(folder,options)=>{assert.ok(path.resolve(folder).startsWith(fixture+path.sep));const result=await reader.execute({folderPath:folder,...options});if(result.encoded)result.encoded=Array.from(result.encoded);return result;});
    await page.goto(origin);await page.addScriptTag({content:bundle.outputFiles[0].text});pages.push(page);
   }
   const[a,b]=pages,state=p=>p.evaluate(()=>qa.state()),get=(p,id)=>p.evaluate(id=>qa.db.getBackupNotebookSnapshot(id),id),run=p=>p.evaluate(()=>qa.run());
@@ -57,88 +57,112 @@ qa.gate=()=>{qa.holdRead=true;qa.readGate=new Promise(resolve=>qa.releaseRead=()
    await page.evaluate(async input=>{await qa.seed(input.source,input.paths);qa.mount();},{source:{folders:[],notebooks},paths:{local,drive}});
    await page.waitForFunction(()=>qa.library);await page.evaluate(()=>qa.backup.stopScheduledSync());
   }
-  await check('Fresh device receives rich pages from the shared folder without manual import',async()=>{
+
+  let ownA,ownB;
+  await check('Empty second machine backs up without receiving anything from Drive',async()=>{
    assert.equal((await run(a)).success,true);assert.equal((await run(b)).success,true);
-   assert.deepEqual((await get(b,'shared')).pages,(await get(a,'shared')).pages);assert.equal((await get(b,'shared')).pages[0].imageElements[0].locked,true);
-   await b.waitForFunction(()=>qa.library.notebooks.some(n=>n.id==='shared'));assert.ok((await state(b)).journal.entries.shared.remoteHash);
+   assert.equal((await state(b)).notes.length,0);assert.equal(await get(b,'shared'),null);
+   ownA=(await state(a)).status.targets.find(t=>t.kind==='drive').targetDir;ownB=(await state(b)).status.targets.find(t=>t.kind==='drive').targetDir;
+   assert.notEqual(ownA,ownB);assert.equal((await state(a)).status.targets.find(t=>t.kind==='drive').selectedRoot,drive);
   });
-  await check('Existing ID receives new writing even when source clock is behind',async()=>{
-   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',2,'A new writing')]});await run(a);
-   await b.evaluate(()=>qa.history.forNotebook('unrelated').append({id:'keep-undo'}));assert.equal((await run(b)).success,true);
-   assert.equal((await get(b,'shared')).pages[0].textElements[0].text,'A new writing');assert.equal((await get(b,'shared')).updatedAt,2);
-   assert.equal(await b.evaluate(()=>qa.history.forNotebook('unrelated').getSnapshot().stack.length),1);
+  await check('Two machines can write different content with the same notebook ID without a restore prerequisite',async()=>{
+   await b.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',1,'Surface own writing')]});const result=await run(b);assert.equal(result.success,true,JSON.stringify(result));
+   const ar=await reader.execute({folderPath:ownA}),br=await reader.execute({folderPath:ownB});assert.equal(ar.success,true);assert.equal(br.success,true);
+   assert.equal(ar.data.notebooks.find(n=>n.id==='shared').pages[0].textElements[0].text,'initial');assert.equal(br.data.notebooks[0].pages[0].textElements[0].text,'Surface own writing');
   });
-  await check('Both devices edit: canonical source and separate local copy survive together',async()=>{
-   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',3,'A concurrent work')]});
-   await b.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',999,'B concurrent work')]});await run(a);assert.equal((await run(b)).success,true);
-   const copy=(await state(b)).notes.find(n=>n.syncConflictOf==='shared');assert.ok(copy);const original=await get(b,'shared'),saved=await get(b,copy.id);
-   assert.equal(original.pages[0].textElements[0].text,'A concurrent work');assert.equal(saved.pages[0].textElements[0].text,'B concurrent work');assert.notEqual(saved.pages[0].id,original.pages[0].id);
-   await run(a);assert.equal((await get(a,copy.id)).pages[0].textElements[0].text,'B concurrent work');await run(a);await run(b);
-   assert.equal((await state(b)).notes.filter(n=>n.syncConflictOf==='shared').length,1);
+  await check('A failed permanent deletion rolls back notebook, pages and tombstone together',async()=>{
+   const result=await b.evaluate(async()=>{
+    const original=IDBObjectStore.prototype.delete;let rejected=false;
+    IDBObjectStore.prototype.delete=function(key){if(this.name==='pages'&&key==='shared-p')return this.add({id:key});return original.call(this,key);};
+    try{await qa.db.deleteNotebook('shared');}catch(_){rejected=true;}finally{IDBObjectStore.prototype.delete=original;}
+    return {rejected,exists:!!await qa.db.getNotebookById('shared'),pages:(await qa.db.getPagesByNotebookId('shared')).length,deleted:(await qa.db.getBackupMetadata()).deletedNotebooks.some(n=>n.id==='shared')};
+   });assert.deepEqual(result,{rejected:true,exists:true,pages:1,deleted:false});
   });
-  await check('Open editor waits for Documents while local backup remains current',async()=>{
-   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',4,'A while B is open')]});await run(a);
-   await b.evaluate(()=>qa.library.onOpenNotebook('shared',0));await b.waitForFunction(()=>qa.tabs.activeTabId==='shared');
-   const before=await get(b,'shared');await run(b);assert.deepEqual(await get(b,'shared'),before);assert.equal((await state(b)).sync.status,'waiting');assert.equal((await state(b)).status.status,'current');
-   await b.evaluate(()=>qa.tabs.onGoHome());await b.waitForFunction(()=>qa.tabs.activeTabId===null);await run(b);assert.equal((await get(b,'shared')).pages[0].textElements[0].text,'A while B is open');
+  await check('Permanent deletion through the app publishes its tombstone; startup and backup do not resurrect it',async()=>{
+   // Reload App state from the same persistent profile, then use its actual deletion handler.
+   await b.evaluate(()=>{qa.renderer.unmount();qa.mount();});await b.waitForFunction(()=>qa.library.notebooks.some(n=>n.id==='shared'));await b.evaluate(()=>qa.library.onDeleteNotebook('shared'));
+   assert.equal((await run(b)).success,true);assert.equal((await state(b)).notes.length,0);
+   const meta=await b.evaluate(()=>qa.db.getBackupMetadata());assert.equal(meta.deletedNotebooks[0].id,'shared');
+   assert.equal((await reader.execute({folderPath:ownB})).data.notebooks.length,0);assert.ok((await reader.execute({folderPath:ownA})).data.notebooks.length);
+   await b.evaluate(()=>{qa.renderer.unmount();qa.mount();});await b.waitForTimeout(22000);assert.equal((await state(b)).notes.length,0);
+   assert.equal((await b.evaluate(()=>qa.reads)).some(r=>r?.syncMode||r?.encodedRecovery),false);
+   await b.evaluate(()=>qa.backup.stopScheduledSync());
   });
-  await check('Destination change during receive aborts data and ancestry atomically',async()=>{
-   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',5,'latest A')]});await run(a);
-   const before=await get(b,'shared'),journal=(await state(b)).journal;
-   await b.evaluate(()=>{qa.gate();qa.pending=qa.run();});await b.waitForFunction(()=>qa.holdRead&&qa.recovery.backupRecovery.getSnapshot().active);
-   await b.evaluate(async()=>{await qa.db.saveSetting('gdrive_backup_method',null);qa.releaseRead();});await b.evaluate(()=>qa.pending);
-   assert.deepEqual(await get(b,'shared'),before);assert.deepEqual((await state(b)).journal,journal);
-   await b.evaluate(()=>qa.db.saveSetting('gdrive_backup_method','desktop'));await run(b);assert.equal((await get(b,'shared')).pages[0].textElements[0].text,'latest A');
+  await check('An empty new-library hint can be dismissed permanently across app remounts',async()=>{
+   await b.evaluate(async()=>{await qa.db.saveSetting('backup_deleted_notebooks_v2',[]);qa.renderer.unmount();qa.mount();});
+   const hint=b.locator('.bn-cloud-migration-banner');await hint.waitFor({timeout:10000});await hint.getByRole('button',{name:'Close',exact:true}).click();
+   await b.evaluate(()=>{qa.renderer.unmount();qa.mount();});await b.waitForTimeout(1800);assert.equal(await hint.count(),0);assert.equal((await state(b)).notes.length,0);await b.evaluate(()=>qa.backup.stopScheduledSync());
   });
-  await check('Incomplete source stays untouched while device backup remains current',async()=>{
-   const file=path.join(drive,'Full_System/backup_manifest.json'),bytes=await disk.readFile(file),manifest=JSON.parse(bytes);manifest.notebooks.shared.editable.revision='bad';await disk.writeFile(file,JSON.stringify(manifest));
-   const incomplete=await disk.readFile(file),before=await get(b,'shared');await run(b);assert.deepEqual(await disk.readFile(file),incomplete);assert.deepEqual(await get(b,'shared'),before);
-   assert.equal((await state(b)).sync.status,'pending');assert.equal((await state(b)).status.status,'current');await disk.writeFile(file,bytes);
+  await check('Restore UI lists computer names and dates, and cancellation never imports data',async()=>{
+   await b.locator('.bn-backup-indicator').first().click();await b.getByRole('tab',{name:'Google Drive',exact:true}).click();
+   await b.getByRole('button',{name:'Restore from Folder',exact:true}).click();const choice=b.locator('[data-recovery-device-trigger]');await choice.waitFor();await choice.click();
+   const options=await b.getByRole('option').allTextContents();assert.ok(options.some(s=>s.includes('Desktop QA')),JSON.stringify(options));assert.ok(options.some(s=>s.includes('Surface QA')),JSON.stringify(options));
+   await b.getByRole('option').first().press('Escape');assert.equal((await state(b)).notes.length,0);await b.locator('[data-recovery-choices]').getByRole('button',{name:'Close',exact:true}).click();assert.equal((await state(b)).notes.length,0);
   });
-  await check('Old native bridge never receives unguarded Drive writes',async()=>{
-   await b.evaluate(()=>{qa.capabilities=window.electronAPI.getDriveSyncCapabilities;window.electronAPI.getDriveSyncCapabilities=undefined;});
-   const before=await disk.readFile(path.join(drive,'Full_System/backup_manifest.json'));assert.equal((await run(b)).success,true);assert.equal((await state(b)).status.status,'current');assert.equal((await state(b)).sync.reason,'drive-sync-restart');assert.deepEqual(await disk.readFile(path.join(drive,'Full_System/backup_manifest.json')),before);
-   await b.evaluate(()=>window.electronAPI.getDriveSyncCapabilities=qa.capabilities);
+  await check('Explicitly chosen other-machine backup restores rich content without changing the source',async()=>{
+   const file=path.join(ownA,'Full_System','backup_manifest.json'),before=await disk.readFile(file);
+   await b.getByRole('button',{name:'Restore from Folder',exact:true}).click();await b.locator('[data-recovery-device-trigger]').click();await b.locator('[data-recovery-device-option]').filter({hasText:'Desktop QA'}).click();
+   await b.locator('[data-recovery-choices]').getByRole('button',{name:'Restore from Folder',exact:true}).click();
+   await b.waitForFunction(()=>qa.library.notebooks.some(n=>n.id==='shared'),{},{timeout:15000}).catch(async error=>{console.error('Recovery diagnostics',await b.evaluate(()=>({errors:qa.errors,recovery:qa.recovery.backupRecovery.getSnapshot(),notebooks:qa.library.notebooks.map(n=>n.id)})));throw error;});assert.deepEqual((await get(b,'shared')).pages,(await get(a,'shared')).pages);
+   assert.deepEqual(await disk.readFile(file),before);assert.deepEqual(await b.evaluate(()=>qa.errors),[]);assert.equal((await b.evaluate(()=>qa.db.getBackupMetadata())).deletedNotebooks.some(n=>n.id==='shared'),false);
+   await check('Device menu reopens after consecutive restores with mouse, native pen, touch and keyboard',async()=>{
+    const cdp=await b.context().newCDPSession(b);
+    const tap=async(locator,type)=>{const bounds=await locator.boundingBox();assert.ok(bounds);const x=bounds.x+bounds.width/2,y=bounds.y+bounds.height/2;
+      if(type==='touch'){await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});}
+      else {await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',buttons:1,clickCount:1,pointerType:'pen',force:.5});await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',buttons:0,clickCount:1,pointerType:'pen',force:0});}
+    };
+    for(const input of ['mouse','pen','touch','keyboard']){
+      await b.getByRole('button',{name:'Restore from Folder',exact:true}).click();
+      const trigger=b.locator('[data-recovery-device-trigger]');await trigger.waitFor();
+      if(input==='mouse')await trigger.click();else if(input==='keyboard'){await trigger.focus();await trigger.press('ArrowDown');}else await tap(trigger,input);
+      await b.getByRole('listbox').waitFor();assert.equal(await b.getByRole('option').count(),2);
+      const destination=b.locator('[data-recovery-device-option]').filter({hasText:'Desktop QA'});
+      if(input==='mouse')await destination.click();else if(input==='keyboard'){await destination.focus();await destination.press('Enter');}else await tap(destination,input);
+      await b.getByRole('listbox').waitFor({state:'hidden'});assert.ok((await trigger.innerText()).includes('Desktop QA'));
+      // Reopen the same menu and close it with Escape without closing the backup dialog.
+      await trigger.click();await b.getByRole('listbox').waitFor();await b.getByRole('option').first().press('Escape');
+      assert.equal(await b.getByRole('listbox').count(),0);assert.equal(await b.locator('.bn-backup-dialog').count(),1);
+      await b.locator('[data-recovery-choices]').getByRole('button',{name:'Restore from Folder',exact:true}).click();
+      await b.locator('[data-recovery-choices]').waitFor({state:'hidden',timeout:30000});
+      assert.deepEqual((await get(b,'shared')).pages,(await get(a,'shared')).pages);assert.deepEqual(await b.evaluate(()=>qa.errors),[]);
+    }
+    await b.getByRole('button',{name:'Restore from Folder',exact:true}).click();await b.locator('[data-recovery-device-trigger]').click();
+    assert.equal(await b.getByRole('option').count(),2);await b.getByRole('option').first().press('Escape');await b.locator('[data-recovery-choices]').getByRole('button',{name:'Close',exact:true}).click();
+   });
+   await b.locator('.bn-backup-btn-close').click();assert.equal((await run(b)).success,true);
   });
-
-  await check('Idle Drive polling reads metadata only and performs no backup writes',async()=>{
-   await run(b);await b.evaluate(()=>{qa.reads=[];qa.native=[];});
-   const result=await b.evaluate(()=>qa.run({checkDriveOnly:true}));assert.equal(result.checkOnly,true);
-   const observed=await b.evaluate(()=>({reads:qa.reads,actions:qa.native}));assert.equal(observed.reads.length,1);assert.equal(observed.reads[0].syncMode,'preview');assert.deepEqual(observed.actions,[]);
+  await check('One-sided PC updates replace unchanged Surface work; independent Surface ink is preserved',async()=>{
+   const original=await get(a,'shared'),count=(await state(b)).notes.length;
+   // Upgrade from Fix8: no content receipt yet, but PC adds ink to the exact original pages.
+   await b.evaluate(async()=>{const key='backup_restore_content_base_v1',base=await qa.db.getSetting(key);delete base.entries.shared;await qa.db.saveSetting(key,base);});
+   const additive=structuredClone(original);additive.pages[0].strokes.push({id:'first-pc-ink',points:[{x:80,y:15},{x:95,y:25}]});additive.updatedAt=original.updatedAt+1;
+   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[additive]});assert.equal((await run(a)).success,true);
+   assert.equal((await b.evaluate(folder=>qa.backup.restoreFromCloudBackup(folder),ownA)).success,true);
+   assert.equal((await state(b)).notes.length,count);assert.deepEqual((await get(b,'shared')).pages,additive.pages);
+   const changed=structuredClone(original);changed.updatedAt=1;
+   changed.pages[0].textElements[0].text='PC revised text';changed.pages[0].strokes.push({id:'pc-added',points:[{x:85,y:90},{x:110,y:120}]});
+   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[changed]});assert.equal((await run(a)).success,true);
+   assert.equal((await b.evaluate(folder=>qa.backup.restoreFromCloudBackup(folder),ownA)).success,true);
+   assert.equal((await state(b)).notes.length,count);assert.deepEqual((await get(b,'shared')).pages,changed.pages);
+   assert.equal((await b.evaluate(folder=>qa.backup.restoreFromCloudBackup(folder),ownA)).success,true);assert.equal((await state(b)).notes.length,count);
+   const local=await get(b,'shared'),peer=structuredClone(changed);local.pages[0].strokes.push({id:'surface-added',points:[{x:500,y:100},{x:530,y:120}]});
+   // Simulate an unchanged clock: detection must depend on actual content.
+   await b.evaluate(source=>qa.edit(source),{folders:[],notebooks:[local]});peer.pages[0].strokes.push({id:'pc-second',points:[{x:300,y:100},{x:330,y:120}]});peer.updatedAt=2;
+   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[peer]});assert.equal((await run(a)).success,true);
+   const result=await b.evaluate(folder=>qa.backup.restoreFromCloudBackup(folder),ownA);assert.equal(result.success,true);
+   const notes=(await state(b)).notes;assert.equal(notes.length,count+1);const copy=notes.find(n=>n.syncConflictOf==='shared');assert.ok(copy);
+   assert.deepEqual((await get(b,copy.id)).pages[0].strokes,local.pages[0].strokes);assert.deepEqual((await get(b,'shared')).pages,peer.pages);
+   assert.equal((await b.evaluate(folder=>qa.backup.restoreFromCloudBackup(folder),ownA)).success,true);assert.equal((await state(b)).notes.length,count+1);
   });
-  await check('A local edit during a paused read survives and becomes a conflict copy',async()=>{
-   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',6,'source during pause')]});await run(a);
-   await b.evaluate(()=>{qa.gate();qa.pending=qa.run();});await b.waitForFunction(()=>qa.holdRead&&qa.recovery.backupRecovery.getSnapshot().active);
-   await b.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',888,'local during pause')]});await b.evaluate(()=>qa.releaseRead());await b.evaluate(()=>qa.pending);
-   assert.equal((await get(b,'shared')).pages[0].textElements[0].text,'source during pause');
-   let preserved=false;for(const n of (await state(b)).notes.filter(n=>n.syncConflictOf==='shared'))if((await get(b,n.id)).pages[0].textElements[0].text==='local during pause')preserved=true;assert.equal(preserved,true);
-   await run(a);
+  await check('Deleting local work in a populated library does not display a repeated Restore banner',async()=>{
+   await b.evaluate(()=>qa.library.onDeleteNotebook('unrelated'));await b.waitForTimeout(1800);assert.equal(await b.locator('.bn-cloud-migration-banner').count(),0);
+   await b.evaluate(()=>{qa.renderer.unmount();qa.mount();});await b.waitForTimeout(1800);assert.equal(await b.locator('.bn-cloud-migration-banner').count(),0);
   });
-
-  await check('A stale local revision aborts both replacement pages and its ancestry receipt',async()=>{
-   const before=await get(b,'shared'),journal=(await state(b)).journal;
-   const rejected=await b.evaluate(async()=>{
-    const current=await qa.db.getBackupNotebookSnapshot('shared');
-    const replacement={...current,pages:current.pages.map(p=>({...p,textElements:[{text:'must not install'}]}))};
-    try{await qa.db.restoreBackupAtomic({folders:[],notebooks:[replacement]},'stale-sync',{path:await qa.db.getSetting('gdrive_backup_path'),
-     expectedRevisions:[{id:'shared',revision:'stale-token'}],settingsUpdates:[{key:'drive_sync_base_v1',value:{bad:true}}]});return false;}
-    catch(error){return error.code==='drive-sync-local-changed';}
-   });assert.equal(rejected,true);assert.deepEqual(await get(b,'shared'),before);assert.deepEqual((await state(b)).journal,journal);
+  await check('Unchanged device data keeps all source files and timestamps untouched',async()=>{
+   const files=await disk.readdir(ownA,{recursive:true}),before=new Map();for(const file of files){const full=path.join(ownA,file),st=await disk.stat(full);if(st.isFile())before.set(file,{mtime:st.mtimeMs,bytes:await disk.readFile(full)});}
+   assert.equal((await run(a)).success,true);for(const[file,value]of before){const full=path.join(ownA,file);assert.equal((await disk.stat(full)).mtimeMs,value.mtime,file);assert.deepEqual(await disk.readFile(full),value.bytes,file);}
   });
-  await check('Returning to Documents wakes automatic receive without a manual backup',async()=>{
-   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('shared',7,'automatically received')]});await run(a);
-   await b.evaluate(()=>qa.library.onOpenNotebook('shared',0));await b.waitForFunction(()=>qa.tabs.activeTabId==='shared');
-   await b.evaluate(()=>{qa.backup.driveSync.start(options=>qa.run(options));qa.tabs.onGoHome();});
-   await b.waitForFunction(async()=>(await qa.db.getBackupNotebookSnapshot('shared')).pages[0].textElements[0].text==='automatically received');
-   await b.evaluate(async()=>{await qa.backup.controller.waitForRunning();qa.backup.driveSync.stop();});
-  });
-  await check('Prune cannot delete unreceived peer edits from the shared backup',async()=>{
-   await a.evaluate(source=>qa.edit(source),{folders:[],notebooks:[note('unrelated',500,'peer work before deletion')]});await run(a);
-   const file=path.join(drive,'Full_System/BetterNote_Latest_Backup.json'),before=await disk.readFile(file);
-   await b.evaluate(()=>qa.db.deleteNotebook('unrelated'));const result=await b.evaluate(()=>qa.backup.pruneDeletedNotebook('unrelated','unrelated'));
-   assert.equal(result.targets.find(t=>t.kind==='drive').error,'drive-sync-pending');assert.deepEqual(await disk.readFile(file),before);assert.equal(await get(b,'unrelated'),null);
-  });
-  await check('No renderer errors or false cloud-upload confirmation',async()=>{assert.deepEqual(errors,[]);for(const page of pages)assert.equal((await state(page)).status.cloudUploadVerified,false);});
+  await check('No renderer errors or false cloud confirmation',async()=>{assert.deepEqual(errors,[]);for(const page of pages)assert.equal((await state(page)).status.cloudUploadVerified,false);});
   for(const page of pages)await page.evaluate(()=>{qa.renderer.unmount();qa.backup.stopScheduledSync();});
   console.log(JSON.stringify({passed:passed.length,failed:0,fixture,syntheticOnly:true,realDriveAccess:false}));
  }finally{await reader.close();for(const client of clients)await client.close();await browser?.close();}

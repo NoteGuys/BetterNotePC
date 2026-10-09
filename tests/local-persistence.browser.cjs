@@ -165,13 +165,13 @@ const entry = [
     }
     await check('Fresh database is seeded once, with complete sample records', async () => {
       assert.deepEqual(await page.evaluate(async () => {
-        await qa.db.seedInitialData(); const nb=await qa.db.getNotebookById('nb-welcome-1');
+        await qa.db.seedInitialData(); const nb=(await qa.db.getAllNotebooks())[0];
         return { folders:(await qa.db.getAllFolders()).length,pages:(await qa.db.getPagesByNotebookId(nb.id)).length,marker:await qa.db.getSetting('initialDataSeeded') };
       }), { folders:2,pages:2,marker:true });
     });
     await check('Existing welcome handwriting is preserved even with no folders and no legacy seed marker', async () => {
       assert.equal(await page.evaluate(async () => {
-        const p=await qa.db.getPage('nb-welcome-1_page_0');p.strokes=qa.ink(4);await qa.db.savePage(p);
+        const welcome=(await qa.db.getAllNotebooks())[0];const p=(await qa.db.getPagesByNotebookId(welcome.id))[0];p.strokes=qa.ink(4);await qa.db.savePage(p);
         const db=await qa.db.openDB();await new Promise((resolve,reject)=>{const tx=db.transaction(['folders','settings'],'readwrite');tx.objectStore('folders').clear();tx.objectStore('settings').delete('initialDataSeeded');tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});
         await qa.db.seedInitialData();return (await qa.db.getPage(p.id)).strokes.length;
       }),4);

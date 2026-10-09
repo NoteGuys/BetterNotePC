@@ -47,7 +47,10 @@ export function validateLibrary(folders, notebooks) {
   const folderMap = new Map(), notebookIds = new Set(), pageIds = new Set();
   for (const folder of folders) {
     if (!object(folder) || !validId(folder.id) || folderMap.has(folder.id) ||
-        folder.parentId != null && !validId(folder.parentId)) throw fault('invalid-backup-data');
+        folder.parentId != null && !validId(folder.parentId) ||
+        folder.permanentlyDeleted !== undefined && typeof folder.permanentlyDeleted !== 'boolean' ||
+        folder.permanentlyDeleted && folder.isDeleted !== true ||
+        folder.restoreParentId != null && !validId(folder.restoreParentId)) throw fault('invalid-backup-data');
     folderMap.set(folder.id, folder);
   }
   const checked = new Set();

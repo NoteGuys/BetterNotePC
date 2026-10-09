@@ -54,7 +54,7 @@ export const saveFileToDisk = async (blob, suggestedName, fileTypes = null) => {
  * Export full BetterNote database to a local backup file
  */
 export const exportFullBackup = async () => {
-  const folders = await getAllFolders();
+  const folders = await getAllFolders({ includeRetired: true });
   const notebooks = await getAllNotebooks();
 
   const backupData = {

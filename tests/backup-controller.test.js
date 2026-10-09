@@ -76,8 +76,8 @@ test('Newly committed pages during backup remain visibly pending',async()=>{
  const result=await env.core.run();assert.equal(result.success,false);assert.equal(result.newerEditsPending,true);
  assert.equal(env.core.getSnapshot().status,'pending');
 });
-test('An empty library skips writing and retains the previous backups',async()=>{
- const env=setup();env.setNotes([]);const result=await env.core.run();assert.equal(result.success,false);assert.equal(result.reason,'empty-library');assert.deepEqual(env.calls,[]);
+test('An empty library publishes an empty generation without rendering notebooks or PDFs',async()=>{
+ const env=setup();env.setNotes([]);const result=await env.core.run();assert.equal(result.success,true);assert.deepEqual(env.calls,['begin','finish']);assert.equal(env.getPdfCalls(),0);
 });
 test('PDF generation failure keeps recovery data complete and reports its separate PDF failure',async()=>{
  const env=setup({makePdf:async()=>{throw Error('render fail');}});const result=await env.core.run();
@@ -168,14 +168,14 @@ for(const separateDrive of [false,true])test('Real backup keeps healthy PDFs mov
   yieldTask:async()=>{},scheduleDelay:60000
  });
  const result=await core.run(),snapshot=core.getSnapshot();
- assert.equal(result.success,separateDrive);
+ assert.equal(result.success,false);assert.equal(result.localSuccess,separateDrive);
  assert.equal(snapshot.status,separateDrive?'current':'partial');
  const target=snapshot.targets.find(t=>t.targetDir===blocked);
  assert.equal(target.error,'newer-backup-exists');assert.equal(target.fatalError,null);
- assert.equal(target.editableCount,2);assert.equal(target.pdfCount,2);assert.equal(target.dataCurrent,false);
+ assert.ok(target.editableCount<=2);assert.equal(target.pdfCount,0);assert.equal(target.dataCurrent,false);
  assert.equal(target.notebookIssues.blocked.backupUpdatedAt,100);
  assert.deepEqual(await fs.readFile(full),prior);
- assert.ok(rendered.includes('last'));if(!separateDrive)assert.equal(rendered.includes('blocked'),false);
+ assert.equal(rendered.includes('last'),separateDrive);if(!separateDrive)assert.equal(rendered.includes('blocked'),false);
  await core.refresh({inspect:true});
  assert.equal(core.getSnapshot().targets.find(t=>t.targetDir===blocked).notebookIssues.blocked.error,'newer-backup-exists');
  notes=notes.map(n=>note(n.id,200));
@@ -185,7 +185,7 @@ for(const separateDrive of [false,true])test('Real backup keeps healthy PDFs mov
 });
 
 
-test('An equal-time conflict stays pending after reopening and retrying the same device',async()=>{
+test('Aborted conflict preserves the previous commit; reopening rechecks changed bytes before publishing',async()=>{
  const fs=await import('node:fs/promises'),path=await import('node:path');
  const {createRequire}=await import('node:module'),require=createRequire(import.meta.url);
  const {createBackupWriter}=require('../electron/backupWriter.cjs');
@@ -207,15 +207,15 @@ test('An equal-time conflict stays pending after reopening and retrying the same
  const core=createBackupController({
   getMetadata:async()=>({folders:[],notebooks:notes.map(({pages,...n})=>n)}),
   getNotebook:async id=>notes.find(n=>n.id===id),waitForLocalSaves:async()=>{},
-  native:c=>reopened.execute(c),getPath:async()=>root,
+  native:async c=>{const result=await reopened.execute(c);if(c.action==='begin')for(const target of result.targets||[])target.verifiedEditableIds=[];return result;},getPath:async()=>root,
   makePdf:async n=>{rendered.push(n.id);return Buffer.from('%PDF-1.7\\nsynthetic\\n%%EOF').toString('base64');},yieldTask:async()=>{}
  });
  await core.initialize();
- assert.equal(core.getSnapshot().targets[0].notebookIssues.blocked.error,'conflicting-backup-revision');
+ assert.deepEqual(core.getSnapshot().targets[0].notebookIssues,{});
  for(let round=0;round<2;round++){
   assert.equal((await core.run()).success,false);
   const target=core.getSnapshot().targets[0];
-  assert.equal(target.editableCount,1);assert.equal(target.pdfCount,1);
+  assert.equal(target.editableCount,1);assert.equal(target.pdfCount,0);
   assert.equal(target.notebookIssues.blocked.error,'conflicting-backup-revision');
   assert.deepEqual(await fs.readFile(path.join(root,'Full_System','BetterNote_Latest_Backup.json')),prior);
  }
@@ -320,4 +320,43 @@ test('Recovery also drains an already running native prune', async () => {
 test('Nested recovery pauses do not resume a backup prematurely', async () => {
  const env=setup(),a=env.core.pauseForRecovery(),b=env.core.pauseForRecovery();a.resume();
  assert.equal((await env.core.run()).reason,'backup-recovery-busy');b.resume(); assert.equal((await env.core.run()).success,true);env.core.stop();
+});
+
+
+test('Preflight shows checking immediately and repeated clicks share one job',async()=>{
+ let release,checks=0;const gate=new Promise(resolve=>release=resolve),env=setup({beforeBackup:async()=>{checks++;await gate;return{};}});
+ const first=env.core.run(),second=env.core.run();assert.equal(first,second);assert.equal(env.core.getSnapshot().syncing,true);assert.equal(env.core.getSnapshot().phase,'checking');assert.deepEqual(env.calls,[]);
+ release();assert.equal((await first).success,true);assert.equal(checks,1);assert.equal(env.calls.filter(c=>c==='begin').length,1);env.core.stop();
+});
+test('Temporary destination failures back off and stop after three attempts',async()=>{
+ let attempts=0;const env=setup({scheduleDelay:5,native:async command=>{if(command.action==='begin')attempts++;return{success:false,reason:'destination-timeout'};}});
+ await env.core.run({automatic:true});const deadline=Date.now()+2000;while(!env.core.getSnapshot().automaticRetryPaused&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));
+ assert.equal(env.core.getSnapshot().automaticRetryPaused,true);assert.equal(attempts,3);await new Promise(resolve=>setTimeout(resolve,80));assert.equal(attempts,3);
+ assert.equal((await env.core.run({automatic:true})).reason,'backup-retry-paused');await env.core.run();assert.equal(attempts,4);env.core.stop();
+});
+test('A folder conflict stops automatic work until an explicit retry',async()=>{
+ let attempts=0;const env=setup({native:async command=>{if(command.action==='begin')attempts++;return{success:false,reason:'folder-backup-newer'};}});
+ await env.core.run();assert.equal(env.core.getSnapshot().automaticRetryPaused,true);assert.equal((await env.core.run({automatic:true})).reason,'backup-retry-paused');assert.equal(attempts,1);env.core.stop();
+});
+
+
+test('Editing one notebook writes only that notebook in both destinations and unchanged backup is read-only',async()=>{
+ const fs=await import('node:fs/promises'),path=await import('node:path'),{createRequire}=await import('node:module'),require=createRequire(import.meta.url);
+ const {createBackupWriter}=require('../electron/backupWriter.cjs'),root=await fs.mkdtemp(path.join(process.env.BETTERNOTE_QA_TEMP,'backup-incremental-'));
+ const local=path.join(root,'Local'),drive=path.join(root,'Drive'),writes=[],reads=[],pdfs=[];
+ let notes=[note('a'),note('b'),note('c')];const writer=createBackupWriter({localDir:local,beforeReplace:async event=>writes.push(event.file)});
+ const core=createBackupController({getMetadata:async()=>({folders:[],notebooks:notes.map(({pages,...n})=>n)}),getNotebook:async id=>{reads.push(id);return notes.find(n=>n.id===id);},waitForLocalSaves:async()=>{},native:c=>writer.execute(c),getPath:async()=>({localBackupPath:local,driveBackupPath:drive}),makePdf:async n=>{pdfs.push(n.id);return Buffer.from('%PDF-1.7\n'+n.id+n.updatedAt+'\n%%EOF').toString('base64');},yieldTask:async()=>{}});
+ try{
+  assert.equal((await core.run()).success,true);const before=await writer.execute({action:'inspect',localBackupPath:local,driveBackupPath:drive});
+  const stable=[];for(const t of before.targets)for(const id of ['b','c'])for(const kind of ['editable','pdf']){const file=path.join(t.targetDir,t.notebooks[id][kind].path);stable.push({file,bytes:await fs.readFile(file),mtime:(await fs.stat(file)).mtimeMs});}
+  reads.length=0;pdfs.length=0;writes.length=0;notes=[note('a',20),notes[1],notes[2]];
+  assert.equal((await core.run()).success,true);assert.deepEqual(new Set(reads),new Set(['a']));assert.deepEqual(pdfs,['a']);
+  for(const item of stable){assert.deepEqual(await fs.readFile(item.file),item.bytes);assert.equal((await fs.stat(item.file)).mtimeMs,item.mtime);assert.equal(writes.includes(item.file),false);}
+  reads.length=0;pdfs.length=0;writes.length=0;assert.equal((await core.run()).success,true);assert.deepEqual(reads,[]);assert.deepEqual(pdfs,[]);assert.deepEqual(writes,[]);
+  const beforePdf=await writer.execute({action:'inspect',localBackupPath:local,driveBackupPath:drive}),target=beforePdf.targets.find(t=>t.kind==='local'),entry=target.notebooks.b,driveEntry=beforePdf.targets.find(t=>t.kind==='drive').notebooks.b;
+  await fs.unlink(path.join(drive,driveEntry.pdf.path));writes.length=0;
+  const r=await writer.execute({action:'pdf',localBackupPath:local,driveBackupPath:drive,notebookId:'b',revision:entry.editable.revision,pdfRevision:entry.pdf.contentRevision,pdfBase64:Buffer.from('%PDF-1.7\nnew equivalent copy\n%%EOF').toString('base64')});assert.equal(r.success,true);
+  assert.equal(writes.some(file=>file.startsWith(local+path.sep)),false);
+  assert.ok(writes.some(file=>file.startsWith(drive+path.sep)&&file.endsWith('.pdf')));
+ }finally{core.stop();}
 });

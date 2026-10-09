@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, 
   Pen, 
@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ShieldCheck,
   MousePointer,
+  MoreHorizontal,
   Scissors,
   Feather,
   Paintbrush,
@@ -32,6 +33,7 @@ import {
   Image as ImageIcon,
   X
 } from 'lucide-react';
+import { usePenButtonTap } from '../../utils/usePenButtonTap';
 import { useLanguage } from '../../services/i18n';
 import { localizeNotebookCopyName } from '../../utils/notebookNames';
 import { DEFAULT_TOOL_WIDTH_SLOTS, DEFAULT_QUICK_COLORS } from '../../services/userPreferences';
@@ -116,8 +118,19 @@ export const EditorToolbar = ({
   onCaptureFullPage
 }) => {
   const { t, language } = useLanguage();
+  const penTap = usePenButtonTap();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(notebookTitle);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const moreRef = useRef(null);
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const outside = event => { if (!moreRef.current?.contains(event.target)) setShowMoreMenu(false); };
+    const escape = event => { if (event.key === 'Escape') { setShowMoreMenu(false); moreRef.current?.querySelector('button')?.focus(); } };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [showMoreMenu]);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showPenSettings, setShowPenSettings] = useState(false);
   const [showHighlighterSettings, setShowHighlighterSettings] = useState(false);
@@ -206,6 +219,7 @@ export const EditorToolbar = ({
 
   // Close menus when clicking outside
   const closeAllPopovers = () => {
+    setShowMoreMenu(false);
     setShowHighlighterSettings(false);
     setShowPenSettings(false);
     setShowShapeMenu(false);
@@ -215,7 +229,7 @@ export const EditorToolbar = ({
   };
 
   return (
-    <div className="bn-editor-toolbar-container" onClick={(e) => {
+    <div {...penTap} className="bn-editor-toolbar-container" onClick={(e) => {
       // Don't close if clicking inside a dropdown
       if (!e.target.closest('.bn-pen-settings-dropdown') && !e.target.closest('.bn-shape-dropdown') && !e.target.closest('.bn-width-slider-dropdown')) {
         closeAllPopovers();
@@ -232,7 +246,7 @@ export const EditorToolbar = ({
         </button>
 
         <button 
-          className={`bn-btn-icon ${showThumbnails ? 'bn-btn-icon-active' : ''}`}
+          className={`bn-btn-icon bn-toolbar-small-action ${showThumbnails ? 'bn-btn-icon-active' : ''}`}
           onClick={() => setShowThumbnails(!showThumbnails)}
           title={t('thumbnails', 'มุมมองหน้าทั้งหมด (Page Thumbnails)')}
         >
@@ -241,7 +255,7 @@ export const EditorToolbar = ({
 
         {/* Add Page Button (Standard placement) */}
         <button 
-          className="bn-btn-icon text-blue-400 hover:text-white"
+          className="bn-btn-icon bn-toolbar-extra-action text-blue-400 hover:text-white"
           onClick={onOpenAddPage}
           title={t('addPage', 'เพิ่มหน้ากระดาษใหม่ (A2, A3, A4, ลายจุด, เส้นแคบ, เส้นกว้าง)')}
         >
@@ -250,7 +264,7 @@ export const EditorToolbar = ({
 
         {/* Favorite Current Page Button */}
         <button 
-          className={`bn-toolbar-star-btn ${isCurrentPageFavorite ? 'bn-star-active' : ''}`}
+          className={`bn-toolbar-star-btn bn-toolbar-extra-action ${isCurrentPageFavorite ? 'bn-star-active' : ''}`}
           onClick={onToggleFavoriteCurrentPage}
           title={isCurrentPageFavorite ? t('unstarPage', 'ยกเลิกติดดาวหน้านี้') : t('starPage', 'ติดดาวหน้านี้ (เพิ่มในรายการโปรด)')}
         >
@@ -262,10 +276,10 @@ export const EditorToolbar = ({
           />
         </button>
 
-        <div className="w-[1px] h-4 bg-white/10 mx-0.5" />
+        <div className="bn-toolbar-extra-action w-[1px] h-4 bg-white/10 mx-0.5" />
 
         {/* Notebook Title (Click to rename) */}
-        <div className="bn-toolbar-title-wrapper">
+        <div className="bn-toolbar-title-wrapper bn-toolbar-extra-action">
           {isEditingTitle ? (
             <form onSubmit={handleTitleSubmit}>
               <input 
@@ -608,7 +622,7 @@ export const EditorToolbar = ({
 
           {/* Text Tool */}
           <button 
-            className={`bn-tool-btn ${activeTool === 'text' ? 'bn-tool-btn-active' : ''}`}
+            className={`bn-tool-btn bn-toolbar-secondary-tool ${activeTool === 'text' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('text'); closeAllPopovers(); }}
             title={t('text')}
           >
@@ -617,7 +631,7 @@ export const EditorToolbar = ({
 
           {/* Import image from the computer, then use the existing image controls. */}
           <button 
-            className={`bn-tool-btn ${activeTool === 'image' ? 'bn-tool-btn-active' : ''}`}
+            className={`bn-tool-btn bn-toolbar-secondary-tool ${activeTool === 'image' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('image'); closeAllPopovers(); onImportImage?.(); }}
             title={t('insertImage', 'Insert image from computer')}
           >
@@ -626,7 +640,7 @@ export const EditorToolbar = ({
 
           {/* Snipping Tool (Windows Snipping Tool Style) */}
           <button 
-            className={`bn-tool-btn ${activeTool === 'snip' ? 'bn-tool-btn-active' : ''}`}
+            className={`bn-tool-btn bn-toolbar-secondary-tool ${activeTool === 'snip' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { 
               setActiveTool(activeTool === 'snip' ? 'pen' : 'snip'); 
               closeAllPopovers(); 
@@ -638,7 +652,7 @@ export const EditorToolbar = ({
 
           {/* Hand Pan Tool */}
           <button 
-            className={`bn-tool-btn ${activeTool === 'hand' ? 'bn-tool-btn-active' : ''}`}
+            className={`bn-tool-btn bn-toolbar-secondary-tool ${activeTool === 'hand' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('hand'); closeAllPopovers(); }}
             title={t('hand')}
           >
@@ -812,7 +826,7 @@ export const EditorToolbar = ({
       {/* Right Section: Page Tools, Palm Rejection, Undo/Redo, Zoom & Export */}
       <div className="bn-editor-toolbar-right">
         {/* Snip Action Shortcuts (Capture full page & paste) */}
-        <div className="flex items-center gap-0.5">
+        <div className="bn-toolbar-extra-action flex items-center gap-0.5">
           <button
             className="bn-btn-icon"
             onClick={onCaptureFullPage}
@@ -834,7 +848,7 @@ export const EditorToolbar = ({
 
         {/* Palm Rejection Shield (Surface Pen Only Toggle) */}
         <button 
-          className={`bn-btn-icon ${penOnly ? 'bn-shield-active' : 'text-zinc-400 hover:text-white'}`}
+          className={`bn-btn-icon bn-toolbar-small-action ${penOnly ? 'bn-shield-active' : 'text-zinc-400 hover:text-white'}`}
           onClick={() => setPenOnly(!penOnly)}
           title={penOnly ? t('palmRejectionOn') : t('palmRejectionOff')}
         >
@@ -843,7 +857,7 @@ export const EditorToolbar = ({
 
         {/* Scroll Mode Toggle (Continuous Vertical vs Horizontal) */}
         <button 
-          className={`bn-btn-icon ${scrollDirection === 'vertical' ? 'text-blue-400 bg-blue-500/15 border border-blue-500/30' : 'text-zinc-400'}`}
+          className={`bn-btn-icon bn-toolbar-extra-action ${scrollDirection === 'vertical' ? 'text-blue-400 bg-blue-500/15 border border-blue-500/30' : 'text-zinc-400'}`}
           onClick={() => setScrollDirection(scrollDirection === 'vertical' ? 'horizontal' : 'vertical')}
           title={scrollDirection === 'vertical' ? t('scrollVertical') : t('scrollHorizontal')}
         >
@@ -861,7 +875,7 @@ export const EditorToolbar = ({
             <RotateCcw size={16} />
           </button>
           <button 
-            className="bn-btn-icon bn-btn-undo" 
+            className="bn-btn-icon bn-btn-undo bn-toolbar-secondary-tool"
             onClick={onRedo} 
             disabled={!canRedo}
             title={t('redo')}
@@ -871,7 +885,7 @@ export const EditorToolbar = ({
         </div>
 
         {/* Zoom Controls */}
-        <div className="bn-zoom-controls">
+        <div className="bn-zoom-controls bn-toolbar-zoom-action">
           <button className="bn-zoom-btn" onClick={onZoomOut} title={t('zoomOut')}>
             <ZoomOut size={13} />
           </button>
@@ -887,12 +901,52 @@ export const EditorToolbar = ({
 
         {/* Duplicate Notebook */}
         <button 
-          className="bn-btn-icon text-zinc-400 hover:text-white"
+          className="bn-btn-icon bn-toolbar-extra-action text-zinc-400 hover:text-white"
           onClick={onDuplicateNotebook}
           title={t('duplicate')}
         >
           <Copy size={16} />
         </button>
+
+        {/* Less frequent commands stay available without adding a second toolbar row. */}
+        <div className="bn-toolbar-more" ref={moreRef}>
+          <button className="bn-btn-icon" title={t('moreOptions')} aria-label={t('moreOptions')}
+            aria-expanded={showMoreMenu} aria-haspopup="true"
+            onClick={event => { event.stopPropagation(); const open = !showMoreMenu; closeAllPopovers(); setShowMoreMenu(open); }}>
+            <MoreHorizontal size={20} />
+          </button>
+          {showMoreMenu && <div className="bn-toolbar-more-panel" onClick={event => event.stopPropagation()}>
+            {[
+              ['common', 'add-page', FilePlus, t('addPage'), onOpenAddPage],
+              ['common', 'favorite', Star, isCurrentPageFavorite ? t('unstarPage') : t('starPage'), onToggleFavoriteCurrentPage],
+              ['common', 'capture', Camera, t('captureEntirePageTooltip'), onCaptureFullPage],
+              ['common', 'paste', ClipboardPaste, t('pasteImageTooltip'), onPasteClipboardImage],
+              ['common', 'scroll', ScrollText, scrollDirection === 'vertical' ? t('scrollVertical') : t('scrollHorizontal'), () => setScrollDirection(scrollDirection === 'vertical' ? 'horizontal' : 'vertical')],
+              ['common', 'duplicate', Copy, t('duplicate'), onDuplicateNotebook],
+              ['zoom', 'zoom-out', ZoomOut, t('zoomOut'), onZoomOut],
+              ['zoom', 'zoom-reset', ZoomIn, t('zoomReset') + ' (' + Math.round(zoom * 100) + '%)', onResetZoom],
+              ['zoom', 'zoom-in', ZoomIn, t('zoomIn'), onZoomIn],
+              ['small', 'thumbnails', LayoutGrid, t('thumbnails'), () => setShowThumbnails(!showThumbnails)],
+              ['small', 'shield', ShieldCheck, penOnly ? t('palmRejectionOn') : t('palmRejectionOff'), () => setPenOnly(!penOnly)],
+              ['tools', 'redo', RotateCw, t('redo'), onRedo, !canRedo],
+              ['tools', 'text', Type, t('text'), () => setActiveTool('text')],
+              ['tools', 'image', ImageIcon, t('insertImage'), () => { setActiveTool('image'); onImportImage?.(); }],
+              ['tools', 'snip', Scissors, t('snip'), () => setActiveTool(activeTool === 'snip' ? 'pen' : 'snip')],
+              ['tools', 'hand', Hand, t('hand'), () => setActiveTool('hand')],
+            ].map(([group, id, Icon, label, action, disabled]) => <button key={id} data-toolbar-command={id} disabled={disabled}
+              className={'bn-toolbar-more-item bn-toolbar-more-' + group}
+              onClick={() => { closeAllPopovers(); action?.(); }}><Icon size={18} /><span>{label}</span></button>)}
+            <div className="bn-toolbar-more-common">
+              {isEditingTitle ? <form onSubmit={event => { handleTitleSubmit(event); setShowMoreMenu(false); }}>
+                <input className="bn-title-input" aria-label={t('renameNotebookPrompt')} value={tempTitle}
+                  onChange={event => setTempTitle(event.target.value)} autoFocus />
+              </form> : <button className="bn-toolbar-more-item" data-toolbar-command="rename"
+                onClick={() => { setTempTitle(notebookTitle); setIsEditingTitle(true); }}>
+                <Pen size={18} /><span>{t('renameNotebookPrompt')}</span>
+              </button>}
+            </div>
+          </div>}
+        </div>
 
         {/* Dedicated Export PDF Button with Quick Dropdown */}
         <div className="relative">

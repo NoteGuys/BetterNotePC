@@ -84,3 +84,15 @@ test('An unconfirmed worker outcome holds navigation and backup until the app is
  assert.ok(!calls.some(call=>Array.isArray(call)&&call[0]==='resume'));await recovery.waitForPending();
  await assert.rejects(recovery.run(()=>({})),{code:'backup-recovery-busy'});
 });
+
+
+test('Cancelling validation releases the backup lease and never starts a transaction',async()=>{
+ let commits=0;const gate=deferred();const{recovery,calls}=setup({restore:async()=>{commits++;}});
+ const job=recovery.run(async({signal,report})=>{report({stage:'reading',bytesDone:1,totalBytes:9});await gate.promise;assert.equal(signal.aborted,true);return{};});
+ await new Promise(r=>setTimeout(r,0));assert.equal(recovery.getSnapshot().progress.bytesDone,1);assert.equal(recovery.cancel(),true);gate.resolve();
+ await assert.rejects(job,{code:'backup-recovery-cancelled'});assert.equal(commits,0);assert.deepEqual(calls.at(-1),['resume',false]);assert.equal(recovery.getSnapshot().active,false);
+});
+test('Cancel is unavailable once atomic writing is approved',async()=>{
+ const gate=deferred();const{recovery}=setup({restore:async(_input,publish)=>{publish('writing');await gate.promise;return{notebooksCount:1};}});
+ const job=recovery.run(()=>({}));await new Promise(r=>setTimeout(r,0));assert.equal(recovery.getSnapshot().phase,'writing');assert.equal(recovery.cancel(),false);gate.resolve();assert.equal((await job).notebooksCount,1);
+});

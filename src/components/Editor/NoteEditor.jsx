@@ -357,7 +357,7 @@ export const NoteEditor = ({
       const point = touches[0], pan = nav.pan;
       if (point.identifier !== pan.id) return;
       const dx = point.clientX - pan.x, dy = point.clientY - pan.y;
-      if (!pan.moved && Math.hypot(dx, dy) <= 16) return;
+      if (!pan.moved && Math.hypot(dx, dy) <= 8) return;
       pan.moved = true;
       if (e.cancelable) e.preventDefault();
       const time = performance.now(), dt = Math.max(1, time - pan.time);

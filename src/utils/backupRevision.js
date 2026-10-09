@@ -6,7 +6,8 @@ export const notebookBackupRevision = notebook => JSON.stringify([
 export const folderBackupRevision = folders => JSON.stringify(
   [...folders].sort((a, b) => String(a.id).localeCompare(String(b.id))).map(folder =>
     [folder.id, folder.name, folder.parentId || null, folder.updatedAt || 0,
-      !!folder.isDeleted, folder.color, folder.icon, !!folder.isFavorite])
+      !!folder.isDeleted, folder.color, folder.icon, !!folder.isFavorite,
+      !!folder.permanentlyDeleted, folder.createdAt || 0, folder.restoreParentId || null])
 );
 export const backupMetadataRevision = metadata => JSON.stringify([
   folderBackupRevision(metadata.folders),

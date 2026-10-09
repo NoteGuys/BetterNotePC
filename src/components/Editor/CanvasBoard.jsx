@@ -776,6 +776,10 @@ export const CanvasBoard = ({
       return;
     }
 
+    if (e.pointerType === 'pen' && e.buttons === 0 && pointerSessionRef.current?.pointerId === e.pointerId) {
+      handlePointerUp({ type: 'interruption', pointerId: e.pointerId });
+      return;
+    }
     // Hover keeps palm rejection's cooldown, but cannot acquire the ink lock.
     if (e.pointerType === 'pen') window.__bn_pen_last_time = Date.now();
     if (pointerSessionRef.current?.pointerId !== e.pointerId) return;
@@ -1238,18 +1242,25 @@ export const CanvasBoard = ({
       session?.finish({ type: 'interruption', pointerId: session.pointerId });
     };
     const release = event => pointerSessionRef.current?.finish(event);
+    const hoverRelease = event => {
+      const session = pointerSessionRef.current;
+      if (event.pointerType === 'pen' && event.buttons === 0 && session?.pointerId === event.pointerId)
+        session.finish({ type: 'interruption', pointerId: session.pointerId });
+    };
     const visibility = () => { if (document.hidden) interrupt(); };
     const outsideDown = event => {
       const session = pointerSessionRef.current;
       if (session && event.pointerType !== 'touch' &&
           !event.target.closest?.('.bn-layer-active')) interrupt();
     };
+    window.addEventListener('pointermove', hoverRelease, true);
     window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
     window.addEventListener('blur', interrupt);
     window.addEventListener('pointerdown', outsideDown, true);
     document.addEventListener('visibilitychange', visibility);
     return () => {
+      window.removeEventListener('pointermove', hoverRelease, true);
       window.removeEventListener('pointerup', release);
       window.removeEventListener('pointercancel', release);
       window.removeEventListener('blur', interrupt);

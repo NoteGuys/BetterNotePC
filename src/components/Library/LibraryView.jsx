@@ -40,7 +40,7 @@ import { SearchModal } from './SearchModal';
 import { SettingsModal } from './SettingsModal';
 import BackupStatusModal from './BackupStatusModal';
 import { BackupStatusIndicator } from '../Common/BackupStatusIndicator';
-import { getAllFavoritePages, savePage } from '../../services/db';
+import { getAllFavoritePages, savePage, getSetting, saveSetting } from '../../services/db';
 import { importBnoteFile } from '../../services/fileSystemService';
 import { useLanguage } from '../../services/i18n';
 import { localizeNotebookCopyName } from '../../utils/notebookNames';
@@ -61,6 +61,7 @@ export const LibraryView = ({
   onDuplicateNotebook,
   onMoveNotebookToFolder,
   onExportNotebookPdf,
+  libraryExports = {},
   onDeleteFolder,
   onDeleteNotebook,
   onImportPdfSuccess,
@@ -114,9 +115,14 @@ export const LibraryView = ({
     let isCancelled = false, idleHandle = null;
     async function checkCloudBackups() {
       try {
-        const scan = await autoBackupService.scanAvailableBackups(null, { previewOnly: true });
+        const localIds=new Set(JSON.parse(backupNotebookIds));
+        if(localIds.size||(await getSetting('backup_deleted_notebooks_v2'))?.length||await getSetting('backup_migration_hint_closed_v2')){if(!isCancelled)setCloudBackupDetected(null);return;}
+        const path=(await getSetting('gdrive_backup_method'))==='desktop'?await getSetting('gdrive_backup_path'):null;
+        if(!path)return;
+        const choices=await autoBackupService.listRestoreSources(path);
+        const scan=choices?.success&&choices.folders?.length?{success:true,folder:path,count:choices.folders.reduce((n,item)=>n+item.count,0),notebooks:[{id:'migration-hint'}]}:null;
         if (isCancelled) return;
-        const localIds = new Set(JSON.parse(backupNotebookIds));
+
         const missing = scan?.success && scan.notebooks?.some(note => !localIds.has(note.id));
         setCloudBackupDetected(missing ? scan : null);
       } catch (_) { if (!isCancelled) setCloudBackupDetected(null); }
@@ -142,7 +148,7 @@ export const LibraryView = ({
         if (res.ignoredRetiredNotebookIds?.length) alert(t('backupRecoveryRetiredEntries', '', { count: res.ignoredRetiredNotebookIds.length }));
         if (res.recoveredFolderNotebookIds?.length) alert(t('backupRecoveryMissingFolders', '', { count: res.recoveredFolderNotebookIds.length }));
         if (res.refreshFailed) alert(t('backupRecoveryRefreshFailed'));
-      } else {
+      } else if (res.reason !== 'backup-recovery-cancelled') {
         alert(t('cloudRestoreFailed', 'กู้คืนไม่สำเร็จ: {reason}', { reason: t(backupReadErrorKey(res.reason)) }));
       }
     } catch (err) {
@@ -1014,14 +1020,14 @@ export const LibraryView = ({
                   {t('cloudBackupDetectedTitle', '☁️ ตรวจพบข้อมูลสำรองจาก Google Drive ({folder})', { folder: cloudBackupDetected.folder })}
                 </div>
                 <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px' }}>
-                  {t('cloudBackupDetectedBody', 'มีสมุดโน้ตสำรองทั้งหมด {count} เล่ม คุณต้องการกู้คืนข้อมูลทั้งหมดลงเครื่องนี้ทันทีหรือไม่?', { count: cloudBackupDetected.count })}
+                  {t('backupMigrationHint')}
                 </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 type="button"
-                onClick={handleExecuteCloudRestore}
+                onClick={() => openBackupHub('drive')}
                 disabled={isAutoRestoring}
                 style={{
                   background: '#2563eb',
@@ -1038,11 +1044,11 @@ export const LibraryView = ({
                 }}
               >
                 <FolderSync size={16} className={isAutoRestoring ? 'animate-spin' : ''} />
-                <span>{isAutoRestoring ? t('cloudBackupRestoring', 'กำลังกู้คืนข้อมูล...') : t('cloudBackupRestoreNow', 'กู้คืนข้อมูลทั้งหมดทันที')}</span>
+                <span>{isAutoRestoring ? t('cloudBackupRestoring', 'กำลังกู้คืนข้อมูล...') : t('backupChooseRecoverySource')}</span>
               </button>
               <button
                 type="button"
-                onClick={() => setCloudBackupDetected(null)}
+                onClick={() => {setCloudBackupDetected(null);saveSetting('backup_migration_hint_closed_v2',true).catch(()=>{});}}
                 style={{
                   background: 'rgba(255, 255, 255, 0.1)',
                   color: '#94a3b8',
@@ -1258,6 +1264,8 @@ export const LibraryView = ({
                                   onDelete={() => handleSoftDeleteNotebook(nb.id)}
                                   onDuplicate={onDuplicateNotebook}
                                   onExportPdf={onExportNotebookPdf}
+                        exportProgress={libraryExports[nb.id]}
+                        exportBusy={Object.values(libraryExports).some(item=>!['done','error'].includes(item.stage))}
                                   onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                                   onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                                   onToggleFavorite={handleToggleFavoriteNotebook}
@@ -1386,6 +1394,8 @@ export const LibraryView = ({
                             onDelete={() => handleSoftDeleteNotebook(nb.id)}
                             onDuplicate={onDuplicateNotebook}
                             onExportPdf={onExportNotebookPdf}
+                        exportProgress={libraryExports[nb.id]}
+                        exportBusy={Object.values(libraryExports).some(item=>!['done','error'].includes(item.stage))}
                             onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                             onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                             onToggleFavorite={handleToggleFavoriteNotebook}
@@ -1555,6 +1565,8 @@ export const LibraryView = ({
                         onDelete={activeView === 'trash' ? () => onDeleteNotebook(nb.id) : () => handleSoftDeleteNotebook(nb.id)}
                         onDuplicate={onDuplicateNotebook}
                         onExportPdf={onExportNotebookPdf}
+                        exportProgress={libraryExports[nb.id]}
+                        exportBusy={Object.values(libraryExports).some(item=>!['done','error'].includes(item.stage))}
                         onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                         onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                         onToggleFavorite={handleToggleFavoriteNotebook}

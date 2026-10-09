@@ -24,6 +24,7 @@ import { flushLocalSaves, getLocalSaveSnapshot } from './services/localSaveServi
 import { autoBackupService } from './services/autoBackupService';
 import {useDailyUpdateNotice} from './services/useDailyUpdateNotice.js';
 import {UpdateToast} from './components/Common/UpdateToast.jsx';
+import { loadPageManifest, loadPdfOwnerPage } from './services/editorPagesService';
 import { exportNotebookToPdf } from './utils/pdfExportEngine';
 import { getPaperSize } from './data/templates';
 import { getAppTheme, setAppTheme, applyThemeToDom } from './services/userPreferences';
@@ -43,6 +44,10 @@ export function App() {
   const [activeNotebookPageIndex, setActiveNotebookPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isClosingAfterSave, setIsClosingAfterSave] = useState(false);
+  const [libraryExports, setLibraryExports] = useState({});
+  const libraryExportBusy = useRef(false);
+  const libraryExportTimers = useRef(new Map());
+  useEffect(() => () => { for (const timer of libraryExportTimers.current.values()) clearTimeout(timer); }, []);
 
   const recovery = useSyncExternalStore(backupRecovery.subscribe, backupRecovery.getSnapshot);
   const hasOpenEditor = !!activeNotebookId && notebooks.some(item => item.id === activeNotebookId);
@@ -515,17 +520,32 @@ export function App() {
 
   // Direct Export Notebook to PDF from Library View
   const handleExportNotebookPdf = async (nb) => {
+    if (libraryExportBusy.current) return;
+    libraryExportBusy.current = true;
+    clearTimeout(libraryExportTimers.current.get(nb.id));
+    libraryExportTimers.current.delete(nb.id);
+    const job = crypto.randomUUID();
+    const report = (current, total, stage = 'prepare') => setLibraryExports(previous => {
+      const value = stage === 'done' ? 1 : stage === 'merge' ? .94 : stage === 'save' ? .98 : .9 * current / Math.max(1,total);
+      return {...previous, [nb.id]: {job,stage,current,total,value:Math.max(previous[nb.id]?.value || 0,value)}};
+    });
+    setLibraryExports(previous => ({...previous,[nb.id]:{job,stage:'prepare',current:0,total:nb.pageCount||0,value:0}}));
     try {
-      const pages = await getPagesByNotebookId(nb.id);
-      if (!pages || pages.length === 0) {
-        alert('สมุดเล่มนี้ยังไม่มีหน้าเอกสาร');
-      }
-      alert(`กำลังส่งออก PDF สำหรับสมุด "${nb.name}"... ระบบจะเริ่มดาวน์โหลดทันทีที่ประมวลผลเสร็จสิ้น`);
-      await exportNotebookToPdf(nb, pages);
+      await flushLocalSaves();
+      const pages = await loadPageManifest(nb.id, {templateId:nb.templateId});
+      await exportNotebookToPdf(nb, pages, report, {loadPage:index=>loadPdfOwnerPage(nb.id,pages[index].id)});
+      report(pages.length,pages.length,'done');
+      libraryExportTimers.current.set(nb.id,setTimeout(() => {
+        libraryExportTimers.current.delete(nb.id);
+        setLibraryExports(previous => {
+          if (previous[nb.id]?.job !== job || previous[nb.id]?.stage !== 'done') return previous;
+          const next = {...previous}; delete next[nb.id]; return next;
+        });
+      },3000));
     } catch (err) {
-      console.error(err);
-      alert('เกิดข้อผิดพลาดในการส่งออก PDF: ' + err.message);
-    }
+      setLibraryExports(previous => ({...previous,[nb.id]:{stage:'error'}}));
+      alert(t('exportDialogPdfError') + (err.exportPage ? t('exportDialogPdfRange','',{first:err.exportPage,last:err.exportEnd}) + ' ' : '') + t('exportDialogPdfCreateError'));
+    } finally { libraryExportBusy.current = false; }
   };
 
   if (isLoading) {
@@ -582,6 +602,7 @@ export function App() {
             onDuplicateNotebook={handleDuplicateNotebook}
             onMoveNotebookToFolder={handleMoveNotebookToFolder}
             onExportNotebookPdf={handleExportNotebookPdf}
+            libraryExports={libraryExports}
             onDeleteFolder={handleDeleteFolder}
             onDeleteNotebook={handleDeleteNotebook}
             onImportPdfSuccess={handleImportPdfSuccess}
@@ -627,7 +648,17 @@ export function App() {
         <div className="bn-backup-recovery-overlay" role="status" aria-live="polite">
           <div><p>{t(({ waiting: 'backupRecoveryWaiting', checking: 'backupRecoveryChecking',
             writing: 'backupRecoveryWriting', refreshing: 'backupRecoveryRefreshing', unconfirmed: 'backupRecoveryUnconfirmed' })[recovery.phase])}</p>
-            {recovery.phase !== 'unconfirmed' && <small>{t('backupRecoveryKeepOpen')}</small>}</div>
+            {recovery.progress && <div data-recovery-progress style={{marginBottom:12}}>
+              <p>{t(recovery.progress.stage==='opening'?'backupRestoreOpening':recovery.progress.stage==='reading'?'backupRestoreReading':recovery.progress.stage==='planning'?'backupRestorePlanning':recovery.progress.totalNotebooks?'backupRestoreChecking':'backupRestoreValidating', '', {
+                current: recovery.progress.notebooksDone || 0, total: recovery.progress.totalNotebooks || 0,
+                done: ((recovery.progress.bytesDone || 0)/1048576).toFixed(1), size: ((recovery.progress.totalBytes || 0)/1048576).toFixed(1)
+              })}</p>
+              {recovery.progress.totalBytes > 0 && !recovery.progress.totalNotebooks && <progress style={{width:'100%'}} max={recovery.progress.totalBytes} value={recovery.progress.bytesDone || 0}/>}
+              {recovery.progress.totalNotebooks > 0 && <progress style={{width:'100%'}} max={recovery.progress.totalNotebooks} value={recovery.progress.notebooksDone || 0}/>}
+            </div>}
+            {recovery.phase !== 'unconfirmed' && <small>{t('backupRecoveryKeepOpen')}</small>}
+            {['waiting','checking'].includes(recovery.phase) && <button type="button" className="bn-backup-hub-button" data-cancel-recovery style={{display:'block',marginTop:16}} onClick={()=>backupRecovery.cancel()}>{t('cancel')}</button>}
+          </div>
         </div>
       )}
     </div>

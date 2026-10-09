@@ -54,7 +54,7 @@ qa.holdScan=()=>{qa.scanGate=new Promise(resolve=>qa.releaseScan=resolve);};qa.s
   await page.exposeFunction('scanBridge',(selected,options)=>{assert.equal(path.resolve(selected),path.resolve(folder));return reader.execute({folderPath:selected,previewOnly:options?.previewOnly===true});});
   await page.goto(origin);await page.addStyleTag({content:fs.readFileSync(path.join(root,'src/index.css'),'utf8')});await page.addScriptTag({content:bundle.outputFiles[0].text});
   const reset=async()=>{await page.evaluate(source=>qa.reset(source),seed);await page.waitForFunction(()=>qa.library&&qa.closeRequest);await page.evaluate(()=>qa.backup.stopScheduledSync());};
-  const state=()=>page.evaluate(async()=>({folders:await qa.db.getAllFolders(),notes:await qa.db.getAllNotebooks(),a:await qa.db.getBackupNotebookSnapshot('a'),b:await qa.db.getBackupNotebookSnapshot('b'),receipt:await qa.db.getBackupRecoveryReceipt()}));
+  const state=()=>page.evaluate(async()=>({folders:await qa.db.getAllFolders(),notes:await qa.db.getAllNotebooks(),a:await qa.db.getBackupNotebookSnapshot('a'),b:await qa.db.getBackupNotebookSnapshot('b'),receipt:await qa.db.getBackupRecoveryReceipt(),contentBase:await qa.db.getSetting('backup_restore_content_base_v1')}));
   await check('Folder recovery updates rich content and removes old pages without reloading App',async()=>{
    await reset();const prior=await state(),time=await page.evaluate(()=>performance.timeOrigin);await page.evaluate(()=>{qa.history.forNotebook('a').append({id:'old-a'});qa.history.forNotebook('b').append({id:'old-b'});});
    const result=await page.evaluate(folder=>qa.backup.restoreFromCloudBackup(folder),folder);assert.equal(result.success,true);const after=await state();
@@ -81,7 +81,7 @@ qa.holdScan=()=>{qa.scanGate=new Promise(resolve=>qa.releaseScan=resolve);};qa.s
   });
   await check('Manual JSON is parsed in the local worker and refreshes the real App',async()=>{
    await reset();await page.evaluate(async input=>{const file=new File([JSON.stringify(input)],'restore.json');file.text=()=>{throw Error('UI must not parse this file');};await qa.library.onImportBackup(file);},incoming);
-   assert.equal((await state()).a.name,'Restored A');assert.equal(await page.evaluate(()=>qa.alerts.at(-1)),await page.evaluate(()=>qa.lang.t('backupReadRestored','',{count:1})));
+   assert.equal((await state()).a.name,'Restored A');assert.equal(await page.evaluate(()=>qa.alerts.at(-1)),await page.evaluate(()=>qa.lang.t('backupReadRestored','',{count:2})));
   });
   await check('Recovery blocks navigation and closing waits for commit and refresh',async()=>{
    await reset();await write(incoming);await page.evaluate(folder=>{qa.holdScan();qa.restoreJob=qa.backup.restoreFromCloudBackup(folder);},folder);await page.waitForFunction(()=>qa.scans.length===1);
@@ -129,7 +129,7 @@ qa.holdScan=()=>{qa.scanGate=new Promise(resolve=>qa.releaseScan=resolve);};qa.s
    try{
     await isolated.route('http*://**/*',route=>route.abort());await offline.goto(require('node:url').pathToFileURL(offlineFile).href);await offline.addScriptTag({content:bundle.outputFiles[0].text});
     await offline.evaluate(source=>qa.reset(source),seed);await offline.waitForFunction(()=>qa.library);await offline.evaluate(()=>qa.backup.stopScheduledSync());
-    const result=await offline.evaluate(input=>qa.files.restoreFullBackup(input),incoming);assert.equal(result.notebooksCount,1);
+    const result=await offline.evaluate(input=>qa.files.restoreFullBackup(input),incoming);assert.equal(result.notebooksCount,2);assert.equal(await offline.evaluate(async()=>(await qa.db.getAllNotebooks()).filter(n=>n.syncConflictOf==='a').length),1);
     assert.equal(await offline.evaluate(async()=>(await qa.db.getBackupNotebookSnapshot('a')).name),'Restored A');await offline.evaluate(()=>qa.stop());
     await offline.reload();await offline.addScriptTag({content:bundle.outputFiles[0].text});
     assert.equal(await offline.evaluate(async()=>(await qa.db.getBackupNotebookSnapshot('a')).name),'Restored A');

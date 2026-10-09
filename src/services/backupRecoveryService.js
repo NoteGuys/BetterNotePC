@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 import { createBackupRecovery } from './backupRecoveryCore.js';
 import { getBackupRecoveryReceipt } from './db.js';
 import { flushLocalSaves } from './localSaveService.js';
@@ -9,48 +10,59 @@ let pauseBackups = () => ({ wait: async () => {}, resume: () => {} });
 const restoredListeners = new Set();
 const editorListeners = new Set();
 const fault = code => Object.assign(new Error(code), { code });
-const commitInWorker = async (input, publish) => {
+const commitInWorker = async (input, publish, {signal,report} = {}) => {
   const { default: RecoveryWorker } = await import('./backupRecovery.worker.js?worker&inline');
   const operationId = crypto.randomUUID();
-  let worker, timer;
+  let worker, timer, cancel;
+  let writing = false;
   try {
     const result = await new Promise((resolve, reject) => {
       worker = new RecoveryWorker();
       // Limit validation only. Once writing starts, await commit/abort instead of timing it out.
-      timer = setTimeout(() => reject(fault('backup-read-timeout')), 60000);
+      const arm = () => { clearTimeout(timer);timer = setTimeout(() => reject(fault('backup-read-timeout')), 180000); };
+      arm();
+      cancel = () => { if (!writing) reject(fault('backup-recovery-cancelled')); };
+      signal?.addEventListener('abort',cancel,{once:true});
+      if (signal?.aborted) { cancel();return; }
       worker.onmessage = ({ data }) => {
-        if (data.phase === 'writing') { clearTimeout(timer); publish('writing'); }
+        if (data.phase === 'ready') {
+          if (signal?.aborted) { cancel();return; }
+          writing = true;clearTimeout(timer);publish('writing');worker.postMessage({commit:operationId});
+        }
+        else if (data.phase === 'writing') { writing = true; clearTimeout(timer); publish('writing'); }
+        else if (data.progress) { arm();report?.(data.progress); }
         else if (data.error) reject(fault(data.error));
         else if (data.result) resolve(data.result);
       };
       worker.onerror = () => reject(fault('backup-recovery-write-failed'));
       worker.onmessageerror = () => reject(fault('backup-recovery-write-failed'));
       const bytes = input.encoded;
-      worker.postMessage({ operationId, data: input.data, file: input.file, encoded: bytes, sync: input.sync }, bytes instanceof ArrayBuffer ? [bytes] : []);
+      worker.postMessage({ operationId, requireCommit: true, data: input.data, file: input.file, encoded: bytes, sync: input.sync, copyLabel:t('driveSyncCopyLabel') }, bytes instanceof ArrayBuffer ? [bytes] : []);
     });
     return { ...result, folder: input.folder, source: input.source, recoveredFolderNotebookIds: input.recoveredFolderNotebookIds || [], ignoredRetiredNotebookIds: input.ignoredRetiredNotebookIds || [] };
   } catch (error) {
     worker?.terminate();
+    if (!writing && error.code === 'backup-recovery-cancelled') throw error;
     // A worker can fail after commit but before its reply. The receipt shares the transaction.
     let receipt;
     try { receipt = await getBackupRecoveryReceipt(); }
     catch (_) { throw fault('backup-recovery-unconfirmed'); }
     if (receipt?.operationId === operationId) return { ...receipt.result, folder: input.folder, source: input.source, recoveredFolderNotebookIds: input.recoveredFolderNotebookIds || [], ignoredRetiredNotebookIds: input.ignoredRetiredNotebookIds || [] };
     throw error;
-  } finally { clearTimeout(timer); worker?.terminate(); }
+  } finally { clearTimeout(timer);signal?.removeEventListener('abort',cancel);worker?.terminate(); }
 };
 export const backupRecovery = createBackupRecovery({
   canRestore: () => !editorActive, pauseBackups: () => pauseBackups(), flushLocalSaves,
-  onActive: () => setNotebookCoverLibraryVisible(false), restore: async (input, publish) => {
-    if (!input.syncStream) return commitInWorker(input, publish);
-    const aggregate = { notebooks: [], notebooksCount: 0, conflictsCount: 0, receivedCount: 0 };
+  onActive: () => setNotebookCoverLibraryVisible(false), restore: async (input, publish, control) => {
+    if (!input.syncStream) return commitInWorker(input, publish, control);
+    const aggregate = { notebooks: [], notebooksCount: 0, foldersCount:0, conflictsCount: 0, receivedCount: 0 };
     for (const id of input.ids) {
       try {
         if (!await input.isCurrent()) throw fault('drive-sync-destination-changed');
         const item = await input.load(id);
         const result = await commitInWorker(item, publish);
         aggregate.notebooks.push(...result.notebooks); aggregate.notebooksCount += result.notebooksCount;
-        aggregate.conflictsCount += result.conflictsCount || 0;aggregate.receivedCount += result.receivedCount || 0;
+        aggregate.foldersCount += result.foldersCount || 0;aggregate.conflictsCount += result.conflictsCount || 0;aggregate.receivedCount += result.receivedCount || 0;
         if (result.skipped) { aggregate.pendingReason = 'drive-sync-missing-local'; break; }
       } catch (error) {
         if (error.code === 'backup-recovery-unconfirmed') throw error;
@@ -61,7 +73,7 @@ export const backupRecovery = createBackupRecovery({
     return aggregate;
   },
   afterCommit: async result => {
-    if (!result.notebooks.length) return;
+    if (!result.notebooks.length && !result.foldersCount) return;
     const ids = result.notebooks.map(note => note.id);
     notebookHistoryStore.clearNotebooks(ids);
     ids.forEach(queueNotebookCover);

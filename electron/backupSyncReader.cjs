@@ -1,4 +1,5 @@
 const fsDefault=require('node:fs').promises,path=require('node:path');
+const {isLegacySummary}=require('./backupLegacy.cjs');
 const {createHash}=require('node:crypto');
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fault=code=>Object.assign(new Error(code),{code});
@@ -39,6 +40,7 @@ function createBackupSyncReader({fs=fsDefault,deadlineMs=30000,maxFileBytes=256*
       const signature=hash(raw);
       if(syncMode==='note'&&manifestHash!==signature)throw fault('backup-changed-during-read');
       const manifest=JSON.parse(raw.toString('utf8'));
+      if(isLegacySummary(manifest))throw fault('drive-sync-legacy');
       if(manifest.syncPending){
         if(manifest.version!==2||typeof syncDeviceId!=='string'||manifest.syncPending.deviceId!==syncDeviceId||syncMode!=='preview')throw fault('backup-incomplete');
         const intents=manifest.syncPending.notebooks||{},entries=Object.create(null);
@@ -58,19 +60,27 @@ function createBackupSyncReader({fs=fsDefault,deadlineMs=30000,maxFileBytes=256*
       if(manifest.version!==2||!manifest.notebooks||typeof manifest.notebooks!=='object'||Array.isArray(manifest.notebooks)||
         !Array.isArray(manifest.activeIds)||new Set(manifest.activeIds).size!==manifest.activeIds.length||
         !/^[a-f0-9]{64}$/.test(manifest.fullHash||'')||!Number.isFinite(manifest.lastDataSuccess)||manifest.lastDataSuccess<=0)throw fault('backup-incomplete');
-      const fullStat=await optional(within('Full_System/BetterNote_Latest_Backup.json'));
+      if(manifest.fullPath&&!/^Full_System[\\/]Backup--[a-f0-9]{64}\.json$/.test(manifest.fullPath))throw fault('unsafe-backup-path');
+      const fullStat=await optional(within(manifest.fullPath||'Full_System/BetterNote_Latest_Backup.json'));
       if(!fullStat?.isFile()||fullStat.size!==manifest.fullSize)throw fault('backup-incomplete');
-      const [folderToken,noteTokens]=JSON.parse(manifest.fullRevision||'null');
+      const revision=JSON.parse(manifest.fullRevision||'null');
+      if(!Array.isArray(revision)||revision.length!==2)throw fault('backup-incomplete');
+      const [folderToken,noteTokens]=revision;
       if(typeof folderToken!=='string'||!Array.isArray(noteTokens)||noteTokens.length!==manifest.activeIds.length||noteTokens.length>10000)throw fault('backup-incomplete');
       const active=new Set(manifest.activeIds),tokens=new Map(noteTokens.map(token=>[JSON.parse(token)[0],token]));
       if(tokens.size!==active.size)throw fault('backup-incomplete');
       for(const id of active)if(!tokens.has(id)||!Object.hasOwn(manifest.notebooks,id)||manifest.notebooks[id]?.editable?.revision!==tokens.get(id))throw fault('backup-incomplete');
-      let folders=JSON.parse(folderToken).map(row=>({id:row[0],name:row[1],parentId:row[2],updatedAt:row[3],isDeleted:row[4],color:row[5],icon:row[6],isFavorite:row[7]}));
+      const folderRows=JSON.parse(folderToken);
+      if(!Array.isArray(folderRows)||folderRows.some(row=>!Array.isArray(row)||![8,11].includes(row.length)))throw fault('invalid-backup-manifest');
+      const folderWidths=new Map(folderRows.map(row=>[row[0],row.length]));
+      let folders=folderRows.map(row=>({id:row[0],name:row[1],parentId:row[2],updatedAt:row[3],isDeleted:row[4],color:row[5],icon:row[6],isFavorite:row[7],
+        ...(row.length===11?{permanentlyDeleted:row[8],createdAt:row[9],restoreParentId:row[10]}:{})}));
       const {validateLibrary,validateNotebook}=await import('./backupValidation.js');
       if(manifest.syncFolders!==undefined){
         if(!Array.isArray(manifest.syncFolders)||manifest.syncFolders.length>10000)throw fault('invalid-backup-manifest');
         const token=JSON.stringify([...manifest.syncFolders].sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(folder=>
-          [folder.id,folder.name,folder.parentId||null,folder.updatedAt||0,!!folder.isDeleted,folder.color,folder.icon,!!folder.isFavorite]));
+          [folder.id,folder.name,folder.parentId||null,folder.updatedAt||0,!!folder.isDeleted,folder.color,folder.icon,!!folder.isFavorite,
+            ...(folderWidths.get(folder.id)===11?[!!folder.permanentlyDeleted,folder.createdAt||0,folder.restoreParentId||null]:[])]));
         if(token!==folderToken)throw fault('backup-incomplete');
         folders=manifest.syncFolders;
       }

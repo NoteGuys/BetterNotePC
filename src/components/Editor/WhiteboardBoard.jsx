@@ -64,6 +64,7 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
   }, [page.id, view, size, zoom, onViewportChange]);
   useEffect(() => {
     const release = event => contactsRef.current.delete(event.pointerId);
+    const hoverRelease = event => { if(event.pointerType==='pen' && event.buttons===0) contactsRef.current.delete(event.pointerId); };
     const blur = () => {
       contactsRef.current.clear(); gestureRef.current = null;
       touchGuardRef.current.suspend(); touchTapRef.current.cancel();
@@ -82,11 +83,12 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
     window.addEventListener('pointerdown', pointerDown, true);
     const visibility = () => { if (document.hidden) blur(); };
     window.addEventListener('blur', blur);
+    window.addEventListener('pointermove', hoverRelease, true);
     window.addEventListener('lostpointercapture', release);
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('pointerup', release); window.addEventListener('pointercancel', release);
     return () => { blur(); window.removeEventListener('touchend', outsideRelease); window.removeEventListener('touchcancel', outsideRelease); window.removeEventListener('pointerdown', pointerDown, true); window.removeEventListener('blur', blur); window.removeEventListener('lostpointercapture', release);
-      document.removeEventListener('visibilitychange', visibility); window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release); cancelAnimationFrame(rafRef.current); clearTimeout(wheelTimerRef.current); };
+      window.removeEventListener('pointermove', hoverRelease, true); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release); cancelAnimationFrame(rafRef.current); clearTimeout(wheelTimerRef.current); };
   }, []);
   useEffect(() => {
     const node = viewportRef.current;
@@ -177,11 +179,10 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
     if (touchLocked() || touches.length !== event.touches.length) { touchTapRef.current.cancel(); return; }
     touchTapRef.current.start(touches);
     if (touches.length > 2) { gestureRef.current = null; touchTapRef.current.cancel(); touchGuardRef.current.block(); cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null; return; }
-    if (touches.length < 2 && props.activeTool !== 'hand') return;
+    if (!touches.length) return;
     // Stop a queued wheel/previous contact frame before taking this visible origin.
     cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingViewRef.current = null; pendingZoomRef.current = null;
     navigationResetRef.current = false;
-    setGeneration(value => value + 1);
     gestureRef.current = { touch: true, ...touchSnapshot(touches), view: { ...viewRef.current }, zoom: zoomRef.current, moved: false };
   };
   const moveTouch = event => {
@@ -235,7 +236,7 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
       onImageElementsChange={imageElements => update({ imageElements })} />
     <div className="bn-whiteboard-controls">
       <span><InfinityIcon size={16} /> {t('template_whiteboard', 'Whiteboard')}</span>
-      <span className="bn-whiteboard-hint">{t('whiteboardPanHint', 'Use Hand or two fingers to pan')}</span>
+      <span className="bn-whiteboard-hint">{t('whiteboardPanHint', 'One finger to pan; two fingers to zoom')}</span>
       <button type="button" onClick={fit} title={t('whiteboardFit', 'Show all content')}><Maximize size={16} /><span>{t('whiteboardFit', 'Show all content')}</span></button>
     </div>
   </div>;

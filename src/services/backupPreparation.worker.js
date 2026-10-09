@@ -4,6 +4,7 @@ import { notebookBackupRevision } from '../utils/backupRevision.js';
 import { notebookPdfRevision } from './backupController.js';
 import { createVerifiedBackupPdfRenderer } from '../utils/backupPdf.js';
 import { backupPageDimensions, renderBackupPageImage } from '../utils/backupPageImage.js';
+import { createBackupPdfPageCache, backupPdfPageKey, backupPdfSourceKeys } from './backupPdfPageCache.js';
 let gate = null, imageGate = null, rasterGate = null, active = null;
 const deferred = () => new Error('pdf-backup-deferred');
 const decodeSvg = (src, size) => new Promise((resolve,reject) => {
@@ -16,7 +17,8 @@ const nativeBackground = page => new Promise((resolve,reject)=>{
   rasterGate=data=>{clearTimeout(timer);rasterGate=null;data.error?reject(Error(typeof data.error==='string'?data.error:'PDF raster unavailable')):resolve(data.url);};
   self.postMessage({requestId:active,renderPdfBackground:{notebookId:page.notebookId,pdfOriginalId:page.pdfOriginalId,pdfPageNumber:page.pdfPageNumber,pdfLazyRaster:1}});
 });
-let rasterDoc, rasterSource, backupSources=new Map();
+let rasterDoc, rasterSource, backupSources=new Map(), sourceKeys=new Map();
+const pageCache=createBackupPdfPageCache();
 const sharpBackupPage = async page => {
   if (!page.pdfLazyRaster) return page;
   if(page.pdfNativeRaster)return {...page,pdfPageImage:await nativeBackground(page)};
@@ -27,6 +29,7 @@ const sharpBackupPage = async page => {
   catch(error){if(error.message!=='pdf-native-filter-required')throw error;return {...page,pdfPageImage:await nativeBackground(page)};}
 };
 const renderer = createVerifiedBackupPdfRenderer({ dimensions: backupPageDimensions,
+  persistentCache:pageCache,contentKey:(note,page)=>backupPdfPageKey(note,page,sourceKeys),
   renderImage: async (page,templateId,dimensions) => renderBackupPageImage(await sharpBackupPage(page),templateId,dimensions,{decodeSvg}),
   validateImage: async source => { if (!/^data:image\//i.test(source)) throw new Error('pdf-backup-image-invalid'); },
   output: pdf => pdf.output('arraybuffer'),
@@ -49,7 +52,8 @@ const execute = async data => {
     if (data.action === 'pdf') {
       if (notebookBackupRevision(note) !== data.revision || notebookPdfRevision(note) !== data.pdfRevision) throw deferred();
       backupSources=new Map(note.pages.filter(p=>p.pdfOriginal).map(p=>[p.pdfOriginal.id,p.pdfOriginal]));
-      const bytes = await renderer.render(note,()=>{}, {force:!!data.force});
+      sourceKeys=await backupPdfSourceKeys(note);
+      const bytes = await renderer.render(note,progress=>{if(progress?.rendered!==undefined)self.postMessage({requestId:active,pdfCacheProgress:progress});}, {force:!!data.force});
       self.postMessage({requestId:active,result:bytes},[bytes]);
     } else if (data.action === 'snapshot') {
       const bytes = new TextEncoder().encode(JSON.stringify(note)).buffer;
@@ -60,7 +64,7 @@ const execute = async data => {
   } catch (error) {
     const safe = ['notebook-snapshot-unavailable','backup-too-large','pdf-backup-deferred'];
     self.postMessage({requestId:active,error:safe.includes(error.message)?error.message:/image/i.test(error.message||'')?'pdf-backup-image-invalid':'backup-preparation-failed'});
-  } finally { active = null;backupSources.clear();if(rasterDoc)await rasterDoc.destroy().catch(()=>{});rasterDoc=rasterSource=null; }
+  } finally { active = null;backupSources.clear();sourceKeys.clear();if(rasterDoc)await rasterDoc.destroy().catch(()=>{});rasterDoc=rasterSource=null; }
 };
 
 // Metadata refresh can arrive while PDF awaits an idle check. Control messages

@@ -9,7 +9,9 @@ import * as db from './src/services/db.js';import {createBackupPreparationServic
 import {generateVerifiedBackupPdf} from './src/utils/backupPdf.js';import {prepareBackup} from './electron/backupValidation.js';
 import * as pdfjs from 'pdfjs-dist';import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';pdfjs.GlobalWorkerOptions.workerSrc=pdfWorker;
 import {generateVectorShapePoints} from './src/utils/inkingEngine.js';
-const service=createBackupPreparationService();window.qa={db,service};
+import {createBackupPdfPageCache} from './src/services/backupPdfPageCache.js';
+let service=createBackupPreparationService();window.qa={db,service,prepareBackup,createBackupPdfPageCache};
+qa.restart=()=>{service.close();service=createBackupPreparationService();qa.service=service;};
 qa.seed=async()=>{
  const c=document.createElement('canvas');c.width=c.height=24;const ctx=c.getContext('2d');ctx.fillStyle='#22c55e';ctx.fillRect(0,0,24,24);const png=c.toDataURL();
  const pages=['dotted','blank','whiteboard'].map((templateId,i)=>({id:'p'+i,notebookId:'n',pageIndex:i,updatedAt:10,templateId,pageWidth:480,pageHeight:620,
@@ -56,7 +58,7 @@ qa.renderComparison=async()=>{
    const bytes=await qa.service.makePdf(descriptor,p=>{if(p?.page===1)metadata=qa.service.getMetadata();});
    return bytes.byteLength>1000&&(await metadata).notebooks[0].id==='n';}),true);
  });
- let comparison;await check('Worker PDF keeps handwriting, images, text, PDF backgrounds and cropped whiteboard layout',async()=>{
+ let qaTimings;let comparison;await check('Worker PDF keeps handwriting, images, text, PDF backgrounds and cropped whiteboard layout',async()=>{
   comparison=await page.evaluate(()=>qa.renderComparison());assert.equal(comparison.pages,3);assert.equal(comparison.oldPages,3);
   for(const item of comparison.comparisons){assert.deepEqual(item.dims[0],item.dims[1]);assert.ok(item.meanDifference<8,JSON.stringify(item));assert.ok(item.redA>0&&item.redA/item.redB>.7&&item.redA/item.redB<1.3);assert.ok(item.greenA>0&&item.greenA/item.greenB>.85&&item.greenA/item.greenB<1.15);}
   for(const[key,name]of[['workerPreview','worker.png'],['legacyPreview','legacy.png']])await disk.writeFile(path.join(fixture,name),Buffer.from((await page.evaluate(key=>qa[key],key)).split(',')[1],'base64'));
@@ -66,6 +68,33 @@ qa.renderComparison=async()=>{
    try{await qa.service.makePdf(note,p=>{if(p?.page===2)throw Error('pdf-backup-deferred');},{force:true});}catch(e){failed=e.message==='pdf-backup-deferred';}
    const seen=[];const bytes=await qa.service.makePdf(note,p=>{if(p?.page)seen.push(p.page);});return{failed,first:seen[0],size:bytes.byteLength};});
   assert.equal(result.failed,true);assert.equal(result.first,2);assert.ok(result.size>1000);
+ });
+ await check('A 91-page notebook renders only its changed page after the worker restarts',async()=>{
+  const result=await page.evaluate(async()=>{
+   const pages=Array.from({length:91},(_,i)=>({id:'long-'+i,notebookId:'long',pageIndex:i,updatedAt:1,templateId:'blank',pageWidth:480,pageHeight:620,strokes:[],imageElements:[],textElements:[{id:'t'+i,text:'Synthetic lecture '+(i+1),x:20,y:30,fontSize:20}]}));
+   await qa.db.restoreBackupAtomic(qa.prepareBackup({folders:[],notebooks:[{id:'long',name:'Long lecture',pageCount:91,updatedAt:1,templateId:'blank',pages}]}),'long-seed');
+   const run=async()=>{let counts;const start=performance.now(),descriptor=await qa.service.getNotebook('long',{pdf:true});const bytes=await qa.service.makePdf(descriptor,p=>{if(p?.rendered!==undefined)counts=p;});return{counts,ms:performance.now()-start,size:bytes.byteLength};};
+   const first=await run();qa.restart();const p=await qa.db.getPage('long-40');await qa.db.savePage({...p,textElements:[{id:'changed',text:'One changed page',x:20,y:30,fontSize:20}]});
+   const second=await run();qa.restart();const third=await run();return{first,second,third};
+  });
+  assert.equal(result.first.counts.rendered,91);assert.equal(result.second.counts.rendered,1);assert.equal(result.second.counts.reused,90);assert.equal(result.third.counts.rendered,0);assert.equal(result.third.counts.reused,91);assert.ok(result.second.size>1000);qaTimings=result;
+ });
+ await check('Persistent image cache evicts within its disk cap and corrupt entries rebuild safely',async()=>{
+  assert.equal(await page.evaluate(async()=>{
+   const c=qa.createBackupPdfPageCache({name:'SyntheticSmallPdfCache',maxBytes:8,maxEntries:2}),image=new Uint8Array([255,216,255,217]);
+   await c.put('a',image,{notebookId:'a',pageId:'a'});await c.put('b',image,{notebookId:'b',pageId:'b'});await c.put('c',image,{notebookId:'c',pageId:'c'});
+   const keys=await Promise.all(['a','b','c'].map(async k=>!!await c.get(k)));if(keys.filter(Boolean).length!==2)return false;
+   await new Promise((resolve,reject)=>{const r=indexedDB.open('SyntheticSmallPdfCache',1);r.onsuccess=()=>{const db=r.result,tx=db.transaction('images','readwrite');tx.objectStore('images').put({key:'c',bytes:new Uint8Array([1,2,3,4])});tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>reject(tx.error);};});
+   const corrupt=await c.get('c');await c.close();return corrupt===null;
+  }),true);
+ });
+ await check('A document exceeding the cache cap does not evict its reusable pages during assembly',async()=>{
+  assert.equal(await page.evaluate(async()=>{
+   const c=qa.createBackupPdfPageCache({name:'SyntheticProtectedPdfCache',maxBytes:8,maxEntries:2}),image=new Uint8Array([255,216,255,217]);
+   await c.put('a',image,{notebookId:'n',pageId:'a'});await c.put('b',image,{notebookId:'n',pageId:'b'});
+   c.protect(['a','b','c']);await c.put('c',image,{notebookId:'n',pageId:'c'});
+   const result=!!await c.get('a')&&!!await c.get('b')&&!await c.get('c');c.protect([]);await c.close();return result;
+  }),true);
  });
  await check('SVG image elements remain supported in automatic PDF backups',async()=>{
   assert.equal(await page.evaluate(async()=>{const p=await qa.db.getPage('p0');const svg='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="green"/></svg>');
@@ -81,5 +110,5 @@ qa.renderComparison=async()=>{
    try{await qa.service.makePdf(descriptor,()=>{});return false;}catch(e){return /image/.test(e.message)&&JSON.parse(new TextDecoder().decode(descriptor.backupEncoded)).pages.length===3;}}),true);
  });
  await check('Worker reports no unhandled renderer errors offline',async()=>assert.deepEqual(errors,[]));await page.evaluate(()=>qa.service.close());
- const report={passed:passed.length,failed:0,fixture,comparison,offline:true,syntheticOnly:true};await disk.writeFile(path.join(fixture,'results.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+ const report={passed:passed.length,failed:0,fixture,comparison,qaTimings,offline:true,syntheticOnly:true};await disk.writeFile(path.join(fixture,'results.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
  }finally{await browser?.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

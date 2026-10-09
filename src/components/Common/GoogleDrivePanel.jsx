@@ -130,9 +130,8 @@ export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotic
         {drivePath && <button type="button" className="bn-backup-hub-button primary" onClick={disconnect} disabled={disabled}>
           {t('gdriveDisconnect')}
         </button>}
-        {drivePath && <button type="button" className="bn-backup-hub-button primary" onClick={() => onBackup?.()} disabled={disabled}>{t('driveDesktopWriteAction')}</button>}
         {drivePath && onRestoreBackup && <button type="button" className="bn-backup-hub-button" disabled={disabled || state.localSaving} onClick={() => {
-          if (window.confirm(t('backupRestoreConfirm'))) onRestoreBackup(drivePath);
+          onRestoreBackup(drivePath);
         }}>{t('backupRestoreFromFolder')}</button>}
       </section>
       <section className="bn-backup-hub-card" data-drive-choice="direct" aria-disabled="true">
@@ -148,7 +147,7 @@ export const GoogleDrivePanel = ({ rows, onBackup, onReveal, onRetryPdf, onNotic
         </p>}
         <BackupProgress role="drive" />
         <BackupDestinationSummary role="drive" />
-        <p className="bn-backup-hub-help">{t('drivePreparationHint')}</p>
+        <p className="bn-backup-hub-help">{t('backupPerDeviceHelp')}</p>
         <h4>{t('driveDesktopPreparationTitle')}</h4>
         <BackupFilesTable rows={drivePath ? rows : []} role="drive" onReveal={onReveal} onRetryPdf={onRetryPdf} />
       </>

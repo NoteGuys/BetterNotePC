@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, FileText, Image as ImageIcon, Database, Download, CheckCircle2, FileEdit, FileCheck } from 'lucide-react';
 import { exportNotebookToPdf, exportSinglePageToPdf, exportPageAsImage } from '../../utils/pdfExportEngine';
 import { saveFileToDisk } from '../../services/fileSystemService';
+import { usePenButtonTap } from '../../utils/usePenButtonTap';
 import { useLanguage } from '../../services/i18n';
 import { localizeNotebookCopyName } from '../../utils/notebookNames';
 
@@ -51,6 +52,7 @@ const exportMessage = (key, params = {}) => ({ key, params });
 
 export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadPage, loadPdfPage, loadBNote, currentPageIndex }) => {
   const { t } = useLanguage();
+  const penTap = usePenButtonTap();
   const [isExporting, setIsExporting] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [doneMsg, setDoneMsg] = useState('');
@@ -167,7 +169,7 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadP
 
   return (
     <div className="bn-modal-backdrop" onClick={onClose}>
-      <div className="bn-modal-content bn-modal-cloud" onClick={(e) => e.stopPropagation()}>
+      <div {...penTap} className="bn-modal-content bn-modal-cloud bn-export-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="bn-modal-header">
           <div>
             <h2 className="bn-modal-title">{t('exportDialogTitle')}</h2>

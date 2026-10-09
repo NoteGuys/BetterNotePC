@@ -23,7 +23,9 @@ export const NotebookCard = ({
   onClick, 
   onDelete, 
   onDuplicate, 
-  onExportPdf, 
+  onExportPdf,
+  exportProgress,
+  exportBusy = false,
   onMoveToFolder,
   onRename,
   onToggleFavorite,
@@ -271,6 +273,13 @@ export const NotebookCard = ({
           )}
         </div>
 
+        {exportProgress && <div className="bn-library-export-progress" role="status" data-export-stage={exportProgress.stage}>
+          {t(exportProgress.stage==='done'?'exportDialogPdfSuccess':exportProgress.stage==='error'?'exportDialogPdfCreateError':
+            exportProgress.stage==='merge'?'exportDialogPdfMerging':exportProgress.stage==='save'?'exportDialogPdfSaving':
+            exportProgress.stage==='print'?'exportDialogPdfPrinting':'exportDialogPdfProgress','',{
+              page:exportProgress.current,total:exportProgress.total})}
+          {exportProgress.stage !== 'error' && <progress max="1" value={exportProgress.value} aria-label={t('exportDialogTitle')} />}
+        </div>}
         {/* Date in Localized Format */}
         <div className="bn-gn-book-subtext">
           {formatLocalizedDate(notebook.updatedAt || notebook.createdAt)}
@@ -309,11 +318,11 @@ export const NotebookCard = ({
           </button>
 
           {/* 3. Export PDF */}
-          <button 
+          <button disabled={exportBusy}
             className="bn-gn-action-item"
             onClick={() => {
               setShowMenu(false);
-              if (onExportPdf) onExportPdf(notebook);
+              if (onExportPdf && !exportBusy) onExportPdf(notebook);
             }}
           >
             <Download size={16} />

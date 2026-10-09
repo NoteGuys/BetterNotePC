@@ -80,7 +80,7 @@ const plugins=[{name:'actual-navigation-components',setup(build){
  page.on('pageerror',e=>errors.push(e.message));await context.route(/^https?:\/\//,r=>r.abort());
  await page.addScriptTag({content:bundle.outputFiles[0].text});
  const mount=async options=>{await page.evaluate(o=>qa.mount(o),options);await page.waitForFunction(()=>qa.toolbar&&qa.boards.size);await page.waitForTimeout(100);};
- const check=async(name,fn)=>{await fn();passed.push(name);console.log('PASS '+name);};
+ const check=async(name,fn)=>{if(process.env.BETTERNOTE_QA_NAV_FILTER&&!name.includes(process.env.BETTERNOTE_QA_NAV_FILTER))return;await fn();passed.push(name);console.log('PASS '+name);};
  const state=()=>page.evaluate(()=>qa.state());
  const settle=()=>page.waitForTimeout(80);
  if(process.env.BETTERNOTE_QA_NAV_BENCH==='1'){
@@ -228,6 +228,80 @@ const plugins=[{name:'actual-navigation-components',setup(build){
  await check('Changing page or unmounting cancels queued gesture work without changing note content',async()=>{
   await mount({vertical:true});await page.evaluate(()=>{qa.holdFrames=true;qa.touch('touchstart',[[1,600,650]]);qa.touch('touchmove',[[1,600,400]]);qa.unmount();qa.flushFrame();});
   assert.equal(await page.evaluate(()=>qa.frames.size),0);assert.equal(await page.evaluate(()=>qa.strokeCount()),0);
+ });
+
+ for(const penOnly of [true,false])for(const tool of ['pen','highlighter'])await check('Whiteboard one-finger pan with '+tool+' and shield '+penOnly+' retains its contact canvas',async()=>{
+  await mount({whiteboard:true});await page.evaluate(({tool,penOnly})=>{qa.toolbar.setActiveTool(tool);qa.toolbar.setPenOnly(penOnly);},{tool,penOnly});await settle();
+  await page.evaluate(()=>{qa.contactCanvas=qa.target();qa.touch('touchstart',[[1,600,600]],undefined,'canvas');});await settle();
+  assert.equal(await page.evaluate(()=>qa.contactCanvas===qa.target()),true);
+  const before=await state();await page.evaluate(()=>{qa.holdFrames=true;qa.touch('touchmove',[[1,500,450]],undefined,'canvas');qa.flushFrame();});await settle();
+  const after=await state();assert.ok(after.origin[0]>before.origin[0]+90);assert.ok(after.origin[1]>before.origin[1]+140);assert.equal(await page.evaluate(()=>qa.strokeCount()),0);
+  await page.evaluate(()=>qa.touch('touchend',[],[[1,500,450]],'canvas'));
+  const corner=await page.evaluate(()=>{const viewport=qa.target('whiteboard').getBoundingClientRect(),controls=document.querySelector('.bn-whiteboard-controls').getBoundingClientRect();return{left:controls.left-viewport.left,bottom:viewport.bottom-controls.bottom};});assert.ok(Math.abs(corner.left)<1&&Math.abs(corner.bottom)<1,JSON.stringify(corner));
+ });
+ for(const whiteboard of [false,true])await check((whiteboard?'Whiteboard':'Notebook')+' missed pen-up recovers on hover and the next fresh finger scrolls',async()=>{
+  await mount({whiteboard,vertical:!whiteboard});await page.evaluate(()=>{qa.pen('pointerdown',80,100);qa.pen('pointermove',130,150);document.body.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerType:'pen',pointerId:81,buttons:0,pressure:0}));});await settle();
+  assert.equal(await page.evaluate(()=>!!window.__bn_pen_active),false);
+  await page.evaluate(where=>{qa.holdFrames=true;qa.touch('touchstart',[[1,600,650]],undefined,where);qa.touch('touchmove',[[1,600,500]],undefined,where);qa.flushFrame();},whiteboard?'whiteboard':'canvas');await settle();const st=await state();if(whiteboard)assert.ok(st.origin[1]>=140);else assert.ok(st.top>=140);assert.equal(await page.evaluate(()=>qa.strokeCount()),1);
+ });
+ await check('Pen taps activate a toolbar button once, cancelled/drifting taps do not activate, keyboard remains native',async()=>{
+  await mount();const btn=page.locator('.bn-tool-btn').nth(2);const box=await btn.boundingBox();
+  await btn.evaluate((el,b)=>{const fire=(type,x,buttons=1)=>el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerType:'pen',pointerId:97,button:0,buttons,clientX:x,clientY:b.y+b.height/2}));fire('pointerdown',b.x+b.width/2);fire('pointerup',b.x+b.width/2,0);},box);await settle();assert.equal(await page.evaluate(()=>qa.toolbar.activeTool),'eraser');
+  await page.evaluate(()=>qa.toolbar.setActiveTool('pen'));await settle();
+  for(const action of ['pointercancel','drift'])await btn.evaluate((el,{b,action})=>{const fire=(type,x)=>el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerType:'pen',pointerId:98,button:0,buttons:type==='pointerup'?0:1,clientX:x,clientY:b.y+b.height/2}));fire('pointerdown',b.x+b.width/2);if(action==='drift')fire('pointermove',b.x-30);else fire('pointercancel',b.x+b.width/2);fire('pointerup',b.x+b.width/2);},{b:box,action});
+  await settle();assert.equal(await page.evaluate(()=>qa.toolbar.activeTool),'pen');await btn.focus();await page.keyboard.press('Enter');await settle();assert.equal(await page.evaluate(()=>qa.toolbar.activeTool),'eraser');
+ });
+ await check('A pen tap closes the actual Export dialog X without a compatibility mouse click',async()=>{
+  await mount();await page.evaluate(()=>qa.toolbar.onOpenExport());await settle();const x=page.locator('.bn-export-dialog .bn-modal-close-btn');const box=await x.boundingBox();assert.ok(box.width>=44&&box.height>=44);
+  await x.evaluate((el,b)=>{for(const type of ['pointerdown','pointerup'])el.querySelector('svg').dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerType:'pen',pointerId:99,button:0,buttons:type==='pointerup'?0:1,clientX:b.x+b.width/2,clientY:b.y+b.height/2}));},box);await settle();assert.equal(await page.locator('.bn-export-dialog').count(),0);
+ });
+
+ await check('Vertical Whiteboard fills the actual workspace and receives fresh gestures far from right-hand writing',async()=>{
+  await mount({whiteboard:true,vertical:true});
+  const bounds=await page.evaluate(()=>{
+   const stage=qa.target('stage').getBoundingClientRect(),viewport=qa.target('whiteboard').getBoundingClientRect(),controls=document.querySelector('.bn-whiteboard-controls').getBoundingClientRect();
+   const corners=[[stage.left+8,stage.top+8],[stage.right-8,stage.top+8],[stage.left+8,stage.bottom-80],[stage.right-8,stage.bottom-8]];
+   return{stage:{left:stage.left,top:stage.top,right:stage.right,bottom:stage.bottom},viewport:{left:viewport.left,top:viewport.top,right:viewport.right,bottom:viewport.bottom},controls:{left:controls.left,bottom:controls.bottom},hits:corners.map(([x,y])=>!!document.elementFromPoint(x,y)?.closest('.bn-whiteboard-viewport'))};
+  });
+  for(const key of ['left','top','right','bottom'])assert.ok(Math.abs(bounds.stage[key]-bounds.viewport[key])<1,JSON.stringify(bounds));
+  assert.ok(Math.abs(bounds.controls.left-bounds.stage.left)<1&&Math.abs(bounds.controls.bottom-bounds.stage.bottom)<1,JSON.stringify(bounds));assert.ok(bounds.hits.every(Boolean),JSON.stringify(bounds));
+  const cdp=await page.context().newCDPSession(page);await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:5});
+  const r=bounds.stage,x=r.right-160,y=r.top+160;
+  for(const [type,px,py,buttons] of [['mousePressed',x,y,1],['mouseMoved',x+40,y+40,1],['mouseReleased',x+40,y+40,0]])await cdp.send('Input.dispatchMouseEvent',{type,x:px,y:py,button:buttons?'left':'left',buttons,clickCount:1,pointerType:'pen',force:buttons?.5:0});
+  await settle();const before=await state(),left=r.left+30,top=r.top+100;
+  const touch=async(type,points)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:points.map(([id,x,y])=>({id,x,y,radiusX:3,radiusY:3,force:.5}))});
+  await touch('touchStart',[[1,left,top]]);await touch('touchMove',[[1,left+60,top+50]]);await settle();await touch('touchEnd',[]);await settle();
+  assert.ok((await state()).origin[0]<before.origin[0]-40);assert.ok((await state()).origin[1]<before.origin[1]-35);
+  const z=(await state()).zoom;await touch('touchStart',[[2,left+30,top],[3,left+130,top]]);await touch('touchMove',[[2,left+10,top],[3,left+150,top]]);await settle();await touch('touchEnd',[]);await settle();assert.ok((await state()).zoom>z*1.2);assert.equal(await page.evaluate(()=>qa.strokeCount()),1);
+  await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});await cdp.detach();
+ });
+ await check('Surface toolbar stays in one row with separate 44px targets and accessible overflow commands',async()=>{
+  await mount({whiteboard:true});const cdp=await page.context().newCDPSession(page);await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:5});
+  await page.addStyleTag({content:'.bn-editor-toolbar-container *{transition:none!important}'});
+  for(const width of [800,1024,1368,1920]){
+   await cdp.send('Emulation.setDeviceMetricsOverride',{width,height:912,deviceScaleFactor:1,mobile:false});await settle();
+   const boxes=await page.evaluate(()=>{
+    const rect=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return{x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};
+    return{bar:rect('.bn-editor-toolbar-container'),left:rect('.bn-editor-toolbar-left'),right:rect('.bn-editor-toolbar-right'),center:rect('.bn-editor-toolbar-center'),buttons:[...document.querySelectorAll('.bn-editor-toolbar-container .bn-tool-btn,.bn-editor-toolbar-container .bn-btn-icon')].filter(e=>e.getClientRects().length).map(e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};})};
+   });
+   assert.ok(boxes.bar.height<=56,JSON.stringify({width,boxes}));
+   const centers=[boxes.left,boxes.center,boxes.right].map(b=>(b.y+b.bottom)/2);
+   assert.ok(Math.max(...centers)-Math.min(...centers)<1,JSON.stringify({width,boxes}));
+   assert.ok(boxes.left.right<=boxes.center.x+.5&&boxes.center.right<=boxes.right.x+.5&&boxes.right.right<=width,JSON.stringify({width,boxes}));
+   for(const b of boxes.buttons){assert.ok(b.width>=44&&b.height>=44,JSON.stringify({width,b}));assert.ok(b.x>=0&&b.right<=width,JSON.stringify({width,b}));}
+   for(let i=0;i<boxes.buttons.length;i++)for(let j=i+1;j<boxes.buttons.length;j++){const a=boxes.buttons[i],b=boxes.buttons[j];assert.ok(Math.min(a.right,b.right)-Math.max(a.x,b.x)<.5||Math.min(a.bottom,b.bottom)-Math.max(a.y,b.y)<.5,'overlapping touch targets');}
+   if(width===1368)await page.screenshot({path:path.join(fixture,'surface-toolbar.png')});
+  }
+  await cdp.send('Emulation.setDeviceMetricsOverride',{width:1024,height:912,deviceScaleFactor:1,mobile:false});await settle();
+  const more=page.locator('.bn-toolbar-more > button');await more.click();
+  assert.equal(await more.getAttribute('aria-expanded'),'true');
+  for(const command of ['add-page','favorite','capture','paste','scroll','duplicate','zoom-in','zoom-out','zoom-reset','thumbnails','shield','rename'])assert.ok(await page.locator('[data-toolbar-command="'+command+'"]').isVisible(),command);
+  const before=await state();await page.locator('[data-toolbar-command="zoom-in"]').click();await settle();assert.ok((await state()).zoom>before.zoom);assert.equal(await more.getAttribute('aria-expanded'),'false');
+  const oldPenOnly=await page.evaluate(()=>qa.toolbar.penOnly);await more.click();await page.locator('[data-toolbar-command="shield"]').click();await settle();assert.equal(await page.evaluate(()=>qa.toolbar.penOnly),!oldPenOnly);
+  await more.click();await page.keyboard.press('Escape');assert.equal(await more.getAttribute('aria-expanded'),'false');
+  await more.click();await page.locator('.bn-tool-btn').first().click();assert.equal(await more.getAttribute('aria-expanded'),'false');
+  await cdp.send('Emulation.setDeviceMetricsOverride',{width:800,height:912,deviceScaleFactor:1,mobile:false});await settle();await more.click();await page.locator('[data-toolbar-command="hand"]').click();await settle();assert.equal(await page.evaluate(()=>qa.toolbar.activeTool),'hand');
+  await cdp.send('Emulation.clearDeviceMetricsOverride');await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});await cdp.detach();
  });
  await check('No unhandled renderer errors during offline navigation',async()=>assert.deepEqual(errors,[]));
  await page.evaluate(()=>qa.unmount());await page.evaluate(()=>qa.flushLocalSaves());
