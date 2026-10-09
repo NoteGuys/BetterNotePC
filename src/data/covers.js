@@ -1,3 +1,5 @@
+export const THUMBNAIL_COVER_ID = 'thumbnail';
+
 export const NOTEBOOK_COVERS = [
   {
     id: 'deep-ocean',

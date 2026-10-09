@@ -3,6 +3,21 @@
 
 const PREFERENCES_STORAGE_KEY = 'betternote_user_preferences';
 
+
+export const DEFAULT_QUICK_COLORS = ['#1e293b', '#2563eb', '#dc2626', '#16a34a', '#ea580c'];
+
+// Preserve the existing five saved slots, padding older short palettes.
+export const loadQuickColorSlots = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('betternote_quick_color_slots'));
+    if (Array.isArray(saved)) {
+      return DEFAULT_QUICK_COLORS.map((fallback, i) =>
+        typeof saved[i] === 'string' && /^#[0-9a-f]{6}$/i.test(saved[i]) ? saved[i] : fallback);
+    }
+  } catch (_) {}
+  return [...DEFAULT_QUICK_COLORS];
+};
+
 export const DEFAULT_TOOL_WIDTHS = {
   pen: 4,
   highlighter: 18,
@@ -27,6 +42,7 @@ export const DEFAULT_PREFERENCES = {
   toolWidthSlots: { ...DEFAULT_TOOL_WIDTH_SLOTS },
   activeShape: 'rectangle',
   penNib: 'fountain', // 'fountain' | 'ballpoint' | 'brush'
+  highlighterTip: 'square', // 'round' | 'square'; legacy strokes keep square tips
   isTapered: true, // คมต้นคมปลาย
   usePressure: true, // แรงกดปากกา Surface Pen
   pressureSensitivity: 'medium', // 'low' | 'medium' | 'high'

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useSyncExternalStore, useRef } from 'react';
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
-import { GoogleDriveModal } from './components/Common/GoogleDriveModal';
+import BackupStatusModal from './components/Library/BackupStatusModal';
 import { UpdateNotificationModal } from './components/Common/UpdateNotificationModal';
 import { LibraryView } from './components/Library/LibraryView';
 import { NoteEditor } from './components/Editor/NoteEditor';
@@ -20,12 +20,20 @@ import {
   savePage
 } from './services/db';
 import { exportFullBackup, importFullBackup, importBnoteFile } from './services/fileSystemService';
+import { flushLocalSaves, getLocalSaveSnapshot } from './services/localSaveService';
 import { autoBackupService } from './services/autoBackupService';
-import { checkForStoreUpdate } from './services/updateService';
+import {useDailyUpdateNotice} from './services/useDailyUpdateNotice.js';
+import {UpdateToast} from './components/Common/UpdateToast.jsx';
+import { loadPageManifest, loadPdfOwnerPage } from './services/editorPagesService';
 import { exportNotebookToPdf } from './utils/pdfExportEngine';
 import { getPaperSize } from './data/templates';
 import { getAppTheme, setAppTheme, applyThemeToDom } from './services/userPreferences';
 import { useLanguage } from './services/i18n';
+import { backupReadErrorKey } from './services/backupReadStatus.js';
+import { backupRecovery, setRecoveryEditorActive, subscribeBackupRestored } from './services/backupRecoveryService.js';
+import { MAX_OPEN_NOTEBOOK_TABS } from './utils/documentTabs';
+import { localizeNotebookCopyName } from './utils/notebookNames';
+import { subscribeNotebookCovers, setNotebookCoverLibraryVisible } from './services/notebookCoverService';
 
 export function App() {
   const { language, t } = useLanguage();
@@ -35,40 +43,42 @@ export function App() {
   const [activeNotebookId, setActiveNotebookId] = useState(null);
   const [activeNotebookPageIndex, setActiveNotebookPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isClosingAfterSave, setIsClosingAfterSave] = useState(false);
+  const [libraryExports, setLibraryExports] = useState({});
+  const libraryExportBusy = useRef(false);
+  const libraryExportTimers = useRef(new Map());
+  useEffect(() => () => { for (const timer of libraryExportTimers.current.values()) clearTimeout(timer); }, []);
 
-  // Automatic Daily Microsoft Store Update Check
+  const recovery = useSyncExternalStore(backupRecovery.subscribe, backupRecovery.getSnapshot);
+  const hasOpenEditor = !!activeNotebookId && notebooks.some(item => item.id === activeNotebookId);
+  useLayoutEffect(() => {
+    setRecoveryEditorActive(hasOpenEditor);
+    return () => setRecoveryEditorActive(false);
+  }, [hasOpenEditor]);
+  const isCoverLibraryVisible = !recovery.active && !isLoading && !(activeNotebookId && notebooks.some(item => item.id === activeNotebookId));
+  useLayoutEffect(() => {
+    // Pause previews before an editor becomes interactive; resume only in the library.
+    setNotebookCoverLibraryVisible(isCoverLibraryVisible);
+    return () => setNotebookCoverLibraryVisible(false);
+  }, [isCoverLibraryVisible]);
+
+  useEffect(() => subscribeNotebookCovers(saved => {
+    setNotebooks(items => items.map(item => item.id === saved.id
+      ? { ...item, firstPageThumbnail: saved.firstPageThumbnail } : item));
+  }), []);
+
   const [updateModalData, setUpdateModalData] = useState(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const updateHomeVisible=!hasOpenEditor && !recovery.active && !isLoading;
+  const {notice:updateNotice,dismiss:dismissUpdateNotice}=useDailyUpdateNotice(updateHomeVisible);
 
-  useEffect(() => {
-    let isMounted = true;
-    const runStartupUpdateCheck = async () => {
-      // Delay slightly (1500ms) so startup database loading settles smoothly
-      await new Promise(r => setTimeout(r, 1500));
-      if (!isMounted) return;
-
-      try {
-        const updateResult = await checkForStoreUpdate();
-        if (isMounted && updateResult?.hasUpdate) {
-          setUpdateModalData(updateResult);
-          setIsUpdateModalOpen(true);
-        }
-      } catch (err) {
-        console.warn('Startup update check notice:', err);
-      }
-    };
-
-    runStartupUpdateCheck();
-    return () => { isMounted = false; };
-  }, []);
-
-  // Multi-Document Tabs (Max 5 Stacked) & Last Opened Page per notebook
+  // Multi-Document Tabs (Max 9) & Last Opened Page per notebook
   const [openTabs, setOpenTabs] = useState(() => {
     try {
       const saved = localStorage.getItem('betternote_open_tabs');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed.slice(0, 5);
+        if (Array.isArray(parsed)) return parsed.slice(0, MAX_OPEN_NOTEBOOK_TABS);
       }
     } catch (_) {}
     return [];
@@ -125,22 +135,58 @@ export function App() {
   };
 
   // Cloud & Google Drive auto-sync state
-  const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
-  const [isDriveConnected, setIsDriveConnected] = useState(true); // G: drive local sync is connected!
+  const [backupHub, setBackupHub] = useState({ open: false, tab: 'local', restore: null });
+  const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [driveEmail, setDriveEmail] = useState('G:\\My Drive');
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
 
-  // Start background auto-backup service (every 1 hour & on close)
+  // Queue folder backups after idle edits, with periodic recovery checks.
   useEffect(() => {
     autoBackupService.startScheduledSync();
     const unsubscribe = autoBackupService.subscribe((status) => {
       setIsAutoSyncing(status.syncing);
     });
-    return () => unsubscribe();
+    return () => { unsubscribe(); autoBackupService.stopScheduledSync(); };
   }, []);
 
+  // Normal close waits for committed local writes; failures keep this window open.
+  useEffect(() => {
+    const api = window.electronAPI;
+    const labels = {
+      title: 'BetterNote', message: t('localSaveCloseFailed'),
+      keepOpen: t('localSaveKeepOpen'), retry: t('localSaveRetry')
+    };
+    const unsubscribe = api?.onCloseSaveRequest?.(async ({ requestId }) => {
+      setIsClosingAfterSave(true);
+      try {
+        document.activeElement?.blur();
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        await backupRecovery.waitForPending();
+        await flushLocalSaves({ retry: true });
+        api.completeCloseSaveRequest({ requestId, success: true });
+      } catch (_) {
+        setIsClosingAfterSave(false);
+        api.completeCloseSaveRequest({ requestId, success: false, labels });
+      }
+    });
+    const cancel = api?.onCloseSaveCancelled?.(() => setIsClosingAfterSave(false));
+    api?.setLocalSaveGuardReady?.({ labels });
+    const beforeUnload = event => {
+      const restoring = backupRecovery.getSnapshot();
+      if (restoring.active && restoring.phase !== 'unconfirmed' || getLocalSaveSnapshot().status !== 'saved') {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => {
+      unsubscribe?.(); cancel?.();
+      window.removeEventListener('beforeunload', beforeUnload);
+    };
+  }, [t]);
+
   // Load all library data
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async ({ recovery = false } = {}) => {
     try {
       await seedInitialData();
       const [allF, allN, connected, email] = await Promise.all([
@@ -155,9 +201,10 @@ export function App() {
       setIsDriveConnected(!!connected);
       setDriveEmail(email || '');
       // Prune any stale tabs for notebooks that no longer exist
-      setOpenTabs(prev => prev.filter(tab => allN.some(nb => nb.id === tab.id)).slice(0, 5));
+      setOpenTabs(prev => prev.filter(tab => allN.some(nb => nb.id === tab.id)).slice(0, MAX_OPEN_NOTEBOOK_TABS));
     } catch (err) {
       console.error('Failed to load initial data:', err);
+      if (recovery) throw err;
     } finally {
       setIsLoading(false);
     }
@@ -167,11 +214,26 @@ export function App() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => subscribeBackupRestored(async result => {
+    await loadData({ recovery: true });
+    const restored = new Map(result.notebooks.map(note => [note.id, note]));
+    const clamp = (index, note) => Math.max(0, Math.min(Number(index) || 0, note.pageCount - 1));
+    setOpenTabs(tabs => tabs.map(tab => restored.has(tab.id)
+      ? { ...tab, title: restored.get(tab.id).name, pageIndex: clamp(tab.pageIndex, restored.get(tab.id)) } : tab));
+    setNotebookPageMap(previous => {
+      const next = { ...previous };
+      for (const [id, note] of restored) if (Object.hasOwn(next, id)) next[id] = clamp(next[id], note);
+      return next;
+    });
+  }), [loadData]);
+
   // Build folder navigation chain for breadcrumb
   const getFolderChain = () => {
     const chain = [];
     let curId = currentFolderId;
-    while (curId) {
+    const visited = new Set();
+    while (curId && !visited.has(curId)) {
+      visited.add(curId);
       const f = folders.find(item => item.id === curId);
       if (!f) break;
       chain.unshift(f);
@@ -191,13 +253,24 @@ export function App() {
     setFolders(prev => prev.map(f => f.id === folder.id ? folder : f));
   };
 
-  const handleDeleteFolder = async (folderId) => {
-    await deleteFolder(folderId);
-    setFolders(prev => prev.filter(f => f.id !== folderId));
+  const handleDeleteFolder = async (folderId, { throwOnFailure = false } = {}) => {
+    try {
+      const result = await deleteFolder(folderId);
+      setFolders(result.folders);
+      const moved = new Map(result.notebooks.map(notebook => [notebook.id, notebook]));
+      setNotebooks(previous => previous.map(notebook => moved.get(notebook.id) || notebook));
+      setCurrentFolderId(current => current === folderId ? result.parentId : current);
+      return true;
+    } catch (error) {
+      console.error('Folder removal failed:', error);
+      alert(t('localSaveFolderDeleteFailed'));
+      if (throwOnFailure) throw error;
+      return false;
+    }
   };
 
   // =========================================================================
-  // MULTI-DOCUMENT TAB OPERATIONS (Max 5 Stacked, Exact Page Retention)
+  // MULTI-DOCUMENT TAB OPERATIONS (Max 9, Exact Page Retention)
   // =========================================================================
 
   // Open Notebook with Tab Support
@@ -242,11 +315,11 @@ export function App() {
         lastAccessed: now
       };
 
-      if (prev.length < 5) {
+      if (prev.length < MAX_OPEN_NOTEBOOK_TABS) {
         return [...prev, newTab];
       }
 
-      // Evict oldest / least-recently accessed tab (strictly cap at 5)
+      // Evict oldest / least-recently accessed tab (strictly cap at 9)
       const sortedByAccess = [...prev].sort((a, b) => (a.lastAccessed || 0) - (b.lastAccessed || 0));
       const evictId = sortedByAccess[0].id;
       const remaining = prev.filter(t => t.id !== evictId);
@@ -315,7 +388,7 @@ export function App() {
 
   // Notebook Operations
   const handleCreateNotebook = async (notebook) => {
-    await saveNotebook(notebook);
+    const savedNotebook = await saveNotebook(notebook, { ensureUniqueName: true });
     const sizeDim = getPaperSize(notebook.sizeId || 'A4', notebook.orientation || 'portrait');
     // Create initial page for new notebook
     const page0 = {
@@ -334,7 +407,7 @@ export function App() {
     };
     await savePage(page0);
 
-    setNotebooks(prev => [notebook, ...prev]);
+    setNotebooks(prev => [savedNotebook, ...prev]);
     // Automatically open the new notebook in tabs!
     handleOpenNotebook(notebook.id, 0);
   };
@@ -342,9 +415,6 @@ export function App() {
   const handleDeleteNotebook = async (notebookId) => {
     const target = notebooks.find(nb => nb.id === notebookId);
     await deleteNotebook(notebookId);
-    if (target?.name) {
-      autoBackupService.pruneDeletedNotebook(target.name);
-    }
     setNotebooks(prev => prev.filter(nb => nb.id !== notebookId));
 
     // Remove from openTabs if currently open
@@ -364,18 +434,18 @@ export function App() {
     });
 
     if (target?.name) {
-      await autoBackupService.pruneDeletedNotebook(target.name);
+      await autoBackupService.pruneDeletedNotebook(target.name, target.id);
     }
   };
 
   const handleDuplicateNotebook = async (notebookId) => {
     try {
-      const cloned = await duplicateNotebook(notebookId);
+      const cloned = await duplicateNotebook(notebookId, { copySuffix: t('notebookCopySuffix') });
       setNotebooks(prev => [cloned, ...prev]);
-      alert(`ทำสำเนาสำเร็จ! สร้างสมุด: "${cloned.name}"`);
+      alert(t('duplicateSuccess') + ' "' + localizeNotebookCopyName(cloned.name, t('notebookCopySuffix')) + '"');
     } catch (err) {
       console.error(err);
-      alert('ไม่สามารถทำสำเนาได้: ' + err.message);
+      alert(t('cannotDuplicate') + ': ' + (err.code === 'NOTEBOOK_NOT_FOUND' ? t('duplicateNotebookNotFound') : err.message));
     }
   };
 
@@ -389,11 +459,14 @@ export function App() {
     }
   };
 
-  const handleNotebookUpdated = async (updated) => {
-    await saveNotebook(updated);
-    setNotebooks(prev => prev.map(nb => nb.id === updated.id ? updated : nb));
-    // Update title in openTabs immediately
-    setOpenTabs(prev => prev.map(t => t.id === updated.id ? { ...t, title: updated.name } : t));
+  const handleNotebookCommitted = useCallback(savedNotebook => {
+    setNotebooks(prev => prev.map(nb => nb.id === savedNotebook.id ? savedNotebook : nb));
+    setOpenTabs(prev => prev.map(tab => tab.id === savedNotebook.id ? { ...tab, title: savedNotebook.name } : tab));
+  }, []);
+
+  const handleNotebookUpdated = async updated => {
+    const savedNotebook = await saveNotebook(updated, { ensureUniqueName: true });
+    handleNotebookCommitted(savedNotebook);
   };
 
   // Import PDF Success handler (supports single notebook or array from batch import)
@@ -438,27 +511,41 @@ export function App() {
       }
 
       const result = await importFullBackup(file);
-      alert(`กู้คืนข้อมูลสำเร็จ! นำเข้าแล้ว ${result.notebooksCount} สมุดบันทึก`);
-      await loadData();
+      alert(result.refreshFailed ? t('backupRecoveryRefreshFailed') : t('backupReadRestored', '', { count: result.notebooksCount }));
     } catch (err) {
       console.error(err);
-      alert('เกิดข้อผิดพลาดในการกู้คืน: ' + err.message);
+      alert(file.name.endsWith('.bnote') ? 'เกิดข้อผิดพลาดในการกู้คืน: ' + err.message : t(backupReadErrorKey(err.code || 'backup-recovery-write-failed')));
     }
   };
 
   // Direct Export Notebook to PDF from Library View
   const handleExportNotebookPdf = async (nb) => {
+    if (libraryExportBusy.current) return;
+    libraryExportBusy.current = true;
+    clearTimeout(libraryExportTimers.current.get(nb.id));
+    libraryExportTimers.current.delete(nb.id);
+    const job = crypto.randomUUID();
+    const report = (current, total, stage = 'prepare') => setLibraryExports(previous => {
+      const value = stage === 'done' ? 1 : stage === 'merge' ? .94 : stage === 'save' ? .98 : .9 * current / Math.max(1,total);
+      return {...previous, [nb.id]: {job,stage,current,total,value:Math.max(previous[nb.id]?.value || 0,value)}};
+    });
+    setLibraryExports(previous => ({...previous,[nb.id]:{job,stage:'prepare',current:0,total:nb.pageCount||0,value:0}}));
     try {
-      const pages = await getPagesByNotebookId(nb.id);
-      if (!pages || pages.length === 0) {
-        alert('สมุดเล่มนี้ยังไม่มีหน้าเอกสาร');
-      }
-      alert(`กำลังส่งออก PDF สำหรับสมุด "${nb.name}"... ระบบจะเริ่มดาวน์โหลดทันทีที่ประมวลผลเสร็จสิ้น`);
-      await exportNotebookToPdf(nb, pages);
+      await flushLocalSaves();
+      const pages = await loadPageManifest(nb.id, {templateId:nb.templateId});
+      await exportNotebookToPdf(nb, pages, report, {loadPage:index=>loadPdfOwnerPage(nb.id,pages[index].id)});
+      report(pages.length,pages.length,'done');
+      libraryExportTimers.current.set(nb.id,setTimeout(() => {
+        libraryExportTimers.current.delete(nb.id);
+        setLibraryExports(previous => {
+          if (previous[nb.id]?.job !== job || previous[nb.id]?.stage !== 'done') return previous;
+          const next = {...previous}; delete next[nb.id]; return next;
+        });
+      },3000));
     } catch (err) {
-      console.error(err);
-      alert('เกิดข้อผิดพลาดในการส่งออก PDF: ' + err.message);
-    }
+      setLibraryExports(previous => ({...previous,[nb.id]:{stage:'error'}}));
+      alert(t('exportDialogPdfError') + (err.exportPage ? t('exportDialogPdfRange','',{first:err.exportPage,last:err.exportEnd}) + ' ' : '') + t('exportDialogPdfCreateError'));
+    } finally { libraryExportBusy.current = false; }
   };
 
   if (isLoading) {
@@ -477,13 +564,15 @@ export function App() {
 
   return (
     <div className="bn-app-root">
-      {/* Pro Studio Multi-Document Tab Bar (Max 5 Stacked) */}
+      <div inert={recovery.active ? '' : undefined} style={{ display: 'contents' }}>
+      {/* Pro Studio Multi-Document Tab Bar (Max 9) */}
       <DocumentTabBar 
         tabs={openTabs}
         activeTabId={activeNotebookId}
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
         onGoHome={handleBackToLibrary}
+        onOpenBackupStatus={() => setBackupHub({ open: true, tab: 'local', restore: null })}
       />
 
       {/* Main Workspace: NoteEditor or LibraryView */}
@@ -495,7 +584,7 @@ export function App() {
             initialPageIndex={activeNotebookPageIndex}
             onPageChanged={handlePageChanged}
             onBackToLibrary={handleBackToLibrary}
-            onNotebookUpdated={handleNotebookUpdated}
+            onNotebookUpdated={handleNotebookCommitted}
           />
         ) : (
           /* Full-Screen Library View */
@@ -513,11 +602,13 @@ export function App() {
             onDuplicateNotebook={handleDuplicateNotebook}
             onMoveNotebookToFolder={handleMoveNotebookToFolder}
             onExportNotebookPdf={handleExportNotebookPdf}
+            libraryExports={libraryExports}
             onDeleteFolder={handleDeleteFolder}
             onDeleteNotebook={handleDeleteNotebook}
             onImportPdfSuccess={handleImportPdfSuccess}
             onImportBnoteSuccess={handleImportBnoteSuccess}
-            onOpenDriveModal={() => setIsDriveModalOpen(true)}
+            onOpenDriveModal={() => setBackupHub({ open: true, tab: 'drive', restore: null })}
+            onOpenBackupStatus={(tab = 'local', restore = null) => setBackupHub({ open: true, tab, restore })}
             isDriveConnected={isDriveConnected}
             isSyncing={isAutoSyncing}
             currentTheme={theme}
@@ -534,19 +625,42 @@ export function App() {
         )}
       </div>
 
-      {/* Google Drive / Cloud Sync Modal */}
-      <GoogleDriveModal 
-        isOpen={isDriveModalOpen}
-        onClose={() => setIsDriveModalOpen(false)}
-        onSyncComplete={loadData}
-      />
+      {isClosingAfterSave && (
+        <div className="bn-local-close-overlay" role="status">
+          <span>{t('localSaveClosing')}</span>
+        </div>
+      )}
 
-      {/* Microsoft Store Update Notification Modal */}
+      <BackupStatusModal isOpen={backupHub.open} initialTab={backupHub.tab}
+        onClose={() => setBackupHub({ open: false, tab: 'local', restore: null })}
+        notebooks={notebooks} onTriggerSync={opts => autoBackupService.runAutoBackup(opts)}
+        onRestoreBackup={backupHub.restore} />
+
+      <UpdateToast notice={updateNotice} visible={updateHomeVisible} onDismiss={dismissUpdateNotice} />
+      {/* Manual update details remain available in Settings. */}
       <UpdateNotificationModal 
         isOpen={isUpdateModalOpen}
         onClose={() => setIsUpdateModalOpen(false)}
         updateData={updateModalData}
       />
+      </div>
+      {recovery.active && (
+        <div className="bn-backup-recovery-overlay" role="status" aria-live="polite">
+          <div><p>{t(({ waiting: 'backupRecoveryWaiting', checking: 'backupRecoveryChecking',
+            writing: 'backupRecoveryWriting', refreshing: 'backupRecoveryRefreshing', unconfirmed: 'backupRecoveryUnconfirmed' })[recovery.phase])}</p>
+            {recovery.progress && <div data-recovery-progress style={{marginBottom:12}}>
+              <p>{t(recovery.progress.stage==='opening'?'backupRestoreOpening':recovery.progress.stage==='reading'?'backupRestoreReading':recovery.progress.stage==='planning'?'backupRestorePlanning':recovery.progress.totalNotebooks?'backupRestoreChecking':'backupRestoreValidating', '', {
+                current: recovery.progress.notebooksDone || 0, total: recovery.progress.totalNotebooks || 0,
+                done: ((recovery.progress.bytesDone || 0)/1048576).toFixed(1), size: ((recovery.progress.totalBytes || 0)/1048576).toFixed(1)
+              })}</p>
+              {recovery.progress.totalBytes > 0 && !recovery.progress.totalNotebooks && <progress style={{width:'100%'}} max={recovery.progress.totalBytes} value={recovery.progress.bytesDone || 0}/>}
+              {recovery.progress.totalNotebooks > 0 && <progress style={{width:'100%'}} max={recovery.progress.totalNotebooks} value={recovery.progress.notebooksDone || 0}/>}
+            </div>}
+            {recovery.phase !== 'unconfirmed' && <small>{t('backupRecoveryKeepOpen')}</small>}
+            {['waiting','checking'].includes(recovery.phase) && <button type="button" className="bn-backup-hub-button" data-cancel-recovery style={{display:'block',marginTop:16}} onClick={()=>backupRecovery.cancel()}>{t('cancel')}</button>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

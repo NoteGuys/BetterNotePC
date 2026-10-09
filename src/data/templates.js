@@ -109,7 +109,14 @@ export const PAPER_TEMPLATES = [
     spacing: 28,
     type: 'dotted',
     isDark: true
-  }
+  },
+  {
+    id: 'whiteboard',
+    name: 'ไวท์บอร์ด (Whiteboard)',
+    description: 'พื้นที่เขียนไม่จำกัด เลื่อนไปได้ทุกทิศทาง และส่งออก PDF ครอบคลุมงานทั้งหมด',
+    bg: '#ffffff',
+    type: 'blank'
+  },
 ];
 
 export const getPaperSize = (sizeId = 'A4', orientation = 'portrait') => {

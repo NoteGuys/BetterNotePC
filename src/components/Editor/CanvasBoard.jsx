@@ -1,11 +1,14 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { cachedPdfRaster, loadPdfRaster } from '../../services/pdfRasterService.js';
+import { canvasRasterScale, appendedStrokeStart } from '../../utils/canvasBudget.js';
+import React, { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import { renderPaperBackground } from '../../utils/paperRenderer';
 import { 
   renderStroke, 
   renderAllStrokes, 
   classifyGeometricShape,
+  recognizeHighlighterLine,
   generateVectorShapePoints,
-  renderShapePreview,
+  snapAngle,
   isStrokeHitByEraser, 
   eraseStrokesPrecision, 
   detectScribble,
@@ -39,18 +42,96 @@ import {
 import { useLanguage } from '../../services/i18n';
 import { ImageCropModal } from './ImageCropModal';
 import { SnipModal } from './SnipModal';
+import { ColorWheelPicker } from '../Common/ColorWheelPicker';
+import { DEFAULT_QUICK_COLORS } from '../../services/userPreferences';
+
+// One accepted canvas contact owns the ink lock, including multi-page layouts.
+let activeCanvasSession = null;
 
 const PAGE_WIDTH = 1200;
 const PAGE_HEIGHT = 1600;
+const PASTE_HOLD_DELAY = 1200;
+const PASTE_HOLD_FEEDBACK_DELAY = 600;
+
+const updateHeldShapeEnd = (shape, currentCoords) => {
+  const previous = shape.lastPointerPt || shape.holdPt;
+  if (previous && Math.hypot(previous.x - currentCoords.x, previous.y - currentCoords.y) < 1e-6) return;
+  shape.lastPointerPt = { x: currentCoords.x, y: currentCoords.y };
+  shape.endPt = currentCoords;
+  if (shape.type === 'circle' || shape.type === 'ellipse') {
+    const radX = Math.abs(currentCoords.x - shape.startPt.x) / 2;
+    const radY = Math.abs(currentCoords.y - shape.startPt.y) / 2;
+    shape.center = { x: (shape.startPt.x + currentCoords.x) / 2, y: (shape.startPt.y + currentCoords.y) / 2 };
+    shape.rx = radX;
+    shape.ry = radY;
+  } else if (shape.type === 'triangle') {
+    const s = shape;
+    const center = s.center || { x: (s.startPt.x + s.endPt.x) / 2, y: (s.startPt.y + s.endPt.y) / 2 };
+    if (!s.origVertices && s.vertices) {
+      s.origVertices = s.vertices.map(pt => ({ ...pt }));
+    }
+    if (!s.initDist) {
+      const holdX = s.holdPt ? s.holdPt.x : currentCoords.x;
+      const holdY = s.holdPt ? s.holdPt.y : currentCoords.y;
+      s.initDist = Math.max(15, Math.hypot(holdX - center.x, holdY - center.y));
+      s.initAngle = Math.atan2(holdY - center.y, holdX - center.x);
+    }
+
+    const currDist = Math.hypot(currentCoords.x - center.x, currentCoords.y - center.y);
+    const scale = Math.max(0.08, currDist / Math.max(15, s.initDist));
+
+    // Subtle rotation snap: only rotate if moved > 9 degrees (0.16 rad)
+    const currAngle = Math.atan2(currentCoords.y - center.y, currentCoords.x - center.x);
+    let dAngle = currAngle - (s.initAngle || 0);
+    if (Math.abs(dAngle) < 0.16) dAngle = 0;
+
+    const cos = Math.cos(dAngle);
+    const sin = Math.sin(dAngle);
+
+    if (s.origVertices && s.origVertices.length >= 3) {
+      s.vertices = s.origVertices.map(v => {
+        const dx = v.x - center.x;
+        const dy = v.y - center.y;
+        return {
+          x: center.x + (dx * cos - dy * sin) * scale,
+          y: center.y + (dx * sin + dy * cos) * scale
+        };
+      });
+    }
+  } else if (shape.type === 'polyline' && shape.vertices) {
+    shape.vertices[shape.vertices.length - 1] = currentCoords;
+  }
+};
+
+// React wraps PointerEvent; intermediate digitizer samples live on nativeEvent.
+// Include the parent event: devices can return no samples or omit its endpoint.
+const getInkSamples = (event) => {
+  const nativeEvent = event.nativeEvent || event;
+  let samples = [];
+  try {
+    if (typeof nativeEvent.getCoalescedEvents === 'function') {
+      samples = Array.from(nativeEvent.getCoalescedEvents() || []);
+    }
+  } catch (_) {
+    // A device/browser without usable coalesced data still supplies this event.
+  }
+  samples.push(nativeEvent);
+  return samples;
+};
 
 export const CanvasBoard = ({
   page,
+  newlyPastedImageId = null,
   templateId,
   activeTool,
   activeColor,
+  colorSlots = DEFAULT_QUICK_COLORS,
+  onColorChange,
+  onCustomColorChange,
   activeWidth,
   activeShape,
   penNib = 'fountain',
+  highlighterTip = 'square',
   isTapered = true,
   usePressure = true,
   pressureSensitivity = 'medium',
@@ -58,9 +139,11 @@ export const CanvasBoard = ({
   scribbleToErase = true,
   penOnly = true,
   zoom = 1.0,
+  rasterBudget = 96 * 1024 * 1024,
   onZoomChange,
   onToolChange,
   onBatchUpdatePage,
+  selectedPageId,
   onStrokesChange,
   onTextElementsChange,
   onImageElementsChange,
@@ -76,7 +159,16 @@ export const CanvasBoard = ({
 
   // Inking state
   const isDrawingRef = useRef(false);
+  const pointerSessionRef = useRef(null);
   const currentPointsRef = useRef([]);
+  const inkFrameRef = useRef(null);
+  const shapePreviewRef = useRef(null);
+  const cancelInkPreview = useCallback(() => {
+    if (inkFrameRef.current !== null) cancelAnimationFrame(inkFrameRef.current);
+    inkFrameRef.current = null;
+    shapePreviewRef.current = null;
+  }, []);
+  const strokeStartTimeRef = useRef(0);
   const startPointRef = useRef(null);
   const [activeTextId, setActiveTextId] = useState(null);
   const [selectedImageId, setSelectedImageId] = useState(null);
@@ -106,14 +198,55 @@ export const CanvasBoard = ({
   // Long-Press Floating Paste Menu State & Timer
   const [floatingPasteMenu, setFloatingPasteMenu] = useState(null); // { x, y, canvasX, canvasY }
   const longPressTimerRef = useRef(null);
-  const longPressStartPosRef = useRef({ clientX: 0, clientY: 0, canvasX: 0, canvasY: 0 });
+  const longPressFeedbackTimerRef = useRef(null);
+  const pasteHoldRef = useRef(null);
+  const lastPastePointerRef = useRef(null);
+  const [pasteHoldFeedback, setPasteHoldFeedback] = useState(null);
   const lastTouchTimeRef = useRef(0);
 
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    };
+  const cancelPasteHold = useCallback(() => {
+    clearTimeout(longPressTimerRef.current);
+    clearTimeout(longPressFeedbackTimerRef.current);
+    longPressTimerRef.current = null;
+    longPressFeedbackTimerRef.current = null;
+    pasteHoldRef.current = null;
+    setPasteHoldFeedback(null);
   }, []);
+
+  // A hold belongs to one contact only; leaving the page or changing tools cancels it.
+  useEffect(() => {
+    cancelPasteHold();
+  }, [activeTool, page?.id, zoom, cancelPasteHold]);
+
+  useEffect(() => {
+    const endHold = (e) => {
+      const press = lastPastePointerRef.current;
+      if (press?.pointerId === e.pointerId) {
+        press.isDown = false;
+        press.endedAt = Date.now();
+      }
+      if (pasteHoldRef.current?.pointerId === e.pointerId) cancelPasteHold();
+    };
+    const anotherContact = (e) => {
+      if (pasteHoldRef.current && pasteHoldRef.current.pointerId !== e.pointerId) cancelPasteHold();
+    };
+    window.addEventListener('pointerup', endHold);
+    window.addEventListener('pointercancel', endHold);
+    window.addEventListener('lostpointercapture', endHold);
+    window.addEventListener('pointerdown', anotherContact, true);
+    window.addEventListener('blur', cancelPasteHold);
+    window.addEventListener('scroll', cancelPasteHold, true);
+    return () => {
+      clearTimeout(longPressTimerRef.current);
+      clearTimeout(longPressFeedbackTimerRef.current);
+      window.removeEventListener('pointerup', endHold);
+      window.removeEventListener('pointercancel', endHold);
+      window.removeEventListener('lostpointercapture', endHold);
+      window.removeEventListener('pointerdown', anotherContact, true);
+      window.removeEventListener('blur', cancelPasteHold);
+      window.removeEventListener('scroll', cancelPasteHold, true);
+    };
+  }, [cancelPasteHold]);
 
   // Draw & Hold QuickShape State & Timer
   const holdTimerRef = useRef(null);
@@ -160,7 +293,6 @@ export const CanvasBoard = ({
 
   const strokes = page?.strokes || [];
   const textElements = page?.textElements || [];
-  const imageElements = page?.imageElements || [];
 
   // Ref tracking latest committed strokes to prevent stale snapshots during rapid lasso interactions
   const latestStrokesRef = useRef(strokes);
@@ -171,13 +303,71 @@ export const CanvasBoard = ({
   const canvasWidth = page?.pageWidth || PAGE_WIDTH;
   const canvasHeight = page?.pageHeight || PAGE_HEIGHT;
 
+  // Older toolbar pastes can contain NaN / null coordinates. Repair only the
+  // working view; persistence still happens solely through existing user actions.
+  const imageElements = useMemo(() => (page?.imageElements || []).map(img => {
+    if (Number.isFinite(img.x) && Number.isFinite(img.y)) return img;
+    return {
+      ...img,
+      x: Number.isFinite(img.x) ? img.x : Math.max(20, Math.min(
+        canvasWidth - img.width - 20, Math.round((canvasWidth - img.width) / 2)
+      )),
+      y: Number.isFinite(img.y) ? img.y : Math.max(20, Math.min(
+        canvasHeight - img.height - 20, Math.round((canvasHeight - img.height) / 2)
+      ))
+    };
+  }), [page?.imageElements, canvasWidth, canvasHeight]);
+
+  useEffect(() => {
+    if (!newlyPastedImageId) return;
+    setSelectedImageId(newlyPastedImageId);
+    setLassoSelection(null);
+    setShowLassoColorPicker(false);
+  }, [newlyPastedImageId]);
+
+  const lassoSelectedImages = lassoSelection
+    ? imageElements.filter(img => lassoSelection.imageIds.includes(img.id))
+    : [];
+  const isImageOnlyLassoSelection = !!lassoSelection &&
+    lassoSelection.strokeIndices.length === 0 && lassoSelection.textIds.length === 0 &&
+    lassoSelectedImages.length > 0;
+  const areLassoImagesLocked = lassoSelectedImages.length > 0 &&
+    lassoSelectedImages.every(img => img.locked);
+  const canTransformLassoSelection = !!lassoSelection && (
+    lassoSelection.strokeIndices.length > 0 || lassoSelection.textIds.length > 0 ||
+    lassoSelectedImages.some(img => !img.locked)
+  );
+
   const showToast = (msg) => {
     setGestureToast(msg);
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     toastTimeoutRef.current = setTimeout(() => setGestureToast(''), 1800);
   };
 
-  const getDpr = () => (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+  const getDpr = () => canvasRasterScale(canvasWidth, canvasHeight, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, rasterBudget);
+  const rasterScale = getDpr();
+  const staticRenderRef = useRef(null);
+  useEffect(() => {
+    const canvases = [bgCanvasRef.current, staticCanvasRef.current, activeCanvasRef.current];
+    return () => { for (const canvas of canvases) if (canvas) canvas.width = canvas.height = 1; };
+  }, []);
+
+  // Keep the ready small PDF beneath the canvas while a sharper nearby raster arrives.
+  const [pdfRaster, setPdfRaster] = useState(null);
+  useEffect(() => {
+    if (!page?.pdfLazyRaster) { setPdfRaster(null); return; }
+    let cancelled=false,timer;const controller=new AbortController();
+    const ready=cachedPdfRaster(page);
+    setPdfRaster(ready?{id:page.id,digest:page.pdfOriginalDigest,url:ready}:null);
+    const prepare=()=>{
+      if(cancelled)return;
+      if(window.__bn_pen_active||window.__bn_drag_active){timer=setTimeout(prepare,100);return;}
+      loadPdfRaster(page,{signal:controller.signal}).then(url=>{if(!cancelled)setPdfRaster({id:page.id,digest:page.pdfOriginalDigest,url});}).catch(()=>{ /* Keep the available page image; exports report failures. */ });
+    };
+    if(!ready)prepare();
+    return()=>{cancelled=true;controller.abort();clearTimeout(timer);};
+  }, [page?.id,page?.pdfLazyRaster,page?.pdfOriginalId,page?.pdfOriginalDigest,page?.pdfPageNumber]);
+  const pdfBackground = pdfRaster?.id===page?.id && pdfRaster.digest===page?.pdfOriginalDigest ? pdfRaster.url : page?.pdfPageImage;
 
   // 1. Render Background Canvas with High-DPI
   useEffect(() => {
@@ -190,32 +380,40 @@ export const CanvasBoard = ({
     const ctx = bgCanvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
-    if (page?.pdfPageImage) {
+    let cancelled=false;
+    if (pdfBackground) {
       const img = new Image();
       img.onload = () => {
+        if(cancelled)return;
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
       };
-      img.src = page.pdfPageImage;
+      img.src = pdfBackground;
     } else {
       const tmpl = PAPER_TEMPLATES.find(t => t.id === (page?.templateId || templateId)) || PAPER_TEMPLATES[0];
       renderPaperBackground(ctx, canvasWidth, canvasHeight, tmpl);
     }
-  }, [page?.id, page?.pdfPageImage, page?.templateId, templateId, canvasWidth, canvasHeight]);
+    return()=>{cancelled=true;};
+  }, [page?.id, pdfBackground, page?.templateId, templateId, canvasWidth, canvasHeight, rasterScale]);
 
   // 2. Render Static Strokes Layer with High-DPI
   useEffect(() => {
     const staticCanvas = staticCanvasRef.current;
     if (!staticCanvas) return;
     const dpr = getDpr();
-    staticCanvas.width = canvasWidth * dpr;
-    staticCanvas.height = canvasHeight * dpr;
-
+    const previous = staticRenderRef.current;
+    const appendAt = previous?.pageId === page?.id && previous.scale === dpr &&
+      previous.width === canvasWidth && previous.height === canvasHeight
+      ? appendedStrokeStart(previous.strokes, strokes) : -1;
     const ctx = staticCanvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    renderAllStrokes(ctx, strokes);
-  }, [page?.id, strokes, canvasWidth, canvasHeight]);
+    if (appendAt >= 0) {
+      for (let i = appendAt; i < strokes.length; i++) renderStroke(ctx, strokes[i]);
+    } else {
+      staticCanvas.width = canvasWidth * dpr; staticCanvas.height = canvasHeight * dpr;
+      ctx.scale(dpr, dpr); ctx.clearRect(0, 0, canvasWidth, canvasHeight); renderAllStrokes(ctx, strokes);
+    }
+    staticRenderRef.current = { pageId: page?.id, strokes, scale: dpr, width: canvasWidth, height: canvasHeight };
+  }, [page?.id, strokes, canvasWidth, canvasHeight, rasterScale]);
 
   // Initialize Active Canvas dimensions
   useEffect(() => {
@@ -224,14 +422,14 @@ export const CanvasBoard = ({
     const dpr = getDpr();
     activeCanvas.width = canvasWidth * dpr;
     activeCanvas.height = canvasHeight * dpr;
-  }, [canvasWidth, canvasHeight]);
+  }, [canvasWidth, canvasHeight, rasterScale]);
 
   // Transform client coordinates to canvas internal coordinates
-  const getCanvasCoordinates = useCallback((e) => {
+  const getCanvasCoordinates = useCallback((e, bounds) => {
     const activeCanvas = activeCanvasRef.current;
     if (!activeCanvas) return { x: 0, y: 0, pressure: 0.5 };
 
-    const rect = activeCanvas.getBoundingClientRect();
+    const rect = bounds || activeCanvas.getBoundingClientRect();
     const scaleX = canvasWidth / rect.width;
     const scaleY = canvasHeight / rect.height;
 
@@ -242,215 +440,131 @@ export const CanvasBoard = ({
     return { x, y, pressure };
   }, [canvasWidth, canvasHeight]);
 
-  // Touch Start: Strict Isolation between Pen, Snip, Touch Panning & Pinch-to-Zoom
-  const handleTouchStart = (e) => {
-    lastTouchTimeRef.current = Date.now();
-
-    // PALM REJECTION & OBJECT DRAG LOCK:
-    // If pen is drawing, OR if user is dragging an image, lasso, or selection: DO NOT SCROLL AT ALL!
-    const isPenWritingRecently = isDrawingRef.current || 
-                                 window.__bn_pen_active || 
-                                 (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200));
-
-    const isDraggingObject = imageDragRef.current.isDragging || 
-                             imageDragRef.current.isResizing || 
-                             lassoDragRef.current.isDragging || 
-                             lassoDragRef.current.isResizing || 
-                             window.__bn_drag_active;
-
-    if (isPenWritingRecently || isDraggingObject) {
-      isPanningRef.current = false;
-      return;
-    }
-
-    // If multiple touches detected (2 or more fingers), cancel any active in-progress drawing immediately
-    if (e.touches.length >= 2) {
-      if (isDrawingRef.current) {
-        isDrawingRef.current = false;
-        currentPointsRef.current = [];
-        if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-        const activeCanvas = activeCanvasRef.current;
-        if (activeCanvas) {
-          const dpr = getDpr();
-          const ctx = activeCanvas.getContext('2d');
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        }
-      }
-      // Release any pointer capture on active canvas so multi-touch gestures work cleanly
-      try { activeCanvasRef.current?.releasePointerCapture(); } catch (_) {}
-      return;
-    }
-
-    // If snipping, do not pan/scroll
-    if (isSnippingRef.current || activeTool === 'snip') {
-      isPanningRef.current = false;
-      return;
-    }
-
-    // Cancel any active momentum scroll
-    if (momentumAnimRef.current) {
-      cancelAnimationFrame(momentumAnimRef.current);
-      momentumAnimRef.current = null;
-    }
-
-    // Dismiss floating paste menu if open
-    if (floatingPasteMenu) {
-      setFloatingPasteMenu(null);
-    }
-
-    // Single Finger Touch Scrolling: record start position
-    // (Panning engages only on intentional movement > 16px to avoid palm rest jitter)
-    if (e.touches.length === 1) {
-      const scrollParent = containerRef.current?.closest('.bn-editor-canvas-stage') || window;
-      const t = e.touches[0];
-      panStartRef.current = {
-        x: t.clientX,
-        y: t.clientY,
-        scrollLeft: scrollParent.scrollLeft ?? 0,
-        scrollTop: scrollParent.scrollTop ?? 0
-      };
-
-      touchVelocityRef.current = {
-        vx: 0,
-        vy: 0,
-        lastX: t.clientX,
-        lastY: t.clientY,
-        lastTime: performance.now()
-      };
-      isPanningRef.current = false;
+  // Collect immediately, independently of preview timing. Read layout once for
+  // the whole input batch, including the final point delivered on pointer-up.
+  const appendInkSamples = (event, releasing = false) => {
+    const canvas = activeCanvasRef.current;
+    if (!canvas) return;
+    const bounds = canvas.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    for (const sample of getInkSamples(event)) {
+      if (!Number.isFinite(sample.clientX) || !Number.isFinite(sample.clientY)) continue;
+      const point = getCanvasCoordinates(sample, bounds);
+      const previous = currentPointsRef.current[currentPointsRef.current.length - 1];
+      // Pointer-up pressure is normally zero. Keep the last contact pressure
+      // rather than introducing a 0.5-pressure dot at the end of the line.
+      if (releasing && !(sample.pressure > 0) && previous) point.pressure = previous.pressure;
+      if (previous && previous.x === point.x && previous.y === point.y &&
+          previous.pressure === point.pressure) continue;
+      currentPointsRef.current.push(point);
     }
   };
 
-  // Touch Move: Handle Single Finger Panning (2 fingers bubble to Stage for pinch-to-zoom)
-  const handleTouchMove = (e) => {
-    lastTouchTimeRef.current = Date.now();
-
-    // Two or more fingers: let Stage handle pinch-to-zoom cleanly without interference
-    if (e.touches.length >= 2) {
-      isPanningRef.current = false;
-      return;
-    }
-
-    // PALM REJECTION & OBJECT DRAG LOCK:
-    // If pen is drawing, OR if user is dragging an image, lasso, or selection: DO NOT SCROLL AT ALL!
-    const isPenWritingRecently = isDrawingRef.current || 
-                                 window.__bn_pen_active || 
-                                 (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200));
-
-    const isDraggingObject = imageDragRef.current.isDragging || 
-                             imageDragRef.current.isResizing || 
-                             lassoDragRef.current.isDragging || 
-                             lassoDragRef.current.isResizing || 
-                             window.__bn_drag_active;
-
-    if (isPenWritingRecently || isDraggingObject || isSnippingRef.current || activeTool === 'snip') {
-      isPanningRef.current = false;
-      return;
-    }
-
-    // Single Finger Pan: move page smoothly whenever pen is not drawing
-    if (e.touches.length === 1) {
-      const t = e.touches[0];
-      const deltaX = t.clientX - panStartRef.current.x;
-      const deltaY = t.clientY - panStartRef.current.y;
-      const dist = Math.hypot(deltaX, deltaY);
-
-      // Require intentional drag (> 16px) to distinguish deliberate finger swipe from resting palm
-      if (!isPanningRef.current) {
-        if (dist > 16) {
-          isPanningRef.current = true;
-        } else {
-          return;
-        }
-      }
-
-      // Stop propagation to avoid double-scrolling conflict with NoteEditor stage
-      e.stopPropagation();
-
-      const scrollParent = containerRef.current?.closest('.bn-editor-canvas-stage');
-      if (scrollParent) {
-        const now = performance.now();
-        const dt = Math.max(1, now - touchVelocityRef.current.lastTime);
-
-        scrollParent.scrollLeft = panStartRef.current.scrollLeft - deltaX;
-        scrollParent.scrollTop = panStartRef.current.scrollTop - deltaY;
-
-        // Calculate velocity (pixels per ms)
-        const vx = (t.clientX - touchVelocityRef.current.lastX) / dt;
-        const vy = (t.clientY - touchVelocityRef.current.lastY) / dt;
-
-        touchVelocityRef.current = {
-          vx,
-          vy,
-          lastX: t.clientX,
-          lastY: t.clientY,
-          lastTime: now
-        };
-      }
-    }
+  // Paint at most once per display frame; retain every input sample above.
+  // Keep the established nib/taper renderer so saved and preview ink match.
+  const scheduleInkPreview = () => {
+    if (inkFrameRef.current !== null) return;
+    inkFrameRef.current = requestAnimationFrame(() => {
+      inkFrameRef.current = null;
+      if (!isDrawingRef.current || heldShapeRef.current) return;
+      const canvas = activeCanvasRef.current;
+      if (!canvas) return;
+      const dpr = getDpr();
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      renderStroke(ctx, {
+        tool: activeTool, color: activeColor, width: activeWidth,
+        points: currentPointsRef.current, nibType: penNib, highlighterTip,
+        isTapered, usePressure, pressureSensitivity
+      });
+    });
   };
 
-  // Touch End: Handle Inertial Momentum Scrolling (Never stops propagation for multi-touch)
-  const handleTouchEnd = (e) => {
+  useEffect(() => () => cancelInkPreview(),
+    [page?.id, activeTool, canvasWidth, canvasHeight, cancelInkPreview]);
+
+  // Navigation belongs to NoteEditor (or WhiteboardBoard), never both layers.
+  // Keep touch timestamps and the existing paste hold; fingers still never draw ink.
+  const handleTouchStart = e => {
     lastTouchTimeRef.current = Date.now();
-    // If multi-touch in progress, cancel panning and allow touchend to bubble cleanly to NoteEditor
-    if (e.touches.length >= 2) {
-      isPanningRef.current = false;
-      return;
-    }
+    if (e.touches.length > 1) { cancelPasteHold(); return; }
+    const locked = isDrawingRef.current || window.__bn_pen_active || window.__bn_drag_active ||
+      imageDragRef.current.isDragging || imageDragRef.current.isResizing ||
+      lassoDragRef.current.isDragging || lassoDragRef.current.isResizing ||
+      (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200);
+    if (!locked && !isSnippingRef.current && activeTool !== 'snip' && floatingPasteMenu) setFloatingPasteMenu(null);
+  };
+  const handleTouchMove = () => { lastTouchTimeRef.current = Date.now(); };
+  const handleTouchEnd = () => { lastTouchTimeRef.current = Date.now(); };
 
-    const isDraggingObject = imageDragRef.current.isDragging || 
-                             imageDragRef.current.isResizing || 
-                             lassoDragRef.current.isDragging || 
-                             lassoDragRef.current.isResizing || 
-                             window.__bn_drag_active;
-
-    // If pen is active or used recently, kill any momentum scrolling immediately
-    if (isDrawingRef.current || 
-        window.__bn_pen_active || 
-        (window.__bn_pen_last_time && (Date.now() - window.__bn_pen_last_time < 1200)) ||
-        isDraggingObject) {
-      isPanningRef.current = false;
-      return;
-    }
-
-    // Single Finger Pan End (Momentum Scrolling)
-    if (isPanningRef.current) {
-      isPanningRef.current = false;
-      const scrollParent = containerRef.current?.closest('.bn-editor-canvas-stage');
-      if (scrollParent) {
-        let { vx, vy } = touchVelocityRef.current;
-        const speed = Math.hypot(vx, vy);
-
-        if (speed > 0.25) {
-          const friction = 0.95;
-          const minVelocity = 0.05;
-
-          const applyMomentum = () => {
-            // Cancel momentum if user touches pen down!
-            if (window.__bn_pen_active || isDrawingRef.current) {
-              momentumAnimRef.current = null;
-              return;
-            }
-
-            vx *= friction;
-            vy *= friction;
-
-            scrollParent.scrollLeft -= vx * 16;
-            scrollParent.scrollTop -= vy * 16;
-
-            if (Math.hypot(vx, vy) > minVelocity) {
-              momentumAnimRef.current = requestAnimationFrame(applyMomentum);
-            } else {
-              momentumAnimRef.current = null;
-            }
-          };
-
-          momentumAnimRef.current = requestAnimationFrame(applyMomentum);
-        }
+  // Start once at pointer-down. Moving away permanently cancels this contact's hold.
+  const startPasteHold = (e, coords) => {
+    cancelPasteHold();
+    if (e.isPrimary === false || e.button !== 0 || (e.buttons & 2)) return;
+    const hold = {
+      pointerId: e.pointerId,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      coords,
+      movementLimit: e.pointerType === 'touch' ? 10 : 3,
+      opened: false
+    };
+    pasteHoldRef.current = hold;
+    longPressFeedbackTimerRef.current = setTimeout(() => {
+      if (pasteHoldRef.current === hold) setPasteHoldFeedback(coords);
+      longPressFeedbackTimerRef.current = null;
+    }, PASTE_HOLD_FEEDBACK_DELAY);
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      clearTimeout(longPressFeedbackTimerRef.current);
+      longPressFeedbackTimerRef.current = null;
+      setPasteHoldFeedback(null);
+      if (pasteHoldRef.current !== hold) return;
+      if (isSnippingRef.current || isLassoingRef.current || heldShapeRef.current ||
+          imageDragRef.current.isDragging || imageDragRef.current.isResizing ||
+          lassoDragRef.current.isDragging || lassoDragRef.current.isResizing) {
+        cancelPasteHold();
+        return;
       }
-    }
+      // Keep active ink intact; pointer-up still commits it through the normal path.
+      hold.opened = true;
+      setFloatingPasteMenu({ x: coords.x, y: coords.y, canvasX: coords.x, canvasY: coords.y });
+    }, PASTE_HOLD_DELAY);
+  };
+
+  const recordPastePointer = (e) => {
+    lastPastePointerRef.current = {
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      secondary: e.button === 2 || Boolean(e.buttons & 2),
+      isDown: true,
+      endedAt: 0
+    };
+  };
+
+  // Preview and commit use the same points and nib settings.
+  const createShapeStroke = shapeInfo => ({
+    tool: 'pen', color: activeColor, width: activeWidth,
+    points: generateVectorShapePoints(shapeInfo, penNib),
+    nibType: penNib, isTapered: false, shapeType: shapeInfo.type
+  });
+
+  // A drag may deliver many events within one frame; paint only its latest shape.
+  const scheduleShapePreview = shapeInfo => {
+    shapePreviewRef.current = shapeInfo;
+    if (inkFrameRef.current !== null) return;
+    inkFrameRef.current = requestAnimationFrame(() => {
+      inkFrameRef.current = null;
+      const shape = shapePreviewRef.current;
+      shapePreviewRef.current = null;
+      const canvas = activeCanvasRef.current;
+      if (!isDrawingRef.current || !shape || !canvas) return;
+      const dpr = getDpr(), ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      renderStroke(ctx, createShapeStroke(shape));
+    });
   };
 
   // Pointer Down (Pen / Mouse / Touch)
@@ -477,27 +591,9 @@ export const CanvasBoard = ({
         return;
       }
 
-      // Start Long-Press Timer for Floating "วาง" (Paste) Menu (450ms stationary hold)
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      longPressStartPosRef.current = {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        canvasX: coords.x,
-        canvasY: coords.y
-      };
-
-      if (activeTool !== 'snip' && activeTool !== 'lasso') {
-        longPressTimerRef.current = setTimeout(() => {
-          if (!isSnippingRef.current && !isLassoingRef.current && !imageDragRef.current.isDragging) {
-            setFloatingPasteMenu({
-              x: coords.x,
-              y: coords.y,
-              canvasX: coords.x,
-              canvasY: coords.y
-            });
-          }
-        }, 450);
-      }
+      recordPastePointer(e);
+      // A stationary finger hold uses the same Paste delay.
+      if (activeTool !== 'snip' && activeTool !== 'lasso') startPasteHold(e, coords);
 
       // DO NOT draw ink. Return so touch can pan/scroll smoothly if pen is not active.
       return;
@@ -513,9 +609,11 @@ export const CanvasBoard = ({
       return;
     }
 
+    // A second contact must never replace the accepted pointer or its points.
+    if (activeCanvasSession) return;
+    recordPastePointer(e);
     // 4. STYLUS PEN (or physical desktop mouse click)
     // When pen touches the canvas: halt any scrolling immediately!
-    window.__bn_pen_active = true;
     window.__bn_pen_last_time = Date.now();
     isPanningRef.current = false;
     if (momentumAnimRef.current) {
@@ -530,37 +628,9 @@ export const CanvasBoard = ({
       setSelectedImageId(null);
     }
 
-    // Setup long-press for pen as well (e.g. if user holds pen still without moving):
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    longPressStartPosRef.current = {
-      clientX: e.clientX,
-      clientY: e.clientY,
-      canvasX: coords.x,
-      canvasY: coords.y
-    };
-
+    // Pen / mouse hold: never reset this timer after a stroke starts moving.
     if (activeTool !== 'hand' && activeTool !== 'snip' && activeTool !== 'lasso') {
-      longPressTimerRef.current = setTimeout(() => {
-        if (!isSnippingRef.current && !isLassoingRef.current && !imageDragRef.current.isDragging) {
-          if (isDrawingRef.current) {
-            isDrawingRef.current = false;
-            currentPointsRef.current = [];
-            const activeCanvas = activeCanvasRef.current;
-            if (activeCanvas) {
-              const dpr = getDpr();
-              const ctx = activeCanvas.getContext('2d');
-              ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-              ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-            }
-          }
-          setFloatingPasteMenu({
-            x: coords.x,
-            y: coords.y,
-            canvasX: coords.x,
-            canvasY: coords.y
-          });
-        }
-      }, 450);
+      startPasteHold(e, coords);
     }
 
     if (lassoSelection) {
@@ -571,8 +641,17 @@ export const CanvasBoard = ({
       }
     }
 
+    const beginSession = () => {
+      const session = { pointerId: e.pointerId, target: e.currentTarget,
+        finish: handlePointerUp, onStrokesChange };
+      pointerSessionRef.current = session;
+      activeCanvasSession = session;
+      window.__bn_pen_active = true;
+    };
+
     // Snipping Tool: start dragging rectangular crop marquee (Prevent screen scroll)
     if (activeTool === 'snip') {
+      beginSession();
       e.preventDefault();
       e.stopPropagation();
       isPanningRef.current = false;
@@ -612,6 +691,7 @@ export const CanvasBoard = ({
       }
 
       // Start new freeform lasso drawing
+      beginSession();
       isLassoingRef.current = true;
       lassoPointsRef.current = [coords];
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
@@ -635,10 +715,12 @@ export const CanvasBoard = ({
       return;
     }
 
+    beginSession();
     // Drawing / Erasing: STRICT preventDefault to lock page scroll completely while pen writes
     e.preventDefault();
     e.stopPropagation();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+    cancelInkPreview();
     isDrawingRef.current = true;
     strokeStartTimeRef.current = Date.now();
     heldShapeRef.current = null;
@@ -666,6 +748,7 @@ export const CanvasBoard = ({
         width: activeWidth,
         points: currentPointsRef.current,
         nibType: penNib,
+        highlighterTip,
         isTapered,
         usePressure,
         pressureSensitivity
@@ -675,15 +758,15 @@ export const CanvasBoard = ({
 
   // Pointer Move
   const handlePointerMove = (e) => {
-    // 1. Long-Press Movement Check: Cancel long-press timer if pointer moved > 10px
-    if (longPressTimerRef.current) {
-      const dist = Math.hypot(
-        e.clientX - longPressStartPosRef.current.clientX,
-        e.clientY - longPressStartPosRef.current.clientY
-      );
-      if (dist > 10) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
+    // Cancel on drawing movement, including coalesced samples that return to the start.
+    const hold = pasteHoldRef.current;
+    if (hold?.pointerId === e.pointerId) {
+      const samples = getInkSamples(e);
+      if (samples.some(sample => Math.hypot(
+        sample.clientX - hold.clientX, sample.clientY - hold.clientY
+      ) > hold.movementLimit)) {
+        if (hold.opened) setFloatingPasteMenu(null);
+        cancelPasteHold();
       }
     }
 
@@ -693,13 +776,13 @@ export const CanvasBoard = ({
       return;
     }
 
-    // Pen activity tracking (including hover & movement)
-    if (e.pointerType === 'pen') {
-      window.__bn_pen_last_time = Date.now();
-      if (e.buttons > 0 || e.pressure > 0) {
-        window.__bn_pen_active = true;
-      }
+    if (e.pointerType === 'pen' && e.buttons === 0 && pointerSessionRef.current?.pointerId === e.pointerId) {
+      handlePointerUp({ type: 'interruption', pointerId: e.pointerId });
+      return;
     }
+    // Hover keeps palm rejection's cooldown, but cannot acquire the ink lock.
+    if (e.pointerType === 'pen') window.__bn_pen_last_time = Date.now();
+    if (pointerSessionRef.current?.pointerId !== e.pointerId) return;
 
     // 3. Strict Scroll Lock during Active Inking: Prevent any page panning while pen is down
     if (isDrawingRef.current) {
@@ -772,75 +855,25 @@ export const CanvasBoard = ({
 
     // DRAW & HOLD QUICKSHAPE DYNAMIC RESIZE:
     // If shape is already held and user is still dragging pen, dynamically resize/rotate the shape
-    if (activeTool === 'pen' && heldShapeRef.current) {
+    if ((activeTool === 'pen' || activeTool === 'highlighter') && heldShapeRef.current) {
       const currentCoords = getCanvasCoordinates(e);
-      heldShapeRef.current.endPt = currentCoords;
-      if (heldShapeRef.current.type === 'circle' || heldShapeRef.current.type === 'ellipse') {
-        const radX = Math.abs(currentCoords.x - heldShapeRef.current.startPt.x) / 2;
-        const radY = Math.abs(currentCoords.y - heldShapeRef.current.startPt.y) / 2;
-        heldShapeRef.current.rx = radX;
-        heldShapeRef.current.ry = radY;
-      } else if (heldShapeRef.current.type === 'triangle') {
-        const s = heldShapeRef.current;
-        const center = s.center || { x: (s.startPt.x + s.endPt.x) / 2, y: (s.startPt.y + s.endPt.y) / 2 };
-        if (!s.origVertices && s.vertices) {
-          s.origVertices = s.vertices.map(pt => ({ ...pt }));
-        }
-        if (!s.initDist) {
-          const holdX = s.holdPt ? s.holdPt.x : currentCoords.x;
-          const holdY = s.holdPt ? s.holdPt.y : currentCoords.y;
-          s.initDist = Math.max(15, Math.hypot(holdX - center.x, holdY - center.y));
-          s.initAngle = Math.atan2(holdY - center.y, holdX - center.x);
-        }
-
-        const currDist = Math.hypot(currentCoords.x - center.x, currentCoords.y - center.y);
-        const scale = Math.max(0.08, currDist / Math.max(15, s.initDist));
-
-        // Subtle rotation snap: only rotate if moved > 9 degrees (0.16 rad)
-        const currAngle = Math.atan2(currentCoords.y - center.y, currentCoords.x - center.x);
-        let dAngle = currAngle - (s.initAngle || 0);
-        if (Math.abs(dAngle) < 0.16) dAngle = 0;
-
-        const cos = Math.cos(dAngle);
-        const sin = Math.sin(dAngle);
-
-        if (s.origVertices && s.origVertices.length >= 3) {
-          s.vertices = s.origVertices.map(v => {
-            const dx = v.x - center.x;
-            const dy = v.y - center.y;
-            return {
-              x: center.x + (dx * cos - dy * sin) * scale,
-              y: center.y + (dx * sin + dy * cos) * scale
-            };
-          });
-        }
-      } else if (heldShapeRef.current.type === 'polyline' && heldShapeRef.current.vertices) {
-        heldShapeRef.current.vertices[heldShapeRef.current.vertices.length - 1] = currentCoords;
-      }
+      updateHeldShapeEnd(heldShapeRef.current, currentCoords);
       ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      renderShapePreview(ctx, heldShapeRef.current, activeColor, activeWidth);
+      if (activeTool === 'highlighter') {
+        renderStroke(ctx, {tool:'highlighter',color:activeColor,width:activeWidth,highlighterTip,
+          points:generateVectorShapePoints(heldShapeRef.current)});
+      } else {
+        renderStroke(ctx, createShapeStroke(heldShapeRef.current));
+      }
       return;
     }
 
     if (activeTool === 'pen' || activeTool === 'highlighter') {
-      for (const ev of events) {
-        const coords = getCanvasCoordinates(ev);
-        currentPointsRef.current.push(coords);
-      }
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      renderStroke(ctx, {
-        tool: activeTool,
-        color: activeColor,
-        width: activeWidth,
-        points: currentPointsRef.current,
-        nibType: penNib,
-        isTapered,
-        usePressure,
-        pressureSensitivity
-      });
+      appendInkSamples(e);
+      scheduleInkPreview();
 
       // QuickShape Hold Detection: 380ms pause check
-      if (activeTool === 'pen') {
+      if (activeTool === 'pen' || activeTool === 'highlighter') {
         const latestCoord = currentPointsRef.current[currentPointsRef.current.length - 1];
         const distFromLastHold = Math.hypot(latestCoord.x - lastHoldPosRef.current.x, latestCoord.y - lastHoldPosRef.current.y);
 
@@ -849,7 +882,9 @@ export const CanvasBoard = ({
           if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
           holdTimerRef.current = setTimeout(() => {
             if (!isDrawingRef.current || heldShapeRef.current) return;
-            const recognized = classifyGeometricShape(currentPointsRef.current);
+            const recognized = activeTool === 'highlighter'
+              ? recognizeHighlighterLine(currentPointsRef.current)
+              : classifyGeometricShape(currentPointsRef.current);
             if (recognized) {
               const holdCoord = currentPointsRef.current[currentPointsRef.current.length - 1];
               recognized.holdPt = { ...holdCoord };
@@ -861,10 +896,18 @@ export const CanvasBoard = ({
               if (recognized.vertices) {
                 recognized.origVertices = recognized.vertices.map(pt => ({ ...pt }));
               }
+              cancelInkPreview();
               heldShapeRef.current = recognized;
-              showToast(t('autoShapeToast', 'ปรับรูปทรงอัตโนมัติ: {shape} 📐', { shape: recognized.label }));
+              showToast(activeTool === 'highlighter'
+                ? t('highlighterStraightToast', 'ปรับไฮไลต์เป็นเส้นตรงแล้ว')
+                : t('autoShapeToast', 'ปรับรูปทรงอัตโนมัติ: {shape} 📐', { shape: recognized.label }));
               ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-              renderShapePreview(ctx, recognized, activeColor, activeWidth);
+              if (activeTool === 'highlighter') {
+                renderStroke(ctx, {tool:'highlighter',color:activeColor,width:activeWidth,highlighterTip,
+                  points:generateVectorShapePoints(recognized)});
+              } else {
+                renderStroke(ctx, createShapeStroke(recognized));
+              }
             }
           }, 380);
         }
@@ -897,22 +940,17 @@ export const CanvasBoard = ({
           { x: (x0 + x1) / 2, y: y0 }
         ];
       }
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      renderShapePreview(ctx, shapeInfo, activeColor, activeWidth);
+      scheduleShapePreview(shapeInfo);
     }
   };
 
   // Pointer Up
   const handlePointerUp = (e) => {
-    // 1. Clear Long-Press Timer
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-
-    if (e.pointerType === 'pen') {
-      window.__bn_pen_active = false;
-      window.__bn_pen_last_time = Date.now();
+    // 1. End only this pointer's Paste hold; leave ink finalization unchanged.
+    if (pasteHoldRef.current?.pointerId === e.pointerId) cancelPasteHold();
+    if (lastPastePointerRef.current?.pointerId === e.pointerId) {
+      lastPastePointerRef.current.isDown = false;
+      lastPastePointerRef.current.endedAt = Date.now();
     }
 
     // 2. Touch Up: Finger never inks! Update touch timestamp and return
@@ -920,10 +958,45 @@ export const CanvasBoard = ({
       lastTouchTimeRef.current = Date.now();
       return;
     }
+    const session = pointerSessionRef.current;
+    if (!session || session.pointerId !== e.pointerId) return;
+    const interrupted = e.type !== 'pointerup';
+    // Clear ownership before releasing capture: lostpointercapture can re-enter.
+    pointerSessionRef.current = null;
+    if (activeCanvasSession === session) {
+      activeCanvasSession = null;
+      window.__bn_pen_active = false;
+      window.__bn_pen_last_time = Date.now();
+    }
+    cancelPasteHold();
+    clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+    cancelInkPreview();
+    try { session.target.releasePointerCapture(session.pointerId); } catch (_) {}
+    const strokes = latestStrokesRef.current;
+    const commitStrokes = value => {
+      latestStrokesRef.current = value;
+      session.onStrokesChange(value, { preservePageSelection: interrupted });
+    };
+
+    if (interrupted && (activeTool === 'snip' || activeTool === 'lasso' || activeTool === 'shape')) {
+      isDrawingRef.current = false;
+      isSnippingRef.current = false;
+      isLassoingRef.current = false;
+      snipStartRef.current = null;
+      lassoPointsRef.current = [];
+      currentPointsRef.current = [];
+      startPointRef.current = null;
+      heldShapeRef.current = null;
+      setSnipBox(null);
+      const canvas = session.target;
+      canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
     // Snipping Tool Finalize Crop
     if (isSnippingRef.current && snipBox) {
       isSnippingRef.current = false;
-      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
 
       if (snipBox.width > 20 && snipBox.height > 20) {
         extractSnipImage(snipBox);
@@ -936,7 +1009,6 @@ export const CanvasBoard = ({
     // Lasso Tool Finalize Selection
     if (activeTool === 'lasso' && isLassoingRef.current) {
       isLassoingRef.current = false;
-      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
 
       const activeCanvas = activeCanvasRef.current;
       if (activeCanvas) {
@@ -991,11 +1063,17 @@ export const CanvasBoard = ({
           }
         });
 
+        const imagesInLoop = imageElements.filter(img =>
+          isPointInPolygon({ x: img.x + img.width / 2, y: img.y + img.height / 2 }, loop) ||
+          isPointInPolygon({ x: img.x, y: img.y }, loop)
+        );
+        // Locked images stay out of handwriting/mixed selections. A locked-image-only
+        // selection remains available so its action bar can unlock those images.
+        const hasMovableContent = selectedStrokes.length > 0 || selectedTexts.length > 0 ||
+          imagesInLoop.some(img => !img.locked);
         const selectedImgs = [];
-        imageElements.forEach(img => {
-          const inside = isPointInPolygon({ x: img.x + img.width / 2, y: img.y + img.height / 2 }, loop) ||
-                         isPointInPolygon({ x: img.x, y: img.y }, loop);
-          if (inside) {
+        imagesInLoop.forEach(img => {
+          if (!img.locked || !hasMovableContent) {
             selectedImgs.push(img.id);
             bMinX = Math.min(bMinX, img.x);
             bMaxX = Math.max(bMaxX, img.x + img.width);
@@ -1031,12 +1109,20 @@ export const CanvasBoard = ({
     if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
 
     if (!isDrawingRef.current) return;
+    // Collected input is complete even if its preview frame has not run yet.
+    // Cancelled pointers can have meaningless coordinates; do not append those.
+    if (e.type === 'pointerup' && heldShapeRef.current) {
+      updateHeldShapeEnd(heldShapeRef.current, getCanvasCoordinates(e));
+    }
+    if (e.type === 'pointerup' && !heldShapeRef.current &&
+        (activeTool === 'pen' || activeTool === 'highlighter')) {
+      appendInkSamples(e, true);
+    }
+    cancelInkPreview();
     isDrawingRef.current = false;
 
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
 
-    const activeCanvas = activeCanvasRef.current;
-    if (!activeCanvas) return;
+    const activeCanvas = activeCanvasRef.current || session.target;
     const dpr = getDpr();
     const ctx = activeCanvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1046,18 +1132,8 @@ export const CanvasBoard = ({
       // 1. Commit Draw & Hold recognized shape FIRST:
       // If user drew and held to create a geometric shape, it takes absolute precedence!
       if (heldShapeRef.current) {
-        const shapePts = generateVectorShapePoints(heldShapeRef.current, penNib);
-        if (shapePts && shapePts.length > 0) {
-          const shapeStroke = {
-            tool: 'pen',
-            color: activeColor,
-            width: activeWidth,
-            points: shapePts,
-            nibType: penNib,
-            isTapered: false
-          };
-          onStrokesChange([...strokes, shapeStroke]);
-        }
+        const shapeStroke = createShapeStroke(heldShapeRef.current);
+        if (shapeStroke.points.length > 0) commitStrokes([...strokes, shapeStroke]);
         heldShapeRef.current = null;
         currentPointsRef.current = [];
         startPointRef.current = null;
@@ -1066,7 +1142,7 @@ export const CanvasBoard = ({
 
       // 2. SMART Scribble-to-Erase:
       // Evaluated when scribbleToErase is enabled (and protected against geometric shapes)
-      const scribble = scribbleToErase ? detectScribble(currentPointsRef.current, strokes, scribbleToErase) : null;
+      const scribble = !interrupted && scribbleToErase ? detectScribble(currentPointsRef.current, strokes, scribbleToErase) : null;
 
       if (scribble && scribble.isScribble && scribble.hitCount > 0) {
         // Immediately clear hardware scratch canvas so scribble line vanishes from screen
@@ -1078,7 +1154,7 @@ export const CanvasBoard = ({
           ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         }
         heldShapeRef.current = null;
-        onStrokesChange(scribble.remainingStrokes);
+        commitStrokes(scribble.remainingStrokes);
         showToast(t('scribbleErasedToast', 'ขยี้ลบ {count} เส้นแล้ว! (Scribble Erased) 🪄', { count: scribble.hitCount }));
         currentPointsRef.current = [];
         startPointRef.current = null;
@@ -1097,18 +1173,23 @@ export const CanvasBoard = ({
           usePressure,
           pressureSensitivity
         };
-        onStrokesChange([...strokes, newStroke]);
+        commitStrokes([...strokes, newStroke]);
       }
     } else if (activeTool === 'highlighter') {
-      if (currentPointsRef.current.length > 0) {
+      const points = heldShapeRef.current
+        ? generateVectorShapePoints(heldShapeRef.current)
+        : [...currentPointsRef.current];
+      if (points.length > 0) {
         const newStroke = {
           tool: 'highlighter',
           color: activeColor,
           width: activeWidth,
-          points: [...currentPointsRef.current]
+          highlighterTip,
+          points
         };
-        onStrokesChange([...strokes, newStroke]);
+        commitStrokes([...strokes, newStroke]);
       }
+      heldShapeRef.current = null;
     } else if (activeTool === 'shape' && startPointRef.current) {
       const endCoords = getCanvasCoordinates(e);
       const shapeInfo = {
@@ -1136,23 +1217,57 @@ export const CanvasBoard = ({
           { x: (x0 + x1) / 2, y: y0 }
         ];
       }
-      const shapePts = generateVectorShapePoints(shapeInfo, penNib);
-      if (shapePts && shapePts.length > 0) {
-        const shapeStroke = {
-          tool: 'pen',
-          color: activeColor,
-          width: activeWidth,
-          points: shapePts,
-          nibType: penNib,
-          isTapered: false
-        };
-        onStrokesChange([...strokes, shapeStroke]);
-      }
+      const shapeStroke = createShapeStroke(shapeInfo);
+      if (shapeStroke.points.length > 0) commitStrokes([...strokes, shapeStroke]);
     }
 
     currentPointsRef.current = [];
     startPointRef.current = null;
   };
+
+  // Finish against the render that owns the page/settings, before they change.
+  useLayoutEffect(() => () => {
+    const session = pointerSessionRef.current;
+    session?.finish({ type: 'interruption', pointerId: session.pointerId });
+  }, [page?.id, selectedPageId, activeTool, activeShape, canvasWidth, canvasHeight, zoom, activeColor, activeWidth,
+    penNib, highlighterTip, isTapered, usePressure, pressureSensitivity]);
+
+  useLayoutEffect(() => {
+    if (pointerSessionRef.current) pointerSessionRef.current.finish = handlePointerUp;
+  });
+
+  useEffect(() => {
+    const interrupt = () => {
+      const session = pointerSessionRef.current;
+      session?.finish({ type: 'interruption', pointerId: session.pointerId });
+    };
+    const release = event => pointerSessionRef.current?.finish(event);
+    const hoverRelease = event => {
+      const session = pointerSessionRef.current;
+      if (event.pointerType === 'pen' && event.buttons === 0 && session?.pointerId === event.pointerId)
+        session.finish({ type: 'interruption', pointerId: session.pointerId });
+    };
+    const visibility = () => { if (document.hidden) interrupt(); };
+    const outsideDown = event => {
+      const session = pointerSessionRef.current;
+      if (session && event.pointerType !== 'touch' &&
+          !event.target.closest?.('.bn-layer-active')) interrupt();
+    };
+    window.addEventListener('pointermove', hoverRelease, true);
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    window.addEventListener('blur', interrupt);
+    window.addEventListener('pointerdown', outsideDown, true);
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      window.removeEventListener('pointermove', hoverRelease, true);
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+      window.removeEventListener('blur', interrupt);
+      window.removeEventListener('pointerdown', outsideDown, true);
+      document.removeEventListener('visibilitychange', visibility);
+    };
+  }, []);
 
   // Extract Snip Region into an Image Data URL (Snipping Tool Engine)
   const extractSnipImage = (box) => {
@@ -1255,10 +1370,17 @@ export const CanvasBoard = ({
   const handleContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
+    const pointerType = e.nativeEvent?.pointerType;
+    const press = lastPastePointerRef.current;
+    const recentPress = press && (press.isDown || Date.now() - press.endedAt < 700);
+    const keyboardMenu = !pointerType && e.button === 0 && e.detail === 0;
+    // Windows may emit a native contextmenu before our hold finishes, even as a
+    // mouse event. Only an explicit secondary-button press may bypass the timer.
+    if (!keyboardMenu && !(recentPress && press.secondary) &&
+        (pointerType === 'pen' || pointerType === 'touch' || (recentPress && !press.secondary))) {
+      return;
     }
+    cancelPasteHold();
     const coords = getCanvasCoordinates(e);
     setFloatingPasteMenu({
       x: coords.x,
@@ -1436,6 +1558,11 @@ export const CanvasBoard = ({
     const updated = imageElements.map(img => {
       if (img.id === imgId) {
         const nextLocked = !img.locked;
+        if (nextLocked) {
+          setSelectedImageId(null);
+          setLassoSelection(null);
+          setShowLassoColorPicker(false);
+        }
         showToast(nextLocked ? (language === 'en' ? 'Image position locked 🔒' : 'ล็อกตำแหน่งรูปภาพแล้ว 🔒') : (language === 'en' ? 'Image position unlocked 🔓' : 'ปลดล็อกรูปภาพแล้ว 🔓'));
         return { ...img, locked: nextLocked };
       }
@@ -1647,11 +1774,32 @@ export const CanvasBoard = ({
     window.addEventListener('pointercancel', onResizeUp, { passive: false });
   };
 
+  const handleLassoImageLockToggle = () => {
+    if (!isImageOnlyLassoSelection) return;
+    const nextLocked = !areLassoImagesLocked;
+    const updated = imageElements.map(img =>
+      lassoSelection.imageIds.includes(img.id) ? { ...img, locked: nextLocked } : img
+    );
+    if (onBatchUpdatePage) {
+      onBatchUpdatePage({ imageElements: updated });
+    } else if (onImageElementsChange) {
+      onImageElementsChange(updated);
+    }
+    setShowLassoColorPicker(false);
+    if (nextLocked) {
+      setLassoSelection(null);
+      setSelectedImageId(null);
+    }
+    showToast(nextLocked
+      ? (language === 'en' ? 'Image position locked 🔒' : 'ล็อกตำแหน่งรูปภาพแล้ว 🔒')
+      : (language === 'en' ? 'Image position unlocked 🔓' : 'ปลดล็อกรูปภาพแล้ว 🔓'));
+  };
+
   // Lasso Selection Drag (Move) Handlers - Zero-Flicker 60fps
   const handleLassoBoxPointerDown = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!lassoSelection) return;
+    if (!canTransformLassoSelection) return;
     
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
     if (lassoBoxRef.current) lassoBoxRef.current.classList.add('dragging');
@@ -1667,6 +1815,7 @@ export const CanvasBoard = ({
     if (staticCanvas) {
       const dpr = getDpr();
       const sCtx = staticCanvas.getContext('2d');
+      staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
       sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       renderAllStrokes(sCtx, unselectedStrokes);
@@ -1730,9 +1879,10 @@ export const CanvasBoard = ({
         if (el) el.style.transform = `translate3d(${dx * zoom}px, ${dy * zoom}px, 0)`;
       });
 
-      // 3. Direct transform on selected image elements
-      lassoSelection.imageIds.forEach(id => {
-        const el = document.getElementById(`img-${id}`);
+      // 3. Direct transform on selected, unlocked image elements
+      lassoDragRef.current.initialImages.forEach(img => {
+        if (img.locked || !lassoSelection.imageIds.includes(img.id)) return;
+        const el = document.getElementById(`img-${img.id}`);
         if (el) el.style.transform = `translate3d(${dx * zoom}px, ${dy * zoom}px, 0)`;
       });
 
@@ -1796,6 +1946,7 @@ export const CanvasBoard = ({
         if (staticCanvas) {
           const dpr = getDpr();
           const sCtx = staticCanvas.getContext('2d');
+          staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
           sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
           sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
           renderAllStrokes(sCtx, newStrokes);
@@ -1832,7 +1983,7 @@ export const CanvasBoard = ({
 
         const newImages = lassoSelection.imageIds.length > 0
           ? initialImages.map(img => {
-              if (lassoSelection.imageIds.includes(img.id)) {
+              if (!img.locked && lassoSelection.imageIds.includes(img.id)) {
                 return { ...img, x: img.x + dx, y: img.y + dy };
               }
               return img;
@@ -1881,6 +2032,7 @@ export const CanvasBoard = ({
         if (staticCanvas) {
           const dpr = getDpr();
           const sCtx = staticCanvas.getContext('2d');
+          staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
           sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
           sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
           renderAllStrokes(sCtx, initialStrokes);
@@ -1900,7 +2052,7 @@ export const CanvasBoard = ({
   const handleLassoResizePointerDown = (e, handle = 'se') => {
     e.preventDefault();
     e.stopPropagation();
-    if (!lassoSelection) return;
+    if (!canTransformLassoSelection) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
     setShowLassoColorPicker(false);
     const currentStrokes = latestStrokesRef.current || strokes;
@@ -1992,6 +2144,7 @@ export const CanvasBoard = ({
         if (staticCanvas) {
           const dpr = getDpr();
           const sCtx = staticCanvas.getContext('2d');
+          staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
           sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
           sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
           renderAllStrokes(sCtx, newStrokes);
@@ -2011,7 +2164,7 @@ export const CanvasBoard = ({
         });
 
         const newImages = initialImages.map(img => {
-          if (lassoSelection.imageIds.includes(img.id)) {
+          if (!img.locked && lassoSelection.imageIds.includes(img.id)) {
             return {
               ...img,
               x: currentBbox.x + (img.x - initialBbox.x) * scaleX,
@@ -2041,6 +2194,7 @@ export const CanvasBoard = ({
   // Lasso Quick Actions: Recolor, Duplicate, Delete
   const handleLassoRecolor = (colorToApply = activeColor) => {
     if (!lassoSelection) return;
+    onColorChange?.(colorToApply);
     const currentStrokes = latestStrokesRef.current || strokes;
     const newStrokes = currentStrokes.map((s, idx) => {
       if (lassoSelection.strokeIndices.includes(idx)) {
@@ -2053,6 +2207,7 @@ export const CanvasBoard = ({
     if (staticCanvas) {
       const dpr = getDpr();
       const sCtx = staticCanvas.getContext('2d');
+      staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
       sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       renderAllStrokes(sCtx, newStrokes);
@@ -2090,6 +2245,7 @@ export const CanvasBoard = ({
     if (staticCanvas) {
       const dpr = getDpr();
       const sCtx = staticCanvas.getContext('2d');
+      staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
       sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       renderAllStrokes(sCtx, newAllStrokes);
@@ -2136,6 +2292,7 @@ export const CanvasBoard = ({
     if (staticCanvas) {
       const dpr = getDpr();
       const sCtx = staticCanvas.getContext('2d');
+      staticRenderRef.current = null; // This layer is being redrawn manually; do not append it again.
       sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       renderAllStrokes(sCtx, remainingStrokes);
@@ -2175,7 +2332,7 @@ export const CanvasBoard = ({
           top: `${(img.y / canvasHeight) * 100}%`,
           width: `${(img.width / canvasWidth) * 100}%`,
           height: `${(img.height / canvasHeight) * 100}%`,
-          pointerEvents: isDrawingTool && !isSelected ? 'none' : 'auto'
+          pointerEvents: activeTool === 'lasso' || (isDrawingTool && (!isSelected || isLocked)) ? 'none' : 'auto'
         }}
         onPointerDown={(e) => handleImagePointerDown(e, img)}
         onTouchStart={(e) => e.stopPropagation()}
@@ -2207,6 +2364,7 @@ export const CanvasBoard = ({
         {isSelected && (
           <div 
             className="bn-image-action-bar" 
+            style={{ pointerEvents: 'auto' }}
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onPointerUp={(e) => e.stopPropagation()}
@@ -2320,18 +2478,22 @@ export const CanvasBoard = ({
           <>
             <div 
               className="bn-image-resize-handle bn-handle-nw"
+              style={{ pointerEvents: 'auto' }}
               onPointerDown={(e) => handleImageResizeStart(e, img, 'nw')}
             />
             <div 
               className="bn-image-resize-handle bn-handle-ne"
+              style={{ pointerEvents: 'auto' }}
               onPointerDown={(e) => handleImageResizeStart(e, img, 'ne')}
             />
             <div 
               className="bn-image-resize-handle bn-handle-sw"
+              style={{ pointerEvents: 'auto' }}
               onPointerDown={(e) => handleImageResizeStart(e, img, 'sw')}
             />
             <div 
               className="bn-image-resize-handle bn-handle-se"
+              style={{ pointerEvents: 'auto' }}
               onPointerDown={(e) => handleImageResizeStart(e, img, 'se')}
             />
           </>
@@ -2367,6 +2529,8 @@ export const CanvasBoard = ({
           height: `${canvasHeight * zoom}px`
         }}
       >
+        {page?.pdfLazyRaster && page.pdfPageImage && <img className="bn-pdf-ready-background" src={page.pdfPageImage}
+          alt="" aria-hidden="true" decoding="sync" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'fill',pointerEvents:'none'}} />}
         {/* Layer 1: Background Paper / PDF Canvas (Hi-DPI) */}
         <canvas 
           ref={bgCanvasRef}
@@ -2374,9 +2538,9 @@ export const CanvasBoard = ({
           style={{ width: '100%', height: '100%' }}
         />
 
-        {/* Layer 1.5: Under-Ink Image Elements (Writing and inking directly over images) */}
+        {/* Layer 1.5: Under-ink images; a selected image uses the editing layer below. */}
         <div className="bn-images-layer-under">
-          {imageElements.filter(img => img.layer !== 'over').map(renderImageElement)}
+          {imageElements.filter(img => img.layer !== 'over' && img.id !== selectedImageId).map(renderImageElement)}
         </div>
 
         {/* Layer 2: Finalized Static Strokes Canvas (Hi-DPI) */}
@@ -2390,11 +2554,12 @@ export const CanvasBoard = ({
         <canvas 
           ref={activeCanvasRef}
           className="bn-layer-active"
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', pointerEvents: activeTool === 'image' ? 'none' : 'auto' }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onLostPointerCapture={handlePointerUp}
           onContextMenu={handleContextMenu}
         />
 
@@ -2419,9 +2584,9 @@ export const CanvasBoard = ({
           </div>
         )}
 
-        {/* Layer 4: Over-Ink Image Elements (Images in front of handwriting) */}
+        {/* Layer 4: Over-ink images and the selected image, so its controls receive input. */}
         <div className="bn-images-layer-over">
-          {imageElements.filter(img => img.layer === 'over').map(renderImageElement)}
+          {imageElements.filter(img => img.layer === 'over' || img.id === selectedImageId).map(renderImageElement)}
         </div>
 
         {/* Layer 5: Interactive Text Elements */}
@@ -2473,6 +2638,7 @@ export const CanvasBoard = ({
               top: `${(lassoSelection.bbox.y / canvasHeight) * 100}%`,
               width: `${(lassoSelection.bbox.width / canvasWidth) * 100}%`,
               height: `${(lassoSelection.bbox.height / canvasHeight) * 100}%`,
+              cursor: canTransformLassoSelection ? 'grab' : 'default',
               pointerEvents: 'auto'
             }}
             onPointerDown={handleLassoBoxPointerDown}
@@ -2489,6 +2655,27 @@ export const CanvasBoard = ({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
+              {isImageOnlyLassoSelection && (
+                <>
+                  <button
+                    className="bn-lasso-action-btn text-zinc-200 hover:text-white"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleLassoImageLockToggle();
+                    }}
+                    title={areLassoImagesLocked ? t('unlockImage') : t('lockImage')}
+                    aria-pressed={areLassoImagesLocked}
+                  >
+                    {areLassoImagesLocked
+                      ? <Unlock size={13} className="text-emerald-400" />
+                      : <Lock size={13} className="text-amber-400" />}
+                    <span>{areLassoImagesLocked ? t('unlockImage') : t('lockImage')}</span>
+                  </button>
+                  <div className="w-px h-3 bg-zinc-700 mx-0.5" />
+                </>
+              )}
+
               {/* Recolor Button with Inline Palette Popover */}
               <div className="relative">
                 <button 
@@ -2511,10 +2698,12 @@ export const CanvasBoard = ({
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {['#1e293b', '#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#eab308'].map(col => (
+                    {colorSlots.map((col, index) => (
                       <button
-                        key={col}
-                        className="w-5 h-5 rounded-full border border-white/40 hover:scale-125 transition flex-shrink-0"
+                        key={`${col}-${index}`}
+                        className="bn-lasso-color-swatch"
+                        aria-pressed={activeColor.toLowerCase() === col.toLowerCase()}
+                        aria-label={t('colorSlotTitle', `สีสล็อต #${index + 1}: ${col}`, { slot: index + 1, color: col })}
                         style={{ backgroundColor: col }}
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => { 
@@ -2524,19 +2713,11 @@ export const CanvasBoard = ({
                         title={language === 'en' ? `Change to ${col}` : `เปลี่ยนเป็นสี ${col}`}
                       />
                     ))}
-                    <div className="relative w-5 h-5 rounded-full flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 border border-white/40 cursor-pointer overflow-hidden flex-shrink-0" title={language === 'en' ? 'Choose custom color...' : 'เลือกสีอื่น...'}>
-                      <span className="text-[10px] font-bold text-white pointer-events-none">+</span>
-                      <input 
-                        type="color"
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        value={activeColor}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation(); 
-                          handleLassoRecolor(e.target.value);
-                        }}
-                      />
-                    </div>
+                    <ColorWheelPicker value={activeColor} onChange={color => {
+                      onCustomColorChange?.(color);
+                      handleLassoRecolor(color);
+                    }}
+                      label={t('chooseColorWheel', 'เลือกสีจากวงล้อสี')} />
                   </div>
                 )}
               </div>
@@ -2592,36 +2773,58 @@ export const CanvasBoard = ({
               </button>
             </div>
 
-            {/* 4 Corner Resize Handles (Surface Pro 7 Touch-Friendly 28px Targets) */}
-            <div 
-              className="bn-lasso-corner-handle bn-lasso-corner-nw"
-              onPointerDown={(e) => handleLassoResizePointerDown(e, 'nw')}
-              onPointerMove={handleLassoResizePointerMove}
-              onPointerUp={handleLassoResizePointerUp}
-              title={language === 'en' ? 'Resize (Top-Left)' : 'ย่อ/ขยาย (บนซ้าย)'}
-            />
-            <div 
-              className="bn-lasso-corner-handle bn-lasso-corner-ne"
-              onPointerDown={(e) => handleLassoResizePointerDown(e, 'ne')}
-              onPointerMove={handleLassoResizePointerMove}
-              onPointerUp={handleLassoResizePointerUp}
-              title={language === 'en' ? 'Resize (Top-Right)' : 'ย่อ/ขยาย (บนขวา)'}
-            />
-            <div 
-              className="bn-lasso-corner-handle bn-lasso-corner-se"
-              onPointerDown={(e) => handleLassoResizePointerDown(e, 'se')}
-              onPointerMove={handleLassoResizePointerMove}
-              onPointerUp={handleLassoResizePointerUp}
-              title={language === 'en' ? 'Resize (Bottom-Right)' : 'ย่อ/ขยาย (ล่างขวา)'}
-            />
-            <div 
-              className="bn-lasso-corner-handle bn-lasso-corner-sw"
-              onPointerDown={(e) => handleLassoResizePointerDown(e, 'sw')}
-              onPointerMove={handleLassoResizePointerMove}
-              onPointerUp={handleLassoResizePointerUp}
-              title={language === 'en' ? 'Resize (Bottom-Left)' : 'ย่อ/ขยาย (ล่างซ้าย)'}
-            />
+            {/* Locked-image-only selections expose Unlock without movable handles. */}
+            {canTransformLassoSelection && (
+              <>
+                {/* 4 Corner Resize Handles (Surface Pro 7 Touch-Friendly 28px Targets) */}
+                <div
+                  className="bn-lasso-corner-handle bn-lasso-corner-nw"
+                  onPointerDown={(e) => handleLassoResizePointerDown(e, 'nw')}
+                  onPointerMove={handleLassoResizePointerMove}
+                  onPointerUp={handleLassoResizePointerUp}
+                  title={language === 'en' ? 'Resize (Top-Left)' : 'ย่อ/ขยาย (บนซ้าย)'}
+                />
+                <div
+                  className="bn-lasso-corner-handle bn-lasso-corner-ne"
+                  onPointerDown={(e) => handleLassoResizePointerDown(e, 'ne')}
+                  onPointerMove={handleLassoResizePointerMove}
+                  onPointerUp={handleLassoResizePointerUp}
+                  title={language === 'en' ? 'Resize (Top-Right)' : 'ย่อ/ขยาย (บนขวา)'}
+                />
+                <div
+                  className="bn-lasso-corner-handle bn-lasso-corner-se"
+                  onPointerDown={(e) => handleLassoResizePointerDown(e, 'se')}
+                  onPointerMove={handleLassoResizePointerMove}
+                  onPointerUp={handleLassoResizePointerUp}
+                  title={language === 'en' ? 'Resize (Bottom-Right)' : 'ย่อ/ขยาย (ล่างขวา)'}
+                />
+                <div
+                  className="bn-lasso-corner-handle bn-lasso-corner-sw"
+                  onPointerDown={(e) => handleLassoResizePointerDown(e, 'sw')}
+                  onPointerMove={handleLassoResizePointerMove}
+                  onPointerUp={handleLassoResizePointerUp}
+                  title={language === 'en' ? 'Resize (Bottom-Left)' : 'ย่อ/ขยาย (ล่างซ้าย)'}
+                />
+              </>
+            )}
           </div>
+        )}
+
+        {/* Non-interactive progress ring; stays above the contact without blocking ink. */}
+        {pasteHoldFeedback && (
+          <svg
+            className="bn-paste-hold-feedback"
+            viewBox="0 0 28 28"
+            aria-hidden="true"
+            style={{
+              left: `${(pasteHoldFeedback.x / canvasWidth) * 100}%`,
+              top: `${(pasteHoldFeedback.y / canvasHeight) * 100}%`,
+              '--bn-paste-hold-remaining': `${PASTE_HOLD_DELAY - PASTE_HOLD_FEEDBACK_DELAY}ms`
+            }}
+          >
+            <circle className="bn-paste-hold-track" cx="14" cy="14" r="11" />
+            <circle className="bn-paste-hold-progress" cx="14" cy="14" r="11" pathLength="1" />
+          </svg>
         )}
 
         {/* Floating Paste Menu (Triggered by Long Press or Context Menu) */}

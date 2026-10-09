@@ -70,6 +70,8 @@ export const calculateTaper = (index, totalPoints, isTapered = true) => {
 /**
  * Draw a smooth stroke on a Canvas 2D context using Quadratic Bézier curves & Tapering
  */
+const angularShapeTypes = new Set(['line', 'rectangle', 'square', 'triangle', 'arrow', 'polyline']);
+
 export const renderStroke = (ctx, stroke) => {
   const { 
     tool, 
@@ -79,7 +81,8 @@ export const renderStroke = (ctx, stroke) => {
     nibType = 'fountain',
     isTapered = true,
     usePressure = true,
-    pressureSensitivity = 'medium'
+    pressureSensitivity = 'medium',
+    highlighterTip = 'square'
   } = stroke;
 
   if (!points || points.length === 0) return;
@@ -91,8 +94,9 @@ export const renderStroke = (ctx, stroke) => {
     ctx.strokeStyle = color;
     ctx.globalAlpha = 0.38;
     ctx.lineWidth = width * 3.5;
-    ctx.lineCap = 'square';
-    ctx.lineJoin = 'miter';
+    ctx.lineCap = highlighterTip === 'round' ? 'round' : 'square';
+    ctx.lineJoin = highlighterTip === 'round' ? 'round' : 'miter';
+    if (stroke.highlighterTip) ctx.fillStyle = color;
   } else if (tool === 'eraser') {
     ctx.globalCompositeOperation = 'destination-out';
     ctx.lineWidth = width * 4;
@@ -106,6 +110,49 @@ export const renderStroke = (ctx, stroke) => {
     ctx.globalAlpha = 1.0;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+  }
+
+  // Only newly generated angular shapes bypass handwriting smoothing.
+  // Untagged older strokes and curved shapes keep their existing appearance.
+  if (tool === 'pen' && angularShapeTypes.has(stroke.shapeType) && points.length > 1) {
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
+    ctx.miterLimit = 10;
+    ctx.lineWidth = calculateNibWidth(nibType, width, points[0].pressure || 0.5, 1.0, pressureSensitivity, usePressure);
+    const first = points[0], last = points[points.length - 1];
+    // Erased fragments retain metadata but must never reconnect across the gap.
+    const closed = points.length > 2 && first.x === last.x && first.y === last.y;
+    ctx.beginPath();
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < points.length - (closed ? 1 : 0); i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    if (closed) ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  // Highlighter taps and short strokes keep the same width and tip as long ones.
+  if (tool === 'highlighter' && stroke.highlighterTip && points.length === 1) {
+    const point = points[0], radius = ctx.lineWidth / 2;
+    if (highlighterTip === 'round') {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
+    }
+    ctx.restore();
+    return;
+  }
+  if (tool === 'highlighter' && stroke.highlighterTip && points.length === 2) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(points[1].x, points[1].y);
+    ctx.stroke();
+    ctx.restore();
+    return;
   }
 
   // Single tap dot
@@ -558,14 +605,32 @@ export const snapAngle = (angleRad, snapThresholdDeg = 6) => {
   const angleDeg = (angleRad * 180) / Math.PI;
   const snapTargets = [0, 30, 45, 60, 90, 120, 135, 150, 180, -30, -45, -60, -90, -120, -135, -150, -180];
   
+  let nearest = angleRad, nearestDiff = Infinity;
   for (const target of snapTargets) {
     let diff = Math.abs(angleDeg - target);
     if (diff > 180) diff = 360 - diff;
-    if (diff <= snapThresholdDeg) {
-      return (target * Math.PI) / 180;
+    if (diff <= snapThresholdDeg && diff < nearestDiff) {
+      nearest = (target * Math.PI) / 180;
+      nearestDiff = diff;
     }
   }
-  return angleRad;
+  return nearest;
+};
+
+// Highlighter hold recognizes only a nearly straight open stroke. Avoid running
+// the polygon/circle classifier or converting handwriting into other shapes.
+export const recognizeHighlighterLine = (points) => {
+  if (!points || points.length < 2) return null;
+  const startPt = points[0], endPt = points[points.length - 1];
+  let length = 0;
+  for (let i = 1; i < points.length; i++) {
+    length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  }
+  const distance = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+  if (length <= 18 || distance / length < 0.84) return null;
+  const angle = snapAngle(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x), 8);
+  return {type:'line',startPt:{x:startPt.x,y:startPt.y},
+    endPt:{x:startPt.x + distance * Math.cos(angle),y:startPt.y + distance * Math.sin(angle)}};
 };
 
 /**

@@ -1,0 +1,42 @@
+// Recovery errors are shown in the selected language; native errors never become raw UI text.
+const recoveryErrorKeys = Object.freeze({
+  'backup-recovery-cancelled':'backupRestoreCancelled',
+  'backup-recovery-unconfirmed': 'backupRecoveryUnconfirmed',
+  'backup-recovery-busy': 'backupRecoveryBusy',
+  'backup-recovery-editor-open': 'backupRecoveryEditorOpen',
+  'backup-recovery-unsaved': 'backupRecoveryUnsaved',
+  'backup-recovery-write-failed': 'backupRecoveryWriteFailed',
+  'backup-recovery-id-conflict': 'backupRecoveryIdConflict',
+  'not-found': 'backupReadNotFound',
+  'EACCES':'backupAccessDenied','EPERM':'backupAccessDenied','ENOSPC':'backupDiskFull',
+  'ENOENT':'backupDestinationMissing','ENOTDIR':'backupDestinationMissing','backup-folder-unavailable':'backupDestinationMissing',
+  'destination-unavailable':'backupDestinationMissing','backup-device-mismatch':'backupReadInvalid',
+  'folder-backup-newer': 'backupFolderNewer',
+  'backup-changed-externally': 'backupReadChanged',
+  'drive-sync-waiting': 'backupRecoveryEditorOpen',
+  'drive-sync-pending': 'backupReadIncomplete',
+  'drive-sync-local-changed': 'backupReadChanged',
+  'drive-sync-destination-changed': 'backupReadChanged',
+  'drive-sync-restart': 'driveSyncRestart',
+  'destination-timeout': 'backupReadTimeout',
+  'backup-incomplete': 'backupReadIncomplete',
+  'backup-conflict': 'backupReadConflict',
+  'backup-changed-during-read': 'backupReadChanged',
+  'backup-read-timeout': 'backupReadTimeout',
+  'backup-folder-choice-required': 'backupReadChooseFolder',
+  'backup-too-large': 'backupReadTooLarge',
+  'backup-reader-busy': 'backupReadBusy',
+  'invalid-backup-data': 'backupReadInvalid',
+  'invalid-backup-manifest': 'backupReadInvalid',
+  'unsafe-backup-path': 'backupReadInvalid'
+});
+export const backupReadErrorKey = reason => Object.hasOwn(recoveryErrorKeys, reason) ? recoveryErrorKeys[reason] : 'backupReadUnavailable';
+export async function resolveBackupReadFolder(getSetting, customPath = null) {
+  if (customPath !== null && customPath !== undefined) return customPath;
+  if (await getSetting('gdrive_backup_method') === 'desktop') {
+    const drive = await getSetting('gdrive_backup_path');
+    if (typeof drive === 'string' && drive.trim()) return drive.trim();
+  }
+  const local = await getSetting('local_backup_path');
+  return typeof local === 'string' && local.trim() ? local.trim() : null;
+}

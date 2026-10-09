@@ -1,13 +1,19 @@
+import { pageForPdfExport } from '../services/pdfRasterService.js';
 // PDF Export Engine for BetterNote using jsPDF & Canvas
 import { jsPDF } from 'jspdf';
+import { isWhiteboardPage } from './whiteboard.js';
+import { renderWhiteboardToDataUrl, getWhiteboardPdfDimensions } from './whiteboardExport.js';
 import { renderPaperBackground } from './paperRenderer.js';
 import { renderAllStrokes } from './inkingEngine.js';
 import { PAPER_TEMPLATES } from '../data/templates.js';
+import { buildExportDocument, documentFromSections, exportPageSection, downloadExportBlob, renderExportPageImage } from './exportDocument.js';
 
 /**
  * Render a single page to an offscreen canvas and return data URL
  */
 export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', width = 1200, height = 1600) => {
+  page = await pageForPdfExport(page);
+  if (isWhiteboardPage(page, templateId)) return renderWhiteboardToDataUrl(page);
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(100, Number(page.pageWidth) || width || 1200);
   canvas.height = Math.max(100, Number(page.pageHeight) || height || 1600);
@@ -95,7 +101,8 @@ export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', widt
 /**
  * Calculate dynamic PDF dimensions preserving exact original aspect ratio
  */
-export const getPagePdfDimensions = (page) => {
+export const getPagePdfDimensions = (page, templateId) => {
+  if (isWhiteboardPage(page, templateId)) return getWhiteboardPdfDimensions(page);
   const canvasW = page?.pageWidth || 1200;
   const canvasH = page?.pageHeight || 1600;
   const isLandscape = canvasW > canvasH;
@@ -118,13 +125,74 @@ export const getPagePdfDimensions = (page) => {
 /**
  * Export full notebook as a PDF document preserving natural aspect ratio
  */
-export const exportNotebookToPdf = async (notebook, pages, onProgress = null) => {
+export const exportNotebookToPdf = async (notebook, pages, onProgress = null, { loadPage } = {}) => {
   if (!pages || pages.length === 0) {
     throw new Error('สมุดบันทึกไม่มีหน้าเอกสารให้ส่งออก');
   }
 
+  if (window.electronAPI?.exportPdfDocument) {
+    const invoke = request => window.electronAPI.exportPdfDocument(request);
+    let capabilities;
+    try { capabilities = await invoke({ action: 'capabilities' }); } catch (_) {}
+    if (capabilities?.protocol !== 2) throw Error('pdf-restart-required');
+    const session = await invoke({ action: 'begin', pages: pages.length });
+    if (session.error || !session.id) throw Error(session.error || 'pdf-session-expired');
+    let done = 0, part = [], partSize = 0, bytes;
+    const report = (stage, current = done) => onProgress?.(current, pages.length, stage);
+    const failure = (result, first, count) => Object.assign(Error(result.error), { exportPage: first + 1, exportEnd: first + count });
+    const send = async sections => {
+      report('print', done);
+      const first = done;
+      const result = await invoke({ action: 'append', id: session.id, start: done,
+        pages: sections.length, html: documentFromSections(notebook, sections) });
+      if (result.error) {
+        // Native print failure retries progressively smaller batches, retaining quality.
+        if (result.retry && sections.length > 1) {
+          const middle = Math.ceil(sections.length / 2);
+          await send(sections.slice(0, middle)); await send(sections.slice(middle)); return;
+        }
+        throw failure(result, first, sections.length);
+      }
+      if (result.pages !== done + sections.length) throw failure({error:'pdf-page-count'}, first, sections.length);
+      done = result.pages;
+    };
+    try {
+      for (let index = 0; index < pages.length; index++) {
+        report('prepare', index);
+        let stored;
+        try { stored = loadPage ? await loadPage(index) : pages[index]; }
+        catch (_) { throw Object.assign(Error('pdf-page-unavailable'), { exportPage: index + 1, exportEnd: index + 1 }); }
+        if (!stored || stored.__unloaded) throw Object.assign(Error('pdf-page-unavailable'), { exportPage: index + 1, exportEnd: index + 1 });
+        let section;
+        try { section = await exportPageSection(await pageForPdfExport(stored), notebook.templateId, getPagePdfDimensions, index); }
+        catch (_) { throw Object.assign(Error('pdf-page-unavailable'), { exportPage: index + 1, exportEnd: index + 1 }); }
+        const size = new TextEncoder().encode(section.body).byteLength;
+        if (part.length && (part.length >= capabilities.batchPages || partSize + size > capabilities.batchBytes)) {
+          await send(part); part = []; partSize = 0;
+        }
+        part.push(section); partSize += size;
+        if (part.length >= capabilities.batchPages || partSize >= capabilities.batchBytes) {
+          await send(part); part = []; partSize = 0;
+        }
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      if (part.length) await send(part);
+      part = []; report('merge');
+      const result = await invoke({ action: 'finish', id: session.id });
+      if (result.error) throw failure(result, 0, pages.length);
+      if (result.pages !== pages.length || !result.bytes?.byteLength) throw Error('pdf-page-count');
+      bytes = result.bytes; report('save');
+    } finally {
+      // Also cleans an incomplete export after a page read/raster failure.
+      await invoke({ action: 'cancel', id: session.id }).catch(() => {});
+    }
+    const filename = `${notebook.name || 'Notebook'}.pdf`;
+    downloadExportBlob(new Blob([bytes], { type: 'application/pdf' }), filename);
+    return filename;
+  }
+
   const firstPage = pages[0];
-  const firstDim = getPagePdfDimensions(firstPage);
+  const firstDim = getPagePdfDimensions(firstPage, notebook.templateId);
 
   const pdf = new jsPDF({
     orientation: firstDim.orientation,
@@ -137,15 +205,16 @@ export const exportNotebookToPdf = async (notebook, pages, onProgress = null) =>
       onProgress(i + 1, pages.length);
     }
 
-    const page = pages[i];
-    const dim = getPagePdfDimensions(page);
+    const page = await pageForPdfExport(loadPage ? await loadPage(i) : pages[i]);
+    const dim = getPagePdfDimensions(page, notebook.templateId);
 
     if (i > 0) {
       pdf.addPage([dim.pdfW, dim.pdfH], dim.orientation);
     }
 
-    const imgData = await renderPageToCanvasDataUrl(page, notebook.templateId);
-    pdf.addImage(imgData, 'JPEG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
+    const { blob } = await renderExportPageImage(page, notebook.templateId, getPagePdfDimensions);
+    pdf.addImage(new Uint8Array(await blob.arrayBuffer()), 'PNG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
 
   const filename = `${notebook.name || 'Notebook'}.pdf`;
@@ -161,15 +230,24 @@ export const exportSinglePageToPdf = async (notebook, page, pageIndex = 0) => {
     throw new Error('ไม่พบข้อมูลหน้าเอกสารที่ต้องการส่งออก');
   }
 
-  const dim = getPagePdfDimensions(page);
+  page = await pageForPdfExport(page);
+  if (window.electronAPI?.exportPdfDocument) {
+    const html = await buildExportDocument(notebook, [page], getPagePdfDimensions);
+    const bytes = await window.electronAPI.exportPdfDocument(html);
+    const filename = `${notebook.name || 'Notebook'}_Page_${pageIndex + 1}.pdf`;
+    downloadExportBlob(new Blob([bytes], { type: 'application/pdf' }), filename);
+    return filename;
+  }
+
+  const dim = getPagePdfDimensions(page, notebook.templateId);
   const pdf = new jsPDF({
     orientation: dim.orientation,
     unit: 'pt',
     format: [dim.pdfW, dim.pdfH]
   });
 
-  const imgData = await renderPageToCanvasDataUrl(page, notebook.templateId);
-  pdf.addImage(imgData, 'JPEG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
+  const { blob } = await renderExportPageImage(page, notebook.templateId, getPagePdfDimensions);
+  pdf.addImage(new Uint8Array(await blob.arrayBuffer()), 'PNG', 0, 0, dim.pdfW, dim.pdfH, undefined, 'FAST');
 
   const filename = `${notebook.name || 'Notebook'}_Page_${pageIndex + 1}.pdf`;
   pdf.save(filename);
@@ -186,7 +264,7 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
   }
 
   const firstPage = pages[0];
-  const firstDim = getPagePdfDimensions(firstPage);
+  const firstDim = getPagePdfDimensions(firstPage, notebook.templateId);
 
   const pdf = new jsPDF({
     orientation: firstDim.orientation,
@@ -203,7 +281,7 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
     }
 
     const page = pages[i];
-    const dim = getPagePdfDimensions(page);
+    const dim = getPagePdfDimensions(page, notebook.templateId);
 
     if (i > 0) {
       pdf.addPage([dim.pdfW, dim.pdfH], dim.orientation);
@@ -226,3 +304,7 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
 };
 
 
+
+// Explicit image exports only; backup and preview renderers keep their original defaults.
+export const exportPageAsImage = async (page, templateId, options) =>
+  renderExportPageImage(await pageForPdfExport(page), templateId, getPagePdfDimensions, options);

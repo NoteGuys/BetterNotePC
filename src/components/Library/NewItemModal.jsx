@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Book, Folder, Check, FileUp, Sparkles, FileCode2 } from 'lucide-react';
-import { NOTEBOOK_COVERS } from '../../data/covers';
+import { NOTEBOOK_COVERS, THUMBNAIL_COVER_ID } from '../../data/covers';
 import { PAPER_TEMPLATES, PAPER_SIZES, getPaperSize } from '../../data/templates';
-import { PaperPreviewThumbnail } from '../Common/PaperPreviewThumbnail';
+import { PaperTemplatePreview } from '../Common/PaperTemplatePreview';
 import { useLanguage } from '../../services/i18n';
 
 const FOLDER_COLORS = [
@@ -34,12 +34,17 @@ export const NewItemModal = ({
 
   // Notebook state
   const [notebookName, setNotebookName] = useState('');
-  const [selectedCover, setSelectedCover] = useState(NOTEBOOK_COVERS[0].id);
+  const [selectedCover, setSelectedCover] = useState(THUMBNAIL_COVER_ID);
   const [selectedTemplate, setSelectedTemplate] = useState(PAPER_TEMPLATES[0].id);
   const [selectedSize, setSelectedSize] = useState('A4');
   const [selectedOrientation, setSelectedOrientation] = useState('portrait');
 
+  useEffect(() => { if (isOpen) setSelectedCover(THUMBNAIL_COVER_ID); }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const isWhiteboard = selectedTemplate === 'whiteboard';
+  const selectedPaper = PAPER_TEMPLATES.find(item => item.id === selectedTemplate) || PAPER_TEMPLATES[0];
 
   const handleCreateFolder = (e) => {
     e.preventDefault();
@@ -85,7 +90,7 @@ export const NewItemModal = ({
   return (
     <div className="bn-modal-backdrop" onClick={onClose}>
       <div 
-        className="bn-modal-card bn-modal-md"
+        className={`bn-modal-card ${tab === 'notebook' ? 'bn-create-notebook-modal' : 'bn-modal-md'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -164,165 +169,81 @@ export const NewItemModal = ({
         {/* Modal Body */}
         <div className="bn-modal-body">
           {tab === 'notebook' ? (
-            <form onSubmit={handleCreateNotebook} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  {t('notebookNameLabel', 'ชื่อสมุดโน้ต')}
-                </label>
-                <input 
-                  type="text" 
-                  className="bn-input" 
-                  placeholder={t('notebookNamePlaceholder', 'เช่น สรุปชีววิทยา บทที่ 1, สมุดวางแผนประจำปี')}
-                  value={notebookName}
-                  onChange={(e) => setNotebookName(e.target.value)}
-                  autoFocus
-                  style={{ width: '100%', boxSizing: 'border-box' }}
-                />
-              </div>
-
-              {/* Paper Size Selection */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7' }}>
-                    {t('paperSizeLabel', 'ขนาดหน้ากระดาษ (Paper Size)')}
-                  </label>
-                  <span style={{ fontSize: '11px', color: '#60a5fa' }}>
-                    {t(`paper_size_${selectedSize}`, selectedSize)}
-                  </span>
-                </div>
-                <div className="bn-new-paper-grid">
-                  {PAPER_SIZES.map(s => {
-                    const isSel = selectedSize === s.id;
-                    return (
-                      <div
-                        key={s.id}
-                        className={`bn-new-paper-card ${isSel ? 'bn-new-paper-card-active' : ''}`}
-                        onClick={() => setSelectedSize(s.id)}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span style={{ fontWeight: 700, fontSize: '13px' }}>{s.name}</span>
-                          {s.badge && (
-                            <span style={{ 
-                              fontSize: '9px', 
-                              fontWeight: 700, 
-                              background: 'rgba(59, 130, 246, 0.25)', 
-                              color: '#60a5fa', 
-                              padding: '2px 5px', 
-                              borderRadius: '4px' 
-                            }}>
-                              {t('template_badge_' + (s.id === 'A4' ? 'popular' : s.id === 'A3' ? 'extra_wide' : 'giant'), s.badge)}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: '10px', color: '#a1a1aa', marginTop: '3px' }}>
-                          {s.width} × {s.height} px
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Paper Orientation */}
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  {t('orientationLabel', 'ทิศทางหน้ากระดาษ')}
-                </label>
-                <div className="bn-new-orient-row">
-                  <button
-                    type="button"
-                    className={`bn-new-orient-btn ${selectedOrientation === 'portrait' ? 'bn-new-orient-btn-active' : ''}`}
-                    onClick={() => setSelectedOrientation('portrait')}
-                  >
-                    <div style={{ width: '12px', height: '16px', border: '1.5px solid currentColor', borderRadius: '2px' }} />
-                    <span>{t('portrait', 'แนวตั้ง (Portrait)')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`bn-new-orient-btn ${selectedOrientation === 'landscape' ? 'bn-new-orient-btn-active' : ''}`}
-                    onClick={() => setSelectedOrientation('landscape')}
-                  >
-                    <div style={{ width: '16px', height: '12px', border: '1.5px solid currentColor', borderRadius: '2px' }} />
-                    <span>{t('landscape', 'แนวนอน (Landscape)')}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Paper Template Selection */}
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  {t('paperTemplateLabel', 'เลือกรูปแบบหน้ากระดาษ (Paper Template)')}
-                </label>
-                <div className="bn-templates-list" style={{ maxHeight: '180px', overflowY: 'auto' }}>
-                  {PAPER_TEMPLATES.map((tmpl) => (
-                    <div 
-                      key={tmpl.id}
-                      className={`bn-template-card ${selectedTemplate === tmpl.id ? 'bn-template-card-selected' : ''}`}
-                      onClick={() => setSelectedTemplate(tmpl.id)}
-                    >
-                      <div className="bn-template-radio">
-                        {selectedTemplate === tmpl.id && <div className="bn-template-radio-inner"></div>}
-                      </div>
-                      <PaperPreviewThumbnail templateId={tmpl.id} width={30} height={40} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-                          <span style={{ fontWeight: 600, fontSize: '12.5px', color: '#f4f4f5' }}>
-                            {t('template_' + tmpl.id.replace(/-/g, '_'), tmpl.name)}
-                          </span>
-                          {tmpl.badge && (
-                            <span style={{ 
-                              fontSize: '8px', 
-                              background: 'rgba(16, 185, 129, 0.2)', 
-                              color: '#34d399', 
-                              padding: '1px 5px', 
-                              borderRadius: '3px', 
-                              fontWeight: 700 
-                            }}>
-                              {t('template_badge_' + (tmpl.id === 'narrow-ruled' ? 'fine' : tmpl.id === 'wide-ruled' ? 'comfort' : tmpl.id === 'A3' ? 'extra_wide' : tmpl.id === 'A2' ? 'giant' : 'popular'), tmpl.badge)}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                          {t('template_desc_' + tmpl.id.replace(/-/g, '_'), tmpl.description)}
-                        </div>
+            <form onSubmit={handleCreateNotebook} className="bn-create-notebook-form">
+              <div className="bn-create-notebook-layout">
+                <aside className="bn-create-notebook-settings">
+                  <div className="bn-create-field">
+                    <label htmlFor="bn-new-notebook-name">{t('notebookNameLabel', 'Notebook name')}</label>
+                    <input id="bn-new-notebook-name" type="text" className="bn-input" placeholder={t('notebookNamePlaceholder')}
+                      value={notebookName} onChange={e => setNotebookName(e.target.value)} autoFocus />
+                  </div>
+                  <div className="bn-create-selected-paper">
+                    <div className="bn-create-large-preview"><PaperTemplatePreview templateId={selectedTemplate} landscape={!isWhiteboard && selectedOrientation === 'landscape'} /></div>
+                    <strong>{t('template_' + selectedTemplate.replace(/-/g, '_'), selectedPaper.name)}</strong>
+                    <span>{isWhiteboard ? t('whiteboardUnlimited', 'Unlimited writing space') : `${selectedSize} · ${t(selectedOrientation, selectedOrientation)}`}</span>
+                  </div>
+                  {isWhiteboard ? <div className="bn-create-whiteboard-note">{t('whiteboardCreateHelp', 'Pan in any direction. PDF export fits all content on one page with a clean margin.')}</div> : <>
+                    <div className="bn-create-field">
+                      <label>{t('paperSizeLabel', 'Paper size')}</label>
+                      <div className="bn-create-size-options">
+                        {PAPER_SIZES.map(size => <button key={size.id} type="button" aria-pressed={selectedSize === size.id}
+                          className={`bn-create-size-option ${selectedSize === size.id ? 'is-selected' : ''}`} onClick={() => setSelectedSize(size.id)}>
+                          <strong>{size.name}</strong><span>{size.id === 'A4' ? '210 × 297' : size.id === 'A3' ? '297 × 420' : '420 × 594'} mm</span>
+                        </button>)}
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Cover Selection */}
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
-                  {t('coverStyleLabel', 'เลือกแบบปกสมุด (Cover Style)')}
-                </label>
-                <div className="bn-covers-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-                  {NOTEBOOK_COVERS.slice(0, 8).map((cover) => (
-                    <div 
-                      key={cover.id}
-                      className={`bn-cover-option ${selectedCover === cover.id ? 'bn-cover-option-selected' : ''}`}
-                      style={{ background: cover.gradient, height: '60px' }}
-                      onClick={() => setSelectedCover(cover.id)}
-                      title={cover.name}
-                    >
-                      {selectedCover === cover.id && (
-                        <div className="bn-cover-check">
-                          <Check size={14} />
-                        </div>
-                      )}
-                      <span className="bn-cover-option-title" style={{ fontSize: '10px' }}>{cover.name}</span>
+                    <div className="bn-create-field">
+                      <label>{t('orientationLabel', 'Orientation')}</label>
+                      <div className="bn-new-orient-row">
+                        {['portrait', 'landscape'].map(direction => <button key={direction} type="button" aria-pressed={selectedOrientation === direction}
+                          className={`bn-new-orient-btn ${selectedOrientation === direction ? 'bn-new-orient-btn-active' : ''}`} onClick={() => setSelectedOrientation(direction)}>
+                          <span className={`bn-create-orientation-icon ${direction}`} />{t(direction, direction)}
+                        </button>)}
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  </>}
+                  <div className="bn-create-field">
+                    <label>{t('coverStyleLabel', 'Cover style')}</label>
+                    <div className="bn-create-cover-options">
+                      <button type="button" className={'bn-create-cover-thumbnail ' + (selectedCover === THUMBNAIL_COVER_ID ? 'is-selected' : '')}
+                        aria-label={t('coverThumbnail')} aria-pressed={selectedCover === THUMBNAIL_COVER_ID}
+                        title={t('coverThumbnailDescription')} onClick={() => setSelectedCover(THUMBNAIL_COVER_ID)}>
+                        <div className="bn-create-cover-thumbnail-preview">
+                          <PaperTemplatePreview templateId={selectedTemplate} landscape={!isWhiteboard && selectedOrientation === 'landscape'} />
+                        </div>
+                        <div><strong>{t('coverThumbnail')}</strong><span>{t('coverThumbnailDescription')}</span></div>
+                        {selectedCover === THUMBNAIL_COVER_ID && <Check size={16} className="bn-create-cover-thumbnail-check" />}
+                      </button>
+                      {NOTEBOOK_COVERS.slice(0, 8).map(cover => <button key={cover.id} type="button" title={cover.name} aria-label={cover.name}
+                        aria-pressed={selectedCover === cover.id} className={`bn-create-cover-option ${selectedCover === cover.id ? 'is-selected' : ''}`}
+                        style={{ background: cover.gradient }} onClick={() => setSelectedCover(cover.id)}>
+                        {selectedCover === cover.id && <Check size={16} />}<span>{cover.name}</span>
+                      </button>)}
+                    </div>
+                  </div>
+                </aside>
+                <section className="bn-create-paper-gallery">
+                  <div className="bn-create-gallery-heading">
+                    <h4>{t('paperTemplateLabel', 'Paper template')}</h4>
+                    <p>{t('paperGalleryHelp', 'Choose a paper style. The larger preview shows its pattern clearly.')}</p>
+                  </div>
+                  <div className="bn-create-template-grid">
+                    {PAPER_TEMPLATES.map(template => <button key={template.id} type="button" aria-pressed={selectedTemplate === template.id}
+                      className={`bn-create-template-tile ${selectedTemplate === template.id ? 'is-selected' : ''}`} onClick={() => setSelectedTemplate(template.id)}>
+                      <div className="bn-create-tile-preview">
+                        <PaperTemplatePreview templateId={template.id} landscape={template.id !== 'whiteboard' && selectedOrientation === 'landscape'} />
+                        {selectedTemplate === template.id && <span className="bn-create-template-check"><Check size={15} /></span>}
+                      </div>
+                      <strong>{t('template_' + template.id.replace(/-/g, '_'), template.name)}</strong>
+                      <span>{t('template_desc_' + template.id.replace(/-/g, '_'), template.description)}</span>
+                    </button>)}
+                  </div>
+                </section>
               </div>
-
-              <div className="bn-modal-footer" style={{ padding: '12px 0 0 0', background: 'transparent' }}>
-                <button type="button" className="bn-btn-secondary" onClick={onClose}>
-                  {t('cancel', 'ยกเลิก')}
-                </button>
-                <button type="submit" className="bn-btn-primary">
-                  {t('createNotebookBtn', 'สร้างสมุดโน้ต')}
-                </button>
+              <div className="bn-modal-footer bn-create-notebook-footer">
+                <span>{t('paperSelectionReady', 'Your paper is ready to create')}</span>
+                <button type="button" className="bn-btn-secondary" onClick={onClose}>{t('cancel', 'Cancel')}</button>
+                <button type="submit" className="bn-btn-primary">{t('createNotebookBtn', 'Create notebook')}</button>
               </div>
             </form>
           ) : (

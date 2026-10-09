@@ -9,7 +9,7 @@
   <Identity Name="JustStone.3453441DD0CC3"
     ProcessorArchitecture="x64"
     Publisher='CN=01BEC724-2F5E-47FF-BC4E-71824A714A56'
-    Version="1.2.0.0" />
+    Version="1.3.0.0" />
   <Properties>
     <DisplayName>BetterNotePC</DisplayName>
     <PublisherDisplayName>JustStone</PublisherDisplayName>

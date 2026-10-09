@@ -17,7 +17,7 @@ export const StudioSidebar = ({
   currentTheme = 'dark',
   onToggleTheme
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const menuItems = [
     {
@@ -32,6 +32,12 @@ export const StudioSidebar = ({
       icon: Star,
       iconColor: 'text-zinc-400',
       badge: favoriteCount > 0 ? favoriteCount : null
+    },
+    {
+      id: 'guide',
+      label: ({ th: 'คู่มือการใช้งาน', en: 'User guide', zh: '使用指南', ru: 'Руководство' })[language] || 'User guide',
+      icon: BookOpen,
+      iconColor: 'text-zinc-400'
     }
   ];
 

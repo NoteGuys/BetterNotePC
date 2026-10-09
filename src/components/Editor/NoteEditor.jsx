@@ -1,22 +1,36 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { loadPdfRaster } from '../../services/pdfRasterService.js';
+import { cachedPagePreview } from '../../services/pagePreviewService.js';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
 import { EditorToolbar } from './EditorToolbar';
 import { PageNavigation } from './PageNavigation';
 import { ThumbnailSidebar } from './ThumbnailSidebar';
 import { CanvasBoard } from './CanvasBoard';
+import { WhiteboardBoard } from './WhiteboardBoard';
+import { isWhiteboardPage } from '../../utils/whiteboard';
+import { createTouchGuard, createTwoFingerTap, touchSnapshot, normalizeWheel, createWheelPageGate } from '../../utils/touchNavigation';
 import { ExportModal } from '../Common/ExportModal';
 import { 
-  getPagesByNotebookId, 
+  getPagesByNotebookId, getPage,
   savePage, 
-  deletePage, 
+  mutateNotebookPages,
   saveNotebook,
   duplicateNotebook 
 } from '../../services/db';
+import { loadPageManifest, loadPdfOwnerPage, exportPortableNotebook } from '../../services/editorPagesService.js';
+import { createPagePreviewSession } from '../../services/pagePreviewService.js';
+import { pageSummary, trimPageWindow, windowPageIds, editorPageView } from '../../utils/pageWindow.js';
+import { pageSaveQueue } from '../../services/localSaveService';
+import { pageContentSnapshot, findHistoryPageIndex } from '../../utils/pageHistory';
+import { notebookHistoryStore } from '../../services/notebookHistoryService';
 import { renderPageToCanvasDataUrl, exportSinglePageToPdf } from '../../utils/pdfExportEngine';
-import { loadEditorPreferences, saveEditorPreferences } from '../../services/userPreferences';
+import { loadEditorPreferences, saveEditorPreferences, loadQuickColorSlots } from '../../services/userPreferences';
 import { AddPageModal } from './AddPageModal';
 import { getPaperSize } from '../../data/templates';
 import { RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
+import { localizeNotebookCopyName } from '../../utils/notebookNames';
+import { queueNotebookCover } from '../../services/notebookCoverService';
+import { THUMBNAIL_COVER_ID } from '../../data/covers';
 
 export const NoteEditor = ({ 
   notebook, 
@@ -38,6 +52,7 @@ export const NoteEditor = ({
   }, [currentPageIndex]);
   const initialPageRef = useRef(initialPageIndex);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   // Sync active page index to parent tab state so returning to this tab opens exact page
   useEffect(() => {
@@ -63,6 +78,19 @@ export const NoteEditor = ({
   // Tools state (Restored from persistent preferences)
   const [activeTool, setActiveTool] = useState(initialPrefs.activeTool || 'pen');
   const [activeColor, setActiveColor] = useState(initialPrefs.activeColor || '#2563eb');
+
+  const [colorSlots, setColorSlots] = useState(loadQuickColorSlots);
+  const handleCustomColorChange = (newColor) => {
+    const updated = [...colorSlots];
+    const matchIdx = updated.findIndex(color => color.toLowerCase() === activeColor.toLowerCase());
+    updated[matchIdx === -1 ? updated.length - 1 : matchIdx] = newColor;
+    setActiveColor(newColor);
+    setColorSlots(updated);
+    try {
+      localStorage.setItem('betternote_quick_color_slots', JSON.stringify(updated));
+    } catch (_) {}
+  };
+
   const [toolWidths, setToolWidths] = useState(() => initialPrefs.toolWidths || {
     pen: 4,
     highlighter: 18,
@@ -81,6 +109,7 @@ export const NoteEditor = ({
 
   const [activeShape, setActiveShape] = useState(initialPrefs.activeShape || 'rectangle');
   const [penNib, setPenNib] = useState(initialPrefs.penNib || 'fountain');
+  const [highlighterTip, setHighlighterTip] = useState(initialPrefs.highlighterTip === 'round' ? 'round' : 'square');
   const [isTapered, setIsTapered] = useState(initialPrefs.isTapered ?? true);
   const [usePressure, setUsePressure] = useState(initialPrefs.usePressure ?? true);
   const [pressureSensitivity, setPressureSensitivity] = useState(initialPrefs.pressureSensitivity || 'medium');
@@ -99,6 +128,7 @@ export const NoteEditor = ({
       toolWidths,
       activeShape,
       penNib,
+      highlighterTip,
       isTapered,
       usePressure,
       pressureSensitivity,
@@ -115,6 +145,7 @@ export const NoteEditor = ({
     toolWidths,
     activeShape,
     penNib,
+    highlighterTip,
     isTapered,
     usePressure,
     pressureSensitivity,
@@ -127,20 +158,21 @@ export const NoteEditor = ({
 
   // Clipboard for Snipped Images
   const [clipboardImage, setClipboardImage] = useState(null); // { dataUrl, width, height }
+  const [pastedImageSelection, setPastedImageSelection] = useState(null); // { pageId, imageId }
+  const imageFileInputRef = useRef(null);
+  const imageImportPendingRef = useRef(false);
 
   const [showThumbnails, setShowThumbnails] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAddPageModalOpen, setIsAddPageModalOpen] = useState(false);
 
-  // Undo / Redo history for current page
-  const [historyStack, setHistoryStack] = useState([]);
-  const [historyPointer, setHistoryPointer] = useState(-1);
-  const historyStackRef = useRef([]);
-  const historyPointerRef = useRef(-1);
-  useEffect(() => {
-    historyStackRef.current = historyStack;
-    historyPointerRef.current = historyPointer;
-  }, [historyStack, historyPointer]);
+  // History is shared by notebook for this app session, independent of this view.
+  const historySession = useMemo(() => notebookHistoryStore.forNotebook(notebook.id), [notebook.id]);
+  const { stack: historyStack, pointer: historyPointer, busy: historyBusy } = useSyncExternalStore(
+    historySession.subscribe, historySession.getSnapshot, historySession.getSnapshot
+  );
+  const loadGenerationRef = useRef(0);
+  const manifestAbortRef = useRef(null);
 
   // Floating Gesture Toast
   const [gestureToast, setGestureToast] = useState(null);
@@ -154,6 +186,8 @@ export const NoteEditor = ({
   }, []);
 
   // Stage Ref and Zoom tracking for Touchpad & Touchscreen gestures
+  const whiteboardViewportRef = useRef(null);
+  const handleWhiteboardViewportChange = useCallback(viewport => { whiteboardViewportRef.current = viewport; }, []);
   const stageRef = useRef(null);
   const stageContentRef = useRef(null);
   const zoomRef = useRef(zoom);
@@ -161,353 +195,436 @@ export const NoteEditor = ({
     zoomRef.current = zoom;
   }, [zoom]);
 
-  const lastWheelPageFlipRef = useRef(0);
 
-  // Touchpad pinch (Ctrl + Wheel) listener and Horizontal Page Flip on stage
+  const isPinchingActiveRef = useRef(false);
+  const navigationRef = useRef(null);
+  if (!navigationRef.current) navigationRef.current = {
+    guard: createTouchGuard(), tap: createTwoFingerTap(), wheelGate: createWheelPageGate(),
+    pan: null, pinch: null, frame: null, momentum: null, wheelFrame: null, wheelZoom: null, anchor: null
+  };
+  const nav = navigationRef.current;
+  const navigationLocked = () => !!(window.__bn_pen_active || window.__bn_drag_active);
+  const clearNavigationPreview = () => {
+    const content = stageContentRef.current;
+    if (content) { content.style.transform = ''; content.style.transformOrigin = ''; content.style.willChange = ''; }
+  };
+  const stopNavigationFrames = () => {
+    for (const key of ['frame', 'momentum', 'wheelFrame']) {
+      if (nav[key] !== null) cancelAnimationFrame(nav[key]);
+      nav[key] = null;
+    }
+    nav.wheelZoom = null;
+    if (!nav.pinch) isPinchingActiveRef.current = false;
+  };
+  const resetNavigation = () => {
+    stopNavigationFrames(); clearNavigationPreview();
+    nav.guard.suspend(); nav.tap.cancel(); nav.pan = null; nav.pinch = null; nav.anchor = null;
+    isPinchingActiveRef.current = false;
+  };
+  const resetNavigationRef = useRef(resetNavigation);
+  resetNavigationRef.current = resetNavigation;
+
+  // Keep the same page point under the fingers after React applies the final zoom,
+  // including centered pages and the fixed spacing between vertically stacked pages.
+  const applyNavigationAnchor = anchor => {
+    const stage = stageRef.current;
+    const element=anchor?.wrapper?.querySelector('.bn-canvas-container, .bn-vertical-page-placeholder') || anchor?.element;
+    if (!stage || !element?.isConnected) return;
+    const rect = element.getBoundingClientRect();
+    stage.scrollLeft += rect.left + anchor.x * zoomRef.current - anchor.screenX;
+    stage.scrollTop += rect.top + anchor.y * zoomRef.current - anchor.screenY;
+  };
+  useLayoutEffect(() => {
+    zoomRef.current = zoom;
+    if (nav.anchor) { applyNavigationAnchor(nav.anchor); nav.anchor = null; }
+    if (!nav.pinch) isPinchingActiveRef.current = false;
+  }, [zoom]);
+
+  useLayoutEffect(() => () => resetNavigationRef.current(), [
+    notebook.id, scrollDirection, activeTool,
+    scrollDirection === 'horizontal' ? pages[currentPageIndex]?.id : null
+  ]);
+  useEffect(() => {
+    const interrupt = () => resetNavigationRef.current();
+    const hidden = () => { if (document.hidden) interrupt(); };
+    const pointer = event => {
+      if (event.pointerType !== 'touch' || !stageRef.current?.contains(event.target) || navigationTargetIsControl(event.target)) interrupt();
+    };
+    const outsideRelease = event => {
+      if (!stageRef.current?.contains(event.target)) { nav.guard.update(event.touches, navigationLocked()); interrupt(); }
+    };
+    window.addEventListener('touchend', outsideRelease);
+    window.addEventListener('touchcancel', outsideRelease);
+    window.addEventListener('blur', interrupt);
+    window.addEventListener('pointerdown', pointer, true);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      interrupt(); window.removeEventListener('touchend', outsideRelease); window.removeEventListener('touchcancel', outsideRelease);
+      window.removeEventListener('blur', interrupt);
+      window.removeEventListener('pointerdown', pointer, true);
+      document.removeEventListener('visibilitychange', hidden);
+    };
+  }, []);
+
+  const chooseNavigationAnchor = (x, y) => {
+    const stage = stageRef.current;
+    const hit = document.elementFromPoint(x, y)?.closest('.bn-canvas-container, .bn-vertical-page-placeholder');
+    // The pointer/viewport center may land in the fixed gap between pages.
+    // Choose the nearest visible sheet, never the first sheet in a long notebook.
+    const element = hit && stage?.contains(hit) ? hit : [...(stage?.querySelectorAll('.bn-canvas-container, .bn-vertical-page-placeholder') || [])].sort((a,b)=>{
+      const distance=el=>{const r=el.getBoundingClientRect();return Math.max(r.top-y,0,y-r.bottom)+Math.max(r.left-x,0,x-r.right);};
+      return distance(a)-distance(b);
+    })[0];
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { element, wrapper:element.closest('.bn-vertical-page-wrapper'), x: (x - rect.left) / zoomRef.current, y: (y - rect.top) / zoomRef.current, screenX: x, screenY: y };
+  };
+  const changeToolbarZoom = next => {
+    const stage=stageRef.current;
+    resetNavigationRef.current();
+    if (!stage || isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) { setZoom(next); return; }
+    const rect=stage.getBoundingClientRect();
+    nav.anchor=chooseNavigationAnchor(rect.left+rect.width/2,rect.top+rect.height/2);
+    const index=Number(nav.anchor?.wrapper?.dataset.pageIndex);
+    if(nav.anchor?.wrapper && Number.isInteger(index) && index!==currentPageIndexRef.current){currentPageIndexRef.current=index;setCurrentPageIndex(index);}
+    isProgrammaticScrollRef.current=true;
+    if(programmaticScrollTimerRef.current)clearTimeout(programmaticScrollTimerRef.current);
+    programmaticScrollTimerRef.current=setTimeout(()=>{isProgrammaticScrollRef.current=false;},350);
+    if(next===zoomRef.current){nav.anchor=null;return;}
+    setZoom(next);
+  };
+  const settlePinch = () => {
+    const pinch = nav.pinch;
+    if (!pinch) return;
+    if (nav.frame !== null) cancelAnimationFrame(nav.frame);
+    nav.frame = null; nav.pinch = null; clearNavigationPreview();
+    if (pinch.moved && pinch.anchor) {
+      const finalZoom = Math.min(3.5, Math.max(0.35, Number((pinch.zoom * pinch.scale).toFixed(2))));
+      const anchor = { ...pinch.anchor, screenX: pinch.x + pinch.panX, screenY: pinch.y + pinch.panY };
+      if (finalZoom === zoomRef.current) applyNavigationAnchor(anchor);
+      else { nav.anchor = anchor; setZoom(finalZoom); }
+    }
+    isPinchingActiveRef.current = false;
+  };
+  const navigationTargetIsControl = target => !!target?.closest?.(
+    'input, textarea, select, button, [contenteditable="true"], .bn-modal-backdrop, .bn-lasso-menu, .bn-whiteboard-viewport'
+  );
+  const handleStageTouchStart = e => {
+    if (scrollDirection === 'horizontal' && isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) return;
+    if (navigationTargetIsControl(e.target)) return;
+    stopNavigationFrames();
+    const touches = nav.guard.update(e.touches, navigationLocked());
+    if (navigationLocked() || touches.length !== e.touches.length) { nav.tap.cancel(); return; }
+    nav.tap.start(touches);
+    if (touches.length > 2) { settlePinch(); nav.pan = null; nav.tap.cancel(); nav.guard.block(); return; }
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (touches.length === 1) {
+      const point = touches[0];
+      nav.pan = { id: point.identifier, x: point.clientX, y: point.clientY, left: stage.scrollLeft, top: stage.scrollTop,
+        moved: false, vx: 0, vy: 0, time: performance.now(), lastX: point.clientX, lastY: point.clientY };
+    } else if (touches.length === 2) {
+      nav.pan = null; settlePinch();
+      const point = touchSnapshot(touches), content = stageContentRef.current;
+      if (!content) return;
+      const rect = content.getBoundingClientRect();
+      nav.pinch = { ...point, zoom: zoomRef.current, scale: 1, panX: 0, panY: 0, moved: false,
+        anchor: chooseNavigationAnchor(point.x, point.y) };
+      content.style.transformOrigin = (point.x - rect.left) + 'px ' + (point.y - rect.top) + 'px';
+      content.style.willChange = 'transform';
+      isPinchingActiveRef.current = true;
+    }
+  };
+  const handleStageTouchMove = e => {
+    if (navigationTargetIsControl(e.target)) return;
+    const touches = nav.guard.update(e.touches, navigationLocked());
+    if (navigationLocked()) { resetNavigation(); return; }
+    nav.tap.move(touches);
+    if (touches.length !== e.touches.length) return;
+    if (touches.length === 2 && nav.pinch) {
+      if (e.cancelable) e.preventDefault();
+      const point = touchSnapshot(touches), pinch = nav.pinch;
+      if (Math.hypot(point.x - pinch.x, point.y - pinch.y) > 8 || Math.abs(point.distance - pinch.distance) > 8) pinch.moved = true;
+      if (!pinch.moved) return;
+      nav.tap.cancel();
+      pinch.scale = Math.min(3.5 / pinch.zoom, Math.max(0.35 / pinch.zoom, point.distance / pinch.distance));
+      pinch.panX = point.x - pinch.x; pinch.panY = point.y - pinch.y;
+      if (nav.frame === null) nav.frame = requestAnimationFrame(() => {
+        nav.frame = null; const p = nav.pinch, content = stageContentRef.current;
+        if (p && content && !navigationLocked()) content.style.transform = 'translate3d(' + p.panX + 'px,' + p.panY + 'px,0) scale(' + p.scale + ')';
+      });
+    } else if (touches.length === 1 && nav.pan && activeTool !== 'snip') {
+      const point = touches[0], pan = nav.pan;
+      if (point.identifier !== pan.id) return;
+      const dx = point.clientX - pan.x, dy = point.clientY - pan.y;
+      if (!pan.moved && Math.hypot(dx, dy) <= 8) return;
+      pan.moved = true;
+      if (e.cancelable) e.preventDefault();
+      const time = performance.now(), dt = Math.max(1, time - pan.time);
+      pan.vx = (point.clientX - pan.lastX) / dt; pan.vy = (point.clientY - pan.lastY) / dt;
+      pan.time = time; pan.lastX = point.clientX; pan.lastY = point.clientY;
+      pan.nextLeft = pan.left - dx; pan.nextTop = pan.top - dy;
+      if (nav.frame === null) nav.frame = requestAnimationFrame(() => {
+        nav.frame = null; const stage = stageRef.current;
+        if (nav.pan && stage && !navigationLocked()) { stage.scrollLeft = nav.pan.nextLeft; stage.scrollTop = nav.pan.nextTop; }
+      });
+    }
+  };
+  const finishStageTouch = (e, cancelled) => {
+    if (navigationTargetIsControl(e.target)) return;
+    const locked = navigationLocked();
+    nav.guard.update(e.touches, locked);
+    if (cancelled || locked) nav.tap.cancel();
+    else nav.tap.move(e.changedTouches);
+    const pan = nav.pan;
+    if (nav.pinch && e.touches.length < 2) {
+      const moved = nav.pinch.moved;
+      settlePinch(); nav.pan = null;
+      if (moved) nav.guard.block();
+    }
+    if (e.touches.length) return;
+    if (!cancelled && !locked && nav.tap.end(e.touches)) {
+      handleUndo(); showGestureToast(t('twoFingerUndoToast', 'ย้อนกลับ (แตะ 2 นิ้ว 2 ครั้ง) ↶'));
+    }
+    nav.pan = null;
+    if (nav.frame !== null) cancelAnimationFrame(nav.frame);
+    nav.frame = null;
+    const stage = stageRef.current;
+    if (pan?.moved && stage && !locked) {
+      stage.scrollLeft = pan.nextLeft; stage.scrollTop = pan.nextTop;
+      // Only a recent, intentional release carries momentum. Cancellation never does.
+      if (!cancelled && performance.now() - pan.time < 80) {
+        let vx = Math.max(-2.5, Math.min(2.5, pan.vx)), vy = Math.max(-2.5, Math.min(2.5, pan.vy)), last = performance.now();
+        const momentum = time => {
+          nav.momentum = null;
+          if (navigationLocked() || nav.guard.size) return;
+          const dt = Math.min(32, Math.max(1, time - last)); last = time;
+          const left = stage.scrollLeft, top = stage.scrollTop, decay = Math.pow(0.95, dt / 16);
+          vx *= decay; vy *= decay; stage.scrollLeft -= vx * dt; stage.scrollTop -= vy * dt;
+          if ((stage.scrollLeft !== left || stage.scrollTop !== top) && Math.hypot(vx, vy) > 0.05) nav.momentum = requestAnimationFrame(momentum);
+        };
+        if (Math.hypot(vx, vy) > 0.25) nav.momentum = requestAnimationFrame(momentum);
+      }
+    }
+  };
+  const handleStageTouchEnd = e => finishStageTouch(e, false);
+  const handleStageTouchCancel = e => {
+    nav.guard.update(e.touches, true); resetNavigation();
+  };
+
+  // Touchpad zoom is anchored and batched; one inertial scroll gesture flips at most one page.
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-
-    const handleWheel = (e) => {
+    const wheel = e => {
+      if (isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId) || navigationTargetIsControl(e.target)) return;
+      if (navigationLocked() || nav.guard.size) { e.preventDefault(); return; }
+      if (nav.momentum !== null) cancelAnimationFrame(nav.momentum);
+      nav.momentum = null; nav.tap.cancel();
+      const delta = normalizeWheel(e, stage.clientHeight);
       if (e.ctrlKey) {
-        e.preventDefault();
-        isPinchingActiveRef.current = true;
-        if (pinchCooldownTimerRef.current) clearTimeout(pinchCooldownTimerRef.current);
-        pinchCooldownTimerRef.current = setTimeout(() => {
-          isPinchingActiveRef.current = false;
-        }, 300);
-
-        const delta = -e.deltaY * 0.003;
-        setZoom(prev => Math.min(3.5, Math.max(0.35, Number((prev + delta).toFixed(2)))));
+        e.preventDefault(); isPinchingActiveRef.current = true;
+        const current = nav.wheelZoom?.zoom ?? zoomRef.current;
+        nav.wheelZoom = { zoom: Math.min(3.5, Math.max(0.35, current * Math.exp(-delta.y * 0.002))),
+          anchor: chooseNavigationAnchor(e.clientX, e.clientY) };
+        if (nav.wheelFrame === null) nav.wheelFrame = requestAnimationFrame(() => {
+          nav.wheelFrame = null; const pending = nav.wheelZoom; nav.wheelZoom = null;
+          if (!pending || navigationLocked()) return;
+          nav.anchor = pending.anchor;
+          const next = Number(pending.zoom.toFixed(2));
+          if (next === zoomRef.current) { applyNavigationAnchor(nav.anchor); nav.anchor = null; isPinchingActiveRef.current = false; }
+          else setZoom(next);
+        });
         return;
       }
-
-      // PALM / PEN PROTECTION: If pen is active or recently used within 1200ms, IGNORE wheel flips completely!
-      if (window.__bn_pen_active || (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200)) {
-        return;
+      if (scrollDirection !== 'horizontal') return;
+      e.preventDefault();
+      const horizontal = stage.scrollWidth > stage.clientWidth + 2, vertical = stage.scrollHeight > stage.clientHeight + 2;
+      if (horizontal || vertical) {
+        stage.scrollLeft += e.shiftKey ? delta.y : delta.x || (!vertical ? delta.y : 0);
+        stage.scrollTop += e.shiftKey ? 0 : vertical ? delta.y : 0;
+        nav.wheelGate.reset(); return;
       }
-
-      // In Horizontal Mode: Mouse wheel or touchpad scroll flips pages smoothly
-      if (scrollDirection === 'horizontal') {
-        const now = Date.now();
-        if (now - lastWheelPageFlipRef.current < 280) return;
-
-        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-        if (Math.abs(delta) > 15) {
-          if (delta > 0 && currentPageIndexRef.current < pagesRef.current.length - 1) {
-            lastWheelPageFlipRef.current = now;
-            handleSelectPage(currentPageIndexRef.current + 1);
-          } else if (delta < 0 && currentPageIndexRef.current > 0) {
-            lastWheelPageFlipRef.current = now;
-            handleSelectPage(currentPageIndexRef.current - 1);
-          }
-        }
-      }
+      const direction = nav.wheelGate.push(Math.abs(delta.x) > Math.abs(delta.y) ? delta.x : delta.y);
+      const target = currentPageIndexRef.current + direction;
+      if (direction && target >= 0 && target < pagesRef.current.length) handleSelectPage(target);
     };
+    stage.addEventListener('wheel', wheel, { passive: false });
+    return () => stage.removeEventListener('wheel', wheel);
+  }, [scrollDirection, isLoading, notebook.id]);
 
-    stage.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      stage.removeEventListener('wheel', handleWheel);
-    };
-  }, [scrollDirection, isLoading]);
-
-  // Multi-touch pinch tracking & Two-finger double-tap undo (GPU hardware-accelerated, zero-shake)
-  const firstTouchRef = useRef(null);
-  const lastTwoFingerTapTimeRef = useRef(0);
-  const stagePanRef = useRef({ isPanning: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
-  const stagePinchRef = useRef({
-    isPinching: false,
-    startTime: 0,
-    startDist: 0,
-    startZoom: 1,
-    startMidX: 0,
-    startMidY: 0,
-    focalOffsetX: 0,
-    focalOffsetY: 0,
-    focalContentX: 0,
-    focalContentY: 0,
-    startScrollLeft: 0,
-    startScrollTop: 0,
-    currentScale: 1,
-    panX: 0,
-    panY: 0,
-    hasMoved: false,
-    isTwoFingerTap: false
-  });
-  const pinchRafRef = useRef(null);
-
-  const isPinchingActiveRef = useRef(false);
-  const pinchCooldownTimerRef = useRef(null);
-
-  const handleStageTouchStart = (e) => {
-    // STRICT PALM REJECTION & OBJECT DRAG LOCK:
-    if (window.__bn_pen_active || 
-        (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200) ||
-        window.__bn_drag_active) {
-      stagePanRef.current.isPanning = false;
-      return;
-    }
-
-    if (e.touches.length === 1) {
-      firstTouchRef.current = {
-        time: Date.now(),
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY
-      };
-      const stage = stageRef.current;
-      if (stage) {
-        stagePanRef.current = {
-          isPanning: false, // will engage on intentional movement > 16px
-          startX: e.touches[0].clientX,
-          startY: e.touches[0].clientY,
-          scrollLeft: stage.scrollLeft,
-          scrollTop: stage.scrollTop
-        };
-      }
-    } else if (e.touches.length === 2) {
-      stagePanRef.current.isPanning = false;
-      isPinchingActiveRef.current = true;
-      if (pinchCooldownTimerRef.current) clearTimeout(pinchCooldownTimerRef.current);
-
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      const midX = (t1.clientX + t2.clientX) / 2;
-      const midY = (t1.clientY + t2.clientY) / 2;
-      const stage = stageRef.current;
-      const contentEl = stageContentRef.current;
-      if (!stage || !contentEl) return;
-
-      const stageRect = stage.getBoundingClientRect();
-      const contentRect = contentEl.getBoundingClientRect();
-      const focalOffsetX = midX - stageRect.left;
-      const focalOffsetY = midY - stageRect.top;
-      const focalContentX = midX - contentRect.left;
-      const focalContentY = midY - contentRect.top;
-
-      // Anchor start time to first finger landing if within 160ms (natural asynchronous finger placement)
-      let startTime = Date.now();
-      if (firstTouchRef.current && (startTime - firstTouchRef.current.time < 160)) {
-        startTime = firstTouchRef.current.time;
-      }
-
-      stagePinchRef.current = {
-        isPinching: true,
-        startTime,
-        startDist: Math.max(10, dist),
-        startZoom: zoomRef.current,
-        startMidX: midX,
-        startMidY: midY,
-        focalOffsetX,
-        focalOffsetY,
-        focalContentX,
-        focalContentY,
-        startScrollLeft: stage.scrollLeft,
-        startScrollTop: stage.scrollTop,
-        currentScale: 1,
-        panX: 0,
-        panY: 0,
-        hasMoved: false,
-        isTwoFingerTap: true
-      };
-
-      contentEl.style.willChange = 'transform';
-      contentEl.style.transformOrigin = `${focalContentX}px ${focalContentY}px`;
-    } else {
-      if (stagePinchRef.current?.isPinching) {
-        handleStageTouchEnd(e);
-      }
-    }
-  };
-
-  const handleStageTouchMove = (e) => {
-    // Palm Rejection & Object Drag Lock:
-    if (window.__bn_pen_active || 
-        (window.__bn_pen_last_time && Date.now() - window.__bn_pen_last_time < 1200) ||
-        window.__bn_drag_active) {
-      stagePanRef.current.isPanning = false;
-      return;
-    }
-
-    // 1. Single Finger Panning on stage background
-    if (e.touches.length === 1) {
-      const dx = e.touches[0].clientX - stagePanRef.current.startX;
-      const dy = e.touches[0].clientY - stagePanRef.current.startY;
-      const dist = Math.hypot(dx, dy);
-
-      if (!stagePanRef.current.isPanning) {
-        if (dist > 16) {
-          stagePanRef.current.isPanning = true;
-        } else {
-          return;
-        }
-      }
-
-      const stage = stageRef.current;
-      if (stage) {
-        stage.scrollLeft = stagePanRef.current.scrollLeft - dx;
-        stage.scrollTop = stagePanRef.current.scrollTop - dy;
-      }
-      return;
-    }
-
-    // 2. Two-finger Pinch & Pan
-    if (e.touches.length === 2 && stagePinchRef.current?.isPinching) {
-      if (e.cancelable) e.preventDefault();
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      const midX = (t1.clientX + t2.clientX) / 2;
-      const midY = (t1.clientY + t2.clientY) / 2;
-
-      const pinch = stagePinchRef.current;
-      const distDiff = Math.abs(dist - pinch.startDist);
-      const panDist = Math.hypot(midX - pinch.startMidX, midY - pinch.startMidY);
-
-      // Movement threshold for distinguishing Tap vs Pinch/Pan (18px)
-      if (distDiff > 18 || panDist > 18) {
-        pinch.hasMoved = true;
-        pinch.isTwoFingerTap = false;
-      }
-
-      if (pinch.hasMoved) {
-        const scaleRatio = dist / pinch.startDist;
-        const clampedScale = Math.min(3.5 / pinch.startZoom, Math.max(0.35 / pinch.startZoom, scaleRatio));
-        const panX = midX - pinch.startMidX;
-        const panY = midY - pinch.startMidY;
-
-        pinch.currentScale = clampedScale;
-        pinch.panX = panX;
-        pinch.panY = panY;
-
-        if (!pinchRafRef.current) {
-          pinchRafRef.current = requestAnimationFrame(() => {
-            pinchRafRef.current = null;
-            const contentEl = stageContentRef.current;
-            if (contentEl && stagePinchRef.current?.isPinching) {
-              const { currentScale, panX: px, panY: py } = stagePinchRef.current;
-              contentEl.style.transform = `translate3d(${px}px, ${py}px, 0) scale(${currentScale})`;
-            }
-          });
-        }
-      }
-    }
-  };
-
-  const handleStageTouchEnd = (e) => {
-    stagePanRef.current.isPanning = false;
-
-    if (stagePinchRef.current?.isPinching) {
-      const pinch = stagePinchRef.current;
-      pinch.isPinching = false;
-
-      if (pinchRafRef.current) {
-        cancelAnimationFrame(pinchRafRef.current);
-        pinchRafRef.current = null;
-      }
-
-      const duration = Date.now() - pinch.startTime;
-      // Two-Finger Double Tap Undo Detection (แตะ 2 นิ้ว 2 ครั้งติดกันเพื่อย้อนกลับ):
-      if (pinch.isTwoFingerTap && !pinch.hasMoved && duration < 450) {
-        pinch.isTwoFingerTap = false;
-        const now = Date.now();
-        const tapInterval = now - lastTwoFingerTapTimeRef.current;
-        if (tapInterval >= 40 && tapInterval <= 480) {
-          // Confirmed Two-Finger Double Tap!
-          lastTwoFingerTapTimeRef.current = 0;
-          handleUndo();
-          showGestureToast(t('twoFingerUndoToast', 'ย้อนกลับ (แตะ 2 นิ้ว 2 ครั้ง) ↶'));
-        } else {
-          // First tap recorded, awaiting second tap within 480ms
-          lastTwoFingerTapTimeRef.current = now;
-        }
-      }
-
-      const finalScale = pinch.currentScale || 1;
-      const rawZoom = pinch.startZoom * finalScale;
-      const finalZoom = Math.min(3.5, Math.max(0.35, Number(rawZoom.toFixed(2))));
-
-      const stage = stageRef.current;
-      const contentEl = stageContentRef.current;
-
-      if (contentEl) {
-        contentEl.style.transform = '';
-        contentEl.style.transformOrigin = '';
-        contentEl.style.willChange = '';
-      }
-
-      if (stage && pinch.hasMoved && pinch.startDist > 0) {
-        const zoomRatio = finalZoom / pinch.startZoom;
-        const contentX = pinch.startScrollLeft + pinch.focalOffsetX;
-        const contentY = pinch.startScrollTop + pinch.focalOffsetY;
-
-        stage.scrollLeft = contentX * zoomRatio - pinch.focalOffsetX - pinch.panX;
-        stage.scrollTop = contentY * zoomRatio - pinch.focalOffsetY - pinch.panY;
-        setZoom(finalZoom);
-      }
-    }
-
-    firstTouchRef.current = null;
-
-    if (pinchCooldownTimerRef.current) clearTimeout(pinchCooldownTimerRef.current);
-    pinchCooldownTimerRef.current = setTimeout(() => {
-      isPinchingActiveRef.current = false;
-    }, 250);
-  };
-
-  // Load pages from database
+  // Wait for this notebook's pending page operation before opening its view.
   const loadPages = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
+    manifestAbortRef.current?.abort();
+    const manifestController = new AbortController(); manifestAbortRef.current = manifestController;
     setIsLoading(true);
+    setLoadError(false);
     try {
-      let loadedPages = await getPagesByNotebookId(notebook.id);
+      await historySession.wait();
+      let loadedPages = await loadPageManifest(notebook.id, { signal: manifestController.signal, templateId: notebook.templateId });
+      if (generation !== loadGenerationRef.current) return;
       if (loadedPages.length === 0) {
         const initialPage = {
-          id: `${notebook.id}_page_0`,
-          notebookId: notebook.id,
-          pageIndex: 0,
-          templateId: notebook.templateId || 'ruled',
-          strokes: [],
-          textElements: [],
+          id: notebook.id + '_page_0', notebookId: notebook.id, pageIndex: 0,
+          templateId: notebook.templateId || 'ruled', strokes: [], textElements: [], imageElements: [],
           updatedAt: Date.now()
         };
         await savePage(initialPage);
         loadedPages = [initialPage];
       }
+      if (generation !== loadGenerationRef.current) return;
+      const start = Math.min(Math.max(0, initialPageRef.current), Math.max(0, loadedPages.length - 1));
+      if (loadedPages[start]?.__unloaded) {
+        const active = loadedPages[start].__pdfOriginalOwner
+          ? await loadPdfOwnerPage(notebook.id, loadedPages[start].id, { signal: manifestController.signal })
+          : await getPage(loadedPages[start].id);
+        if (!active) throw Error('Page unavailable');
+        loadedPages[start] = active;
+      }
+      if (generation !== loadGenerationRef.current) return;
+      loadedPages = pageSaveQueue.overlay(loadedPages, notebook.id);
+      pagesRef.current = loadedPages;
       setPages(loadedPages);
       const startIdx = Math.min(Math.max(0, initialPageRef.current), Math.max(0, loadedPages.length - 1));
+      currentPageIndexRef.current = startIdx;
       setCurrentPageIndex(startIdx);
-
-      if (loadedPages[startIdx]) {
-        setHistoryStack([]);
-        setHistoryPointer(-1);
-        historyStackRef.current = [];
-        historyPointerRef.current = -1;
-      }
+      historySession.reconcile(loadedPages);
     } catch (err) {
+      if (generation !== loadGenerationRef.current) return;
+      setLoadError(true);
       console.error('Failed to load notebook pages:', err);
     } finally {
-      setIsLoading(false);
+      if (generation === loadGenerationRef.current) setIsLoading(false);
     }
-  }, [notebook.id, notebook.templateId]);
+  }, [notebook.id, notebook.templateId, historySession]);
 
   useEffect(() => {
     loadPages();
+    return () => { loadGenerationRef.current++; manifestAbortRef.current?.abort(); };
   }, [loadPages]);
 
+  const pageLoadsRef = useRef(new Map());
+  const ensurePage = useCallback(async pageId => {
+    const live = pagesRef.current.find(page => page.id === pageId);
+    if (!live || !live.__unloaded) return live;
+    const key = notebook.id + ':' + pageId;
+    if (pageLoadsRef.current.has(key)) return pageLoadsRef.current.get(key);
+    const generation = loadGenerationRef.current;
+    const task = (async () => {
+      const stored = live.__pdfOriginalOwner ? await loadPdfOwnerPage(notebook.id, pageId, { signal: manifestAbortRef.current?.signal }) : await getPage(pageId);
+      if (!stored || stored.notebookId !== notebook.id) throw Error('Page unavailable');
+      if (generation !== loadGenerationRef.current) return null;
+      const current = pagesRef.current.find(page => page.id === pageId);
+      if (!current) return null;
+      if (!current.__unloaded) return current;
+      const result = pageSaveQueue.overlay([{ ...stored, pageIndex: current.pageIndex }], notebook.id)[0];
+      const next = pagesRef.current.map(page => page.id === pageId ? result : page);
+      pagesRef.current = next; setPages(next);
+      return result;
+    })().finally(() => {
+      pageLoadsRef.current.delete(key);
+      setTimeout(() => {
+        if (generation !== loadGenerationRef.current) return;
+        const next = trimPageWindow(pagesRef.current, windowPageIds(pagesRef.current, currentPageIndexRef.current, 2));
+        if (next.some((page,i) => page !== pagesRef.current[i])) { pagesRef.current = next; setPages(next); }
+      }, 0);
+    });
+    pageLoadsRef.current.set(key, task);
+    return task;
+  }, [notebook.id]);
+  const [pageLoadError, setPageLoadError] = useState(null);
+  const wantedPageIds = useMemo(() => windowPageIds(pages, currentPageIndex, scrollDirection === 'vertical' ? 2 : 1), [pages.length, currentPageIndex, scrollDirection]);
+  useEffect(() => {
+    if (isLoading || loadError || !pages.length) return;
+    let cancelled = false;
+    const wanted = windowPageIds(pagesRef.current, currentPageIndex, scrollDirection === 'vertical' ? 2 : 1);
+    const trimmed = trimPageWindow(pagesRef.current, wanted);
+    if (trimmed.some((page,i) => page !== pagesRef.current[i])) { pagesRef.current = trimmed; setPages(trimmed); }
+    setPageLoadError(null);
+    (async () => {
+      const activeId = pagesRef.current[currentPageIndex]?.id;
+      try { if (activeId) await ensurePage(activeId); } catch (_) { if (!cancelled) setPageLoadError(activeId); }
+      for (const id of wanted) {
+        if (cancelled) break;
+        if (id !== activeId && !window.__bn_pen_active && !window.__bn_drag_active) { try { await ensurePage(id); } catch (_) { /* Neighbors retry when selected. */ } }
+      }
+      if (!cancelled) {
+        const next = trimPageWindow(pagesRef.current, wanted);
+        if (next.some((page,i) => page !== pagesRef.current[i])) { pagesRef.current = next; setPages(next); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isLoading, loadError, currentPageIndex, pages.length, scrollDirection, ensurePage]);
+  useEffect(()=>{
+    if(isLoading||loadError)return;
+    let cancelled=false,timer;const controller=new AbortController();
+    const nearby=pagesRef.current.slice(Math.max(0,currentPageIndex-3),currentPageIndex+4).filter(p=>p.pdfLazyRaster);
+    const prepare=async()=>{
+      for(const page of nearby){
+        if(cancelled)return;
+        if(window.__bn_pen_active||window.__bn_drag_active){timer=setTimeout(prepare,150);return;}
+        try{await loadPdfRaster(page,{signal:controller.signal,priority:1});}catch(_){ /* The ready small page stays visible. */ }
+      }
+    };
+    timer=setTimeout(prepare,80);
+    return()=>{cancelled=true;controller.abort();clearTimeout(timer);};
+  },[isLoading,loadError,currentPageIndex,notebook.id,pages.length]);
+
+  const loadExportPages = useCallback(async () => {
+    await pageSaveQueue.flush(notebook.id);
+    return getPagesByNotebookId(notebook.id);
+  }, [notebook.id]);
+
+  const loadExportPage = useCallback(async index => {
+    const pageId = pagesRef.current[index]?.id;
+    await pageSaveQueue.flush(notebook.id);
+    const page = await ensurePage(pageId);
+    if (!page || page.__unloaded) throw Error('Page unavailable');
+    return page;
+  }, [notebook.id, ensurePage]);
+
+  // Read only the exported page, without mounting it or retaining the entire notebook.
+  const loadExportPdfPage = useCallback(async index => {
+    if (index === 0) await pageSaveQueue.flush(notebook.id);
+    const summary = pagesRef.current[index];
+    if (!summary) throw Error('Page unavailable');
+    const page = summary.__pdfOriginalOwner || summary.__pdfOriginalOmitted
+      ? await loadPdfOwnerPage(notebook.id, summary.id) : await getPage(summary.id);
+    if (!page || page.notebookId !== notebook.id) throw Error('Page unavailable');
+    return page;
+  }, [notebook.id]);
+
+  const loadBNoteExport = useCallback(async () => { await pageSaveQueue.flush(notebook.id); return exportPortableNotebook(notebook.id); }, [notebook.id]);
+
+  const previewSessionRef = useRef(null);
+  useEffect(() => {
+    const session = createPagePreviewSession(); previewSessionRef.current = session;
+    return () => { session.dispose(); if (previewSessionRef.current === session) previewSessionRef.current = null; };
+  }, [notebook.id]);
+  useEffect(() => {
+    if (!isLoading && !loadError) previewSessionRef.current?.update(pages, notebook.templateId);
+  }, [pages, notebook.templateId, isLoading, loadError]);
+
+  const firstCoverPage = pages[0];
+  useEffect(() => {
+    if (notebook.coverId !== THUMBNAIL_COVER_ID || !firstCoverPage || isLoading || loadError) return;
+    const cached = notebook.firstPageThumbnail;
+    if (cached?.dataUrl && cached.pageId === firstCoverPage.id && cached.pageUpdatedAt === firstCoverPage.updatedAt) return;
+    // Mark the notebook only; App starts the preview when Documents is visible.
+    queueNotebookCover(notebook.id);
+  }, [notebook.id, notebook.coverId, notebook.firstPageThumbnail, firstCoverPage, isLoading, loadError]);
+
   const currentPage = pages[currentPageIndex] || null;
+  const persistPage = useCallback(page => pageSaveQueue.enqueue(page).then(() => true, () => false), []);
 
   // Atomic Batch Update for Page Elements (Strokes, Texts, Images) - IMMEDIATELY PERSISTENT
-  const handleBatchUpdatePage = async (updates, targetPageIndex = currentPageIndex) => {
+  const applyBatchUpdatePage = (updates, target = currentPageIndexRef.current, options = {}) => {
     const prevPages = pagesRef.current;
-    const targetPage = prevPages[targetPageIndex];
-    if (!targetPage) return;
-
-    const beforeState = {
-      strokes: targetPage.strokes || [],
-      textElements: targetPage.textElements || [],
-      imageElements: targetPage.imageElements || []
-    };
-
+    const targetIndex = typeof target === 'string' ? prevPages.findIndex(page => page.id === target) : target;
+    const targetPage = prevPages[targetIndex];
+    if (!targetPage) return Promise.resolve(false);
+    if (targetPage.__unloaded) return ensurePage(targetPage.id).then(page => page ? applyBatchUpdatePage(updates, page.id, options) : false);
     const updatedPage = {
       ...targetPage,
       ...(updates.strokes !== undefined ? { strokes: updates.strokes } : {}),
@@ -515,44 +632,35 @@ export const NoteEditor = ({
       ...(updates.imageElements !== undefined ? { imageElements: updates.imageElements } : {}),
       updatedAt: Date.now()
     };
-
-    const nextPages = prevPages.map((p, idx) => idx === targetPageIndex ? updatedPage : p);
+    const nextPages = prevPages.map(page => page.id === targetPage.id ? updatedPage : page);
     pagesRef.current = nextPages;
     setPages(nextPages);
 
-    // Save directly to IndexedDB immediately without depending on React async batching!
-    await savePage(updatedPage);
-
-    if (targetPageIndex !== currentPageIndex) {
-      setCurrentPageIndex(targetPageIndex);
-    }
-
-    const afterState = {
-      strokes: updatedPage.strokes || [],
-      textElements: updatedPage.textElements || [],
-      imageElements: updatedPage.imageElements || []
-    };
-
-    const curStack = historyStackRef.current;
-    const curPointer = historyPointerRef.current;
-    const nextHistory = (curStack && curPointer >= 0) ? curStack.slice(0, curPointer + 1) : [];
-
-    nextHistory.push({
-      pageIndex: targetPageIndex,
-      pageId: updatedPage.id,
-      before: beforeState,
-      after: afterState
+    // Record immediately, so slow saves cannot reorder Undo.
+    historySession.append({
+      kind: 'content', pageId: targetPage.id,
+      before: pageContentSnapshot(targetPage),
+      after: pageContentSnapshot(updatedPage)
     });
+    if (!options.preservePageSelection && targetIndex !== currentPageIndexRef.current) {
+      currentPageIndexRef.current = targetIndex;
+      setCurrentPageIndex(targetIndex);
+    }
+    return persistPage(updatedPage);
+  };
 
-    setHistoryStack(nextHistory);
-    setHistoryPointer(nextHistory.length - 1);
-    historyStackRef.current = nextHistory;
-    historyPointerRef.current = nextHistory.length - 1;
+  const handleBatchUpdatePage = (updates, target = currentPageIndexRef.current, options = {}) => {
+    const pageId = typeof target === 'string' ? target : pagesRef.current[target]?.id;
+    if (!pageId) return Promise.resolve(false);
+    if (historySession.getSnapshot().busy || pagesRef.current.find(page => page.id === pageId)?.__unloaded) {
+      return historySession.run(() => applyBatchUpdatePage(updates, pageId, options));
+    }
+    return applyBatchUpdatePage(updates, pageId, options);
   };
 
   // Handle Strokes Change for a specific page (Safe Functional State Update)
-  const handleStrokesChange = async (newStrokes, targetPageIndex = currentPageIndex) => {
-    await handleBatchUpdatePage({ strokes: newStrokes }, targetPageIndex);
+  const handleStrokesChange = async (newStrokes, targetPageIndex = currentPageIndex, options = {}) => {
+    await handleBatchUpdatePage({ strokes: newStrokes }, targetPageIndex, options);
   };
 
   // Handle Text Elements Change for a specific page (Safe Functional State Update)
@@ -575,13 +683,115 @@ export const NoteEditor = ({
   const handleCaptureFullPage = async () => {
     if (!currentPage) return;
     try {
-      const dataUrl = await renderPageToCanvasDataUrl(currentPage, notebook.templateId);
+      const completePage = await ensurePage(currentPage.id);
+      const dataUrl = await renderPageToCanvasDataUrl(completePage, notebook.templateId);
       setClipboardImage({ dataUrl, width: 600, height: 800 });
       window.__bn_clipboard_image = { dataUrl, width: 600, height: 800 };
       alert(t('fullPageSnipSuccess', 'แคปภาพทั้งหน้าเรียบร้อยแล้ว! กดปุ่ม "วางภาพ" หรือ Ctrl+V เพื่อวางในหน้านี้หรือหน้าอื่นได้เลย'));
     } catch (err) {
       console.error(err);
       alert(t('fullPageSnipError', 'เกิดข้อผิดพลาดในการแคปหน้า: {error}', { error: err.message }));
+    }
+  };
+
+  // Shared image placement: the existing Paste geometry, persistence and selection.
+  const insertImageOnPage = (imgDataUrl, customPos = null, imgWidth = 400, imgHeight = 300, targetPageId = currentPage?.id) => new Promise((resolve, reject) => {
+    if (!pagesRef.current.some(page => page.id === targetPageId)) { resolve(); return; }
+    const img = new Image();
+    img.onerror = () => reject(new Error('invalid-image'));
+    img.onload = async () => {
+      try {
+        const targetPageIndex = pagesRef.current.findIndex(page => page.id === targetPageId);
+        const currentPage = await ensurePage(targetPageId);
+        if (!currentPage) { resolve(); return; }
+        let w = img.naturalWidth || imgWidth || 400;
+        let h = img.naturalHeight || imgHeight || 300;
+
+        const maxDim = 650;
+        if (w > maxDim || h > maxDim) {
+          const r = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * r);
+          h = Math.round(h * r);
+        }
+
+        const imageViewport = isWhiteboardPage(currentPage, notebook.templateId) && whiteboardViewportRef.current?.pageId === currentPage.id
+          ? whiteboardViewportRef.current : null;
+        const pWidth = imageViewport?.width || currentPage.pageWidth || 1200;
+        const pHeight = imageViewport?.height || currentPage.pageHeight || 1600;
+
+        const hasCustomPos = Number.isFinite(customPos?.x) && Number.isFinite(customPos?.y);
+        let posX = hasCustomPos ? customPos.x - (imageViewport?.x || 0) - w / 2 : (pWidth - w) / 2;
+        let posY = hasCustomPos ? customPos.y - (imageViewport?.y || 0) - h / 2 : (pHeight - h) / 2;
+
+        posX = Math.max(20, Math.min(pWidth - w - 20, Math.round(posX)));
+        posY = Math.max(20, Math.min(pHeight - h - 20, Math.round(posY)));
+
+        if (imageViewport) { posX += imageViewport.x; posY += imageViewport.y; }
+
+        const newImg = {
+          id: `img-${Date.now()}`,
+          src: imgDataUrl,
+          x: posX,
+          y: posY,
+          width: w,
+          height: h
+        };
+
+        const existingImgs = pagesRef.current[targetPageIndex]?.imageElements || [];
+        await handleImageElementsChange([...existingImgs, newImg], targetPageIndex);
+        setPastedImageSelection({ pageId: currentPage.id, imageId: newImg.id });
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    };
+    img.src = imgDataUrl;
+  });
+
+  const handleImportImage = async () => {
+    if (!currentPage || imageImportPendingRef.current) return;
+    if (!window.electronAPI?.selectImage) {
+      if (imageFileInputRef.current) {
+        imageFileInputRef.current.value = '';
+        imageFileInputRef.current.click();
+      }
+      return;
+    }
+    imageImportPendingRef.current = true;
+    try {
+      const result = await window.electronAPI.selectImage({
+        title: t('insertImage', 'Insert image from computer'),
+        allImagesLabel: t('supportedImages', 'All supported images')
+      });
+      if (result?.canceled) return;
+      if (!result?.success || !result.dataUrl) throw new Error('image-read-failed');
+      await insertImageOnPage(result.dataUrl);
+    } catch (_) {
+      alert(t('imageImportError', 'Unable to open this image. Please choose a supported image file.'));
+    } finally {
+      imageImportPendingRef.current = false;
+    }
+  };
+
+  // Browser preview fallback uses the same insertion path without Electron IPC.
+  const handleImageFileChange = async (e) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = '';
+    if (!file || imageImportPendingRef.current) return;
+    imageImportPendingRef.current = true;
+    try {
+      if (!/\.(png|jpe?g|webp|gif|bmp|svg|avif)$/i.test(file.name)) throw new Error('unsupported-image');
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('image-read-failed'));
+        reader.readAsDataURL(file);
+      });
+      await insertImageOnPage(dataUrl);
+    } catch (_) {
+      alert(t('imageImportError', 'Unable to open this image. Please choose a supported image file.'));
+    } finally {
+      imageImportPendingRef.current = false;
     }
   };
 
@@ -640,51 +850,22 @@ export const NoteEditor = ({
       return;
     }
 
-    const img = new Image();
-    img.onload = async () => {
-      let w = img.naturalWidth || imgWidth || 400;
-      let h = img.naturalHeight || imgHeight || 300;
-
-      const maxDim = 650;
-      if (w > maxDim || h > maxDim) {
-        const r = Math.min(maxDim / w, maxDim / h);
-        w = Math.round(w * r);
-        h = Math.round(h * r);
-      }
-
-      const pWidth = currentPage.pageWidth || 1200;
-      const pHeight = currentPage.pageHeight || 1600;
-
-      let posX = customPos ? customPos.x - w / 2 : (pWidth - w) / 2;
-      let posY = customPos ? customPos.y - h / 2 : (pHeight - h) / 2;
-
-      posX = Math.max(20, Math.min(pWidth - w - 20, Math.round(posX)));
-      posY = Math.max(20, Math.min(pHeight - h - 20, Math.round(posY)));
-
-      const newImg = {
-        id: `img-${Date.now()}`,
-        src: imgDataUrl,
-        x: posX,
-        y: posY,
-        width: w,
-        height: h
-      };
-
-      const existingImgs = currentPage.imageElements || [];
-      await handleImageElementsChange([...existingImgs, newImg]);
-    };
-    img.src = imgDataUrl;
+    try {
+      await insertImageOnPage(imgDataUrl, customPos, imgWidth, imgHeight);
+    } catch (_) {
+      alert(t('imageImportError', 'Unable to open this image. Please choose a supported image file.'));
+    }
   };
 
   // Duplicate Current Notebook
   const handleDuplicateCurrentNotebook = async () => {
     try {
-      const cloned = await duplicateNotebook(notebook.id);
-      alert(`${t('duplicateSuccess', 'ทำสำเนาสำเร็จ!')} "${cloned.name}"`);
+      const cloned = await duplicateNotebook(notebook.id, { copySuffix: t('notebookCopySuffix') });
+      alert(t('duplicateSuccess') + ' "' + localizeNotebookCopyName(cloned.name, t('notebookCopySuffix')) + '"');
       if (onNotebookUpdated) onNotebookUpdated(cloned);
     } catch (err) {
       console.error(err);
-      alert(`${t('cannotDuplicate', 'ไม่สามารถทำสำเนาได้')}: ${err.message}`);
+      alert(t('cannotDuplicate') + ': ' + (err.code === 'NOTEBOOK_NOT_FOUND' ? t('duplicateNotebookNotFound') : err.message));
     }
   };
 
@@ -742,6 +923,7 @@ export const NoteEditor = ({
   const handleSelectPage = useCallback((index) => {
     const allPages = pagesRef.current;
     if (index >= 0 && index < allPages.length) {
+      resetNavigationRef.current();
       const prevIndex = currentPageIndexRef.current;
       const isDistantJump = Math.abs(index - prevIndex) > 1;
 
@@ -773,89 +955,80 @@ export const NoteEditor = ({
     }
   }, [scrollDirection, scrollToPageInStage]);
 
-  // Page-aware Undo / Redo
-  const canUndo = historyPointer >= 0;
-  const canRedo = historyPointer < historyStack.length - 1;
-
-  const handleUndo = useCallback(async () => {
-    const curPointer = historyPointerRef.current;
-    const curStack = historyStackRef.current;
-    if (curPointer < 0 || !curStack || curStack.length === 0) return;
-
-    const entry = curStack[curPointer];
-    if (!entry) return;
-
-    const newPointer = curPointer - 1;
-    setHistoryPointer(newPointer);
-    historyPointerRef.current = newPointer;
-
-    const prevPages = pagesRef.current;
-    const targetIdx = (entry.pageIndex !== undefined && entry.pageIndex >= 0 && entry.pageIndex < prevPages.length)
-      ? entry.pageIndex
-      : currentPageIndexRef.current;
-    const targetPage = prevPages[targetIdx];
-    if (!targetPage) return;
-
-    const restoreState = entry.before || { strokes: [], textElements: [], imageElements: [] };
-
-    const updatedPage = {
-      ...targetPage,
-      strokes: restoreState.strokes || [],
-      textElements: restoreState.textElements || [],
-      imageElements: restoreState.imageElements || [],
-      updatedAt: Date.now()
-    };
-    const nextPages = prevPages.map((p, idx) => idx === targetIdx ? updatedPage : p);
+  // Commit page layout and notebook count together. Restore the complete page
+  // snapshot (including PDF/background/media), without cloning the whole book.
+  const commitPageStructure = useCallback(async (change, selectedPageId) => {
+    await pageSaveQueue.flush(notebook.id);
+    const result = await mutateNotebookPages(notebook.id, change);
+    if (change.kind === 'delete') pageSaveQueue.forgetDeletedPage(change.pageId);
+    const livePages = new Map(pagesRef.current.map(page => [page.id, page]));
+    const nextPages = result.pages.map(page => {
+      const live = livePages.get(page.id);
+      return live && !live.__unloaded ? editorPageView({ ...page, strokes: live.strokes, textElements: live.textElements, imageElements: live.imageElements }) : pageSummary(page);
+    });
     pagesRef.current = nextPages;
     setPages(nextPages);
+    const selectedIndex = Math.max(0, nextPages.findIndex(page => page.id === selectedPageId));
+    currentPageIndexRef.current = selectedIndex;
+    setCurrentPageIndex(selectedIndex);
+    if (onNotebookUpdated) onNotebookUpdated(result.notebook);
+    if (scrollDirection === 'vertical') setTimeout(() => scrollToPageInStage(selectedIndex, 'smooth'), 60);
+    return result;
+  }, [notebook.id, onNotebookUpdated, scrollDirection, scrollToPageInStage]);
 
-    await savePage(updatedPage);
+  const canUndo = !isLoading && !loadError && !historyBusy && historyPointer >= 0;
+  const canRedo = !isLoading && !loadError && !historyBusy && historyPointer < historyStack.length - 1;
 
-    // If undone edit was on another page, navigate to that page so the user sees it undo there!
-    if (targetIdx !== currentPageIndexRef.current) {
-      handleSelectPage(targetIdx);
-    }
-  }, [handleSelectPage]);
-
-  const handleRedo = useCallback(async () => {
-    const curPointer = historyPointerRef.current;
-    const curStack = historyStackRef.current;
-    if (!curStack || curPointer >= curStack.length - 1) return;
-
-    const newPointer = curPointer + 1;
-    const entry = curStack[newPointer];
-    if (!entry) return;
-
-    setHistoryPointer(newPointer);
-    historyPointerRef.current = newPointer;
-
-    const prevPages = pagesRef.current;
-    const targetIdx = (entry.pageIndex !== undefined && entry.pageIndex >= 0 && entry.pageIndex < prevPages.length)
-      ? entry.pageIndex
-      : currentPageIndexRef.current;
-    const targetPage = prevPages[targetIdx];
-    if (!targetPage) return;
-
-    const restoreState = entry.after || { strokes: [], textElements: [], imageElements: [] };
-
-    const updatedPage = {
-      ...targetPage,
-      strokes: restoreState.strokes || [],
-      textElements: restoreState.textElements || [],
-      imageElements: restoreState.imageElements || [],
-      updatedAt: Date.now()
+  const replayHistory = useCallback(direction => {
+    // A hotkey during load/retry must not invalidate an existing session's
+    // history against this view's temporary empty pages array.
+    if (isLoading || loadError || !pagesRef.current.length) return Promise.resolve(false);
+    const perform = async () => {
+      const { stack, pointer } = historySession.getSnapshot();
+      const entry = stack[direction === 'undo' ? pointer : pointer + 1];
+      if (!entry) return false;
+      if (entry.kind === 'insert-page' || entry.kind === 'delete-page') {
+        const removes = entry.kind === 'insert-page' ? direction === 'undo' : direction === 'redo';
+        const change = removes
+          ? { kind: 'delete', pageId: entry.pageId }
+          : { kind: 'insert', page: entry.page, atIndex: entry.pageIndex };
+        const selectedId = direction === 'undo' ? entry.selectedBefore : entry.selectedAfter;
+        const result = await commitPageStructure(change, selectedId || entry.pageId);
+        // Keep changes such as favorite/template made since insertion; a later
+        // Redo restores the latest removed page instead of its original blank copy.
+        const replacement = removes ? { ...entry, page: result.changedPage } : entry;
+        historySession.step(direction, entry, replacement);
+        return true;
+      }
+      const targetIdx = findHistoryPageIndex(pagesRef.current, entry);
+      if (targetIdx < 0) { historySession.reconcile(pagesRef.current); return false; }
+      const candidate = pagesRef.current[targetIdx];
+      const targetPage = candidate.__unloaded ? await ensurePage(candidate.id) : candidate;
+      if (!targetPage) return false;
+      const updatedPage = {
+        ...targetPage, ...(direction === 'undo' ? entry.before : entry.after), updatedAt: Date.now()
+      };
+      const nextPages = pagesRef.current.map(page => page.id === targetPage.id ? updatedPage : page);
+      historySession.step(direction, entry);
+      pagesRef.current = nextPages;
+      setPages(nextPages);
+      if (targetIdx !== currentPageIndexRef.current) handleSelectPage(targetIdx);
+      return persistPage(updatedPage);
     };
-    const nextPages = prevPages.map((p, idx) => idx === targetIdx ? updatedPage : p);
-    pagesRef.current = nextPages;
-    setPages(nextPages);
+    const { stack, pointer, busy } = historySession.getSnapshot();
+    const entry = stack[direction === 'undo' ? pointer : pointer + 1];
+    const isStructural = entry?.kind === 'insert-page' || entry?.kind === 'delete-page';
+    const needsLoad = pagesRef.current.find(page => page.id === entry?.pageId)?.__unloaded;
+    const result = busy || isStructural || needsLoad ? historySession.run(perform) : perform();
+    return result.catch(error => {
+      console.error('History replay failed:', error);
+      alert(t('localSavePageChangeFailed'));
+      return false;
+    });
+  }, [historySession, commitPageStructure, handleSelectPage, persistPage, t, isLoading, loadError]);
 
-    await savePage(updatedPage);
-
-    // If redone edit was on another page, navigate to that page so the user sees it redo there!
-    if (targetIdx !== currentPageIndexRef.current) {
-      handleSelectPage(targetIdx);
-    }
-  }, [handleSelectPage]);
+  const handleUndo = useCallback(() => replayHistory('undo'), [replayHistory]);
+  const handleRedo = useCallback(() => replayHistory('redo'), [replayHistory]);
 
   // Keyboard shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+V)
   useEffect(() => {
@@ -915,8 +1088,9 @@ export const NoteEditor = ({
       const stageEl = stageRef.current;
 
       const observer = new IntersectionObserver((entries) => {
+        if (isWhiteboardPage(pagesRef.current[currentPageIndexRef.current], notebook.templateId)) return;
         // STRICT: Never switch pages while user is actively pinching to zoom, during initial page navigation, or during programmatic scroll!
-        if (isPinchingActiveRef.current || stagePinchRef.current?.isPinching) return;
+        if (isPinchingActiveRef.current || navigationRef.current.pinch) return;
         if (!hasInitialNavigatedRef.current && initialPageRef.current > 0) return;
         if (isProgrammaticScrollRef.current) return;
 
@@ -959,241 +1133,130 @@ export const NoteEditor = ({
     };
   }, [isLoading, scrollDirection, pages.length]);
 
+  const changePageStructure = (change, selectedPageId) => historySession.run(async () => {
+    const selectedBefore = pagesRef.current[currentPageIndexRef.current]?.id;
+    const result = await commitPageStructure(change, selectedPageId);
+    historySession.append({
+      kind: change.kind === 'insert' ? 'insert-page' : 'delete-page',
+      pageId: result.changedPage.id, page: result.changedPage,
+      pageIndex: result.changedPage.pageIndex,
+      selectedBefore, selectedAfter: pagesRef.current[currentPageIndexRef.current]?.id
+    });
+    return true;
+  }).catch(error => {
+    console.error('Page operation failed:', error);
+    alert(t('localSavePageChangeFailed'));
+    return false;
+  });
+
   // Add Page with custom size (A2, A3, A4), orientation, and template
   const handleAddPage = async (pageConfig = {}) => {
     const sizeId = pageConfig.sizeId || 'A4';
     const orientation = pageConfig.orientation || 'portrait';
     const sizeDim = getPaperSize(sizeId, orientation);
-    const templateId = pageConfig.templateId || notebook.templateId || 'ruled';
-    const insertPosition = pageConfig.insertPosition || 'after';
-
-    let targetIndex = pages.length;
-    if (insertPosition === 'after' && currentPageIndex >= 0 && currentPageIndex < pages.length) {
-      targetIndex = currentPageIndex + 1;
-    }
-
     const newPage = {
-      id: `${notebook.id}_page_${Date.now()}`,
-      notebookId: notebook.id,
-      pageIndex: targetIndex,
-      templateId,
-      sizeId,
-      orientation,
+      id: notebook.id + '_page_' + (globalThis.crypto?.randomUUID?.() || Date.now() + '-' + Math.random().toString(36).slice(2)),
+      notebookId: notebook.id, pageIndex: 0,
+      templateId: pageConfig.templateId || notebook.templateId || 'ruled',
+      sizeId, orientation,
       pageWidth: pageConfig.pageWidth || sizeDim.width,
       pageHeight: pageConfig.pageHeight || sizeDim.height,
-      strokes: [],
-      textElements: [],
-      imageElements: [],
-      updatedAt: Date.now()
+      strokes: [], textElements: [], imageElements: [], updatedAt: Date.now()
     };
-
-    const nextPages = [...pages];
-    nextPages.splice(targetIndex, 0, newPage);
-    const reindexedPages = nextPages.map((p, idx) => ({ ...p, pageIndex: idx }));
-
-    // Shift existing pages from end backwards down to targetIndex + 1 to prevent unique index collisions in IndexedDB
-    for (let i = reindexedPages.length - 1; i > targetIndex; i--) {
-      await savePage(reindexedPages[i]);
-    }
-    // Now targetIndex slot is free in IndexedDB! Save the new page:
-    await savePage(reindexedPages[targetIndex]);
-
-    setPages(reindexedPages);
-    setCurrentPageIndex(targetIndex);
-
-    const updatedNotebook = {
-      ...notebook,
-      pageCount: reindexedPages.length,
-      updatedAt: Date.now()
-    };
-    await saveNotebook(updatedNotebook);
-    if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
-
-    setHistoryStack([{ strokes: [], textElements: [], imageElements: [] }]);
-    setHistoryPointer(0);
-
-    if (scrollDirection === 'vertical') {
-      setTimeout(() => {
-        scrollToPageInStage(targetIndex, 'smooth');
-      }, 60);
-    }
+    const afterPageId = (pageConfig.insertPosition || 'after') === 'after'
+      ? pagesRef.current[currentPageIndexRef.current]?.id : null;
+    return changePageStructure({ kind: 'insert', page: newPage, afterPageId }, newPage.id);
   };
 
   // Duplicate a specific page (from thumbnail 3-dots or wherever)
-  const handleDuplicatePage = async (pageIndex = currentPageIndex) => {
-    const currentPagesList = pagesRef.current;
-    const sourcePage = currentPagesList[pageIndex];
+  const handleDuplicatePage = async (pageIndex = currentPageIndexRef.current) => {
+    const candidate = pagesRef.current[pageIndex];
+    let sourcePage;
+    try { sourcePage = candidate?.__unloaded ? await ensurePage(candidate.id) : candidate; }
+    catch (_) { alert(t('localSavePageChangeFailed')); return false; }
     if (!sourcePage) return;
-
-    const newPageId = `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const clonedPage = {
       ...sourcePage,
-      id: newPageId,
-      pageIndex: pageIndex + 1,
-      strokes: JSON.parse(JSON.stringify(sourcePage.strokes || [])),
-      textElements: JSON.parse(JSON.stringify(sourcePage.textElements || [])),
-      imageElements: JSON.parse(JSON.stringify(sourcePage.imageElements || [])),
+      id: 'page-' + (globalThis.crypto?.randomUUID?.() || Date.now() + '-' + Math.random().toString(36).slice(2)),
+      strokes: structuredClone(sourcePage.strokes || []),
+      textElements: structuredClone(sourcePage.textElements || []),
+      imageElements: structuredClone(sourcePage.imageElements || []),
       updatedAt: Date.now()
     };
-
-    const nextPages = [...currentPagesList];
-    nextPages.splice(pageIndex + 1, 0, clonedPage);
-    const reindexedPages = nextPages.map((p, idx) => ({ ...p, pageIndex: idx }));
-
-    // Shift existing pages from end backwards down to pageIndex + 2 to prevent unique index collisions in IndexedDB
-    for (let i = reindexedPages.length - 1; i > pageIndex + 1; i--) {
-      await savePage(reindexedPages[i]);
-    }
-    // Now position pageIndex + 1 is vacated in DB! Save the cloned page:
-    await savePage(reindexedPages[pageIndex + 1]);
-
-    pagesRef.current = reindexedPages;
-    setPages(reindexedPages);
-    setCurrentPageIndex(pageIndex + 1);
-
-    const updatedNotebook = {
-      ...notebook,
-      pageCount: reindexedPages.length,
-      updatedAt: Date.now()
-    };
-    await saveNotebook(updatedNotebook);
-    if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
-
-    if (scrollDirection === 'vertical') {
-      setTimeout(() => {
-        scrollToPageInStage(pageIndex + 1, 'smooth');
-      }, 60);
-    }
+    return changePageStructure({ kind: 'insert', page: clonedPage, afterPageId: sourcePage.id }, clonedPage.id);
   };
 
   // Insert Blank Page after a specific index
-  const handleInsertPageAfter = async (pageIndex = currentPageIndex) => {
-    const currentPagesList = pagesRef.current;
-    const prevPage = currentPagesList[pageIndex];
+  const handleInsertPageAfter = async (pageIndex = currentPageIndexRef.current) => {
+    const previous = pagesRef.current[pageIndex];
+    if (!previous) return;
     const newPage = {
-      id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      notebookId: notebook.id,
-      pageIndex: pageIndex + 1,
-      templateId: prevPage ? prevPage.templateId : (notebook.templateId || 'blank'),
-      paperColor: prevPage ? prevPage.paperColor : (notebook.paperColor || '#ffffff'),
-      paperPattern: prevPage ? prevPage.paperPattern : (notebook.paperPattern || 'none'),
-      pageSize: prevPage ? prevPage.pageSize : (notebook.pageSize || 'A4'),
-      pageOrientation: prevPage ? prevPage.pageOrientation : (notebook.pageOrientation || 'portrait'),
-      pageWidth: prevPage ? prevPage.pageWidth : 1200,
-      pageHeight: prevPage ? prevPage.pageHeight : 1600,
-      strokes: [],
-      textElements: [],
-      imageElements: [],
-      updatedAt: Date.now()
+      id: 'page-' + (globalThis.crypto?.randomUUID?.() || Date.now() + '-' + Math.random().toString(36).slice(2)),
+      notebookId: notebook.id, pageIndex: 0,
+      templateId: previous.templateId || notebook.templateId || 'blank',
+      paperColor: previous.paperColor || notebook.paperColor || '#ffffff',
+      paperPattern: previous.paperPattern || notebook.paperPattern || 'none',
+      pageSize: previous.pageSize || notebook.pageSize || 'A4',
+      pageOrientation: previous.pageOrientation || notebook.pageOrientation || 'portrait',
+      pageWidth: previous.pageWidth || 1200, pageHeight: previous.pageHeight || 1600,
+      strokes: [], textElements: [], imageElements: [], updatedAt: Date.now()
     };
-
-    const nextPages = [...currentPagesList];
-    nextPages.splice(pageIndex + 1, 0, newPage);
-    const reindexedPages = nextPages.map((p, idx) => ({ ...p, pageIndex: idx }));
-
-    // Shift existing pages from end backwards down to pageIndex + 2 to prevent unique index collisions in IndexedDB
-    for (let i = reindexedPages.length - 1; i > pageIndex + 1; i--) {
-      await savePage(reindexedPages[i]);
-    }
-    // Now position pageIndex + 1 is vacated in DB! Save the new page:
-    await savePage(reindexedPages[pageIndex + 1]);
-
-    pagesRef.current = reindexedPages;
-    setPages(reindexedPages);
-    setCurrentPageIndex(pageIndex + 1);
-
-    const updatedNotebook = {
-      ...notebook,
-      pageCount: reindexedPages.length,
-      updatedAt: Date.now()
-    };
-    await saveNotebook(updatedNotebook);
-    if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
-
-    if (scrollDirection === 'vertical') {
-      setTimeout(() => {
-        scrollToPageInStage(pageIndex + 1, 'smooth');
-      }, 60);
-    }
+    return changePageStructure({ kind: 'insert', page: newPage, afterPageId: previous.id }, newPage.id);
   };
 
   // Delete Page
-  const handleDeletePage = async (targetIndex = currentPageIndex) => {
+  const handleDeletePage = async (targetIndex = currentPageIndexRef.current) => {
     const currentPagesList = pagesRef.current;
     if (currentPagesList.length <= 1) {
-      alert(t('cannotDeleteOnlyPage', 'ไม่สามารถลบหน้าสุดท้ายของสมุดได้'));
+      alert(t('cannotDeleteOnlyPage', 'Cannot delete the only page'));
       return;
     }
-
-    if (!confirm(t('confirmDeletePageNum', `คุณต้องการลบหน้า ${targetIndex + 1} ใช่หรือไม่?`, { page: targetIndex + 1 }))) {
-      return;
-    }
-
     const pageToDelete = currentPagesList[targetIndex];
-    if (!pageToDelete) return;
-    await deletePage(pageToDelete.id);
-
-    const remainingPages = currentPagesList.filter((_, idx) => idx !== targetIndex)
-      .map((p, idx) => ({ ...p, pageIndex: idx }));
-
-    for (const p of remainingPages) {
-      await savePage(p);
-    }
-
-    pagesRef.current = remainingPages;
-    setPages(remainingPages);
-    const newIndex = Math.min(targetIndex, remainingPages.length - 1);
-    setCurrentPageIndex(newIndex);
-
-    const updatedNotebook = {
-      ...notebook,
-      pageCount: remainingPages.length,
-      updatedAt: Date.now()
-    };
-    await saveNotebook(updatedNotebook);
-    if (onNotebookUpdated) onNotebookUpdated(updatedNotebook);
-
-    if (scrollDirection === 'vertical') {
-      setTimeout(() => {
-        scrollToPageInStage(newIndex, 'smooth');
-      }, 60);
-    }
+    if (!pageToDelete || !confirm(t('confirmDeletePageNum', 'Delete page {page}?', { page: targetIndex + 1 }))) return;
+    const activePage = currentPagesList[currentPageIndexRef.current];
+    const selectedPageId = activePage?.id !== pageToDelete.id
+      ? activePage?.id : (currentPagesList[targetIndex + 1] || currentPagesList[targetIndex - 1])?.id;
+    return changePageStructure({ kind: 'delete', pageId: pageToDelete.id }, selectedPageId);
   };
 
   // Change Template for Current Page
-  const handleChangeTemplate = async (templateId) => {
-    if (!currentPage) return;
-    const updatedPage = {
-      ...currentPage,
-      templateId,
-      updatedAt: Date.now()
-    };
-    const newPages = pages.map((p, idx) => idx === currentPageIndex ? updatedPage : p);
-    setPages(newPages);
-    await savePage(updatedPage);
+  const handleChangeTemplate = (templateId, pageId = pagesRef.current[currentPageIndexRef.current]?.id) => {
+    if (historySession.getSnapshot().busy || pagesRef.current.find(page => page.id === pageId)?.__unloaded) return historySession.run(() => handleChangeTemplateNow(templateId, pageId)).catch(() => { alert(t('localSavePageChangeFailed')); return false; });
+    return handleChangeTemplateNow(templateId, pageId);
+  };
+  const handleChangeTemplateNow = (templateId, pageId) => {
+    const target = pagesRef.current.find(page => page.id === pageId);
+    if (target?.__unloaded) return ensurePage(pageId).then(page => page ? handleChangeTemplateNow(templateId, pageId) : false);
+    if (!target) return;
+    const updated = { ...target, templateId, updatedAt: Date.now() };
+    const nextPages = pagesRef.current.map(page => page.id === target.id ? updated : page);
+    pagesRef.current = nextPages;
+    setPages(nextPages);
+    return persistPage(updated);
   };
 
   // Toggle Favorite for a specific page (or current page)
-  const handleToggleFavoritePage = async (pageIdxToToggle = currentPageIndex) => {
-    const targetPage = pages[pageIdxToToggle];
-    if (!targetPage) return;
-
-    const newFavStatus = !targetPage.isFavorite;
-    const updatedPage = {
-      ...targetPage,
-      isFavorite: newFavStatus,
-      updatedAt: Date.now()
-    };
-
-    setPages(prevPages => prevPages.map((p, idx) => idx === pageIdxToToggle ? updatedPage : p));
-    await savePage(updatedPage);
+  const handleToggleFavoritePage = (pageIndex = currentPageIndexRef.current) => {
+    const pageId = pagesRef.current[pageIndex]?.id;
+    if (historySession.getSnapshot().busy || pagesRef.current.find(page => page.id === pageId)?.__unloaded) return historySession.run(() => handleToggleFavoritePageNow(pageId)).catch(() => { alert(t('localSavePageChangeFailed')); return false; });
+    return handleToggleFavoritePageNow(pageId);
+  };
+  const handleToggleFavoritePageNow = pageId => {
+    const target = pagesRef.current.find(page => page.id === pageId);
+    if (target?.__unloaded) return ensurePage(pageId).then(page => page ? handleToggleFavoritePageNow(pageId) : false);
+    if (!target) return;
+    const updated = { ...target, isFavorite: !target.isFavorite, updatedAt: Date.now() };
+    const nextPages = pagesRef.current.map(page => page.id === target.id ? updated : page);
+    pagesRef.current = nextPages;
+    setPages(nextPages);
+    return persistPage(updated);
   };
 
   // Rename Notebook Title
   const handleRenameTitle = async (newTitle) => {
     const updated = { ...notebook, name: newTitle, updatedAt: Date.now() };
-    await saveNotebook(updated);
-    if (onNotebookUpdated) onNotebookUpdated(updated);
+    const savedNotebook = await saveNotebook(updated, { ensureUniqueName: true });
+    if (onNotebookUpdated) onNotebookUpdated(savedNotebook);
   };
 
   if (isLoading) {
@@ -1205,8 +1268,22 @@ export const NoteEditor = ({
     );
   }
 
+  if (loadError) return (
+    <div className="bn-local-load-error" role="alert">
+      <p>{t('localLoadFailed')}</p>
+      <button type="button" onClick={loadPages}>{t('localLoadRetry')}</button>
+    </div>
+  );
+
   return (
     <div className="bn-editor-container">
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.avif"
+        hidden
+        onChange={handleImageFileChange}
+      />
       {/* Top Studio Toolbar with Pen Nibs, Snip, Paste, and Duplicate */}
       <EditorToolbar 
         notebookTitle={notebook.name}
@@ -1216,6 +1293,8 @@ export const NoteEditor = ({
         activeTool={activeTool}
         setActiveTool={setActiveTool}
         activeColor={activeColor}
+        colorSlots={colorSlots}
+        onCustomColorChange={handleCustomColorChange}
         setActiveColor={setActiveColor}
         activeWidth={activeWidth}
         setActiveWidth={(w) => handleToolWidthChange(activeTool, w)}
@@ -1224,7 +1303,9 @@ export const NoteEditor = ({
         activeShape={activeShape}
         setActiveShape={setActiveShape}
         penNib={penNib}
+        highlighterTip={highlighterTip}
         setPenNib={setPenNib}
+        setHighlighterTip={setHighlighterTip}
         isTapered={isTapered}
         setIsTapered={setIsTapered}
         usePressure={usePressure}
@@ -1244,9 +1325,9 @@ export const NoteEditor = ({
         onUndo={handleUndo}
         onRedo={handleRedo}
         zoom={zoom}
-        onZoomIn={() => setZoom(prev => Math.min(3.5, Number((prev + 0.15).toFixed(2))))}
-        onZoomOut={() => setZoom(prev => Math.max(0.35, Number((prev - 0.15).toFixed(2))))}
-        onResetZoom={() => setZoom(1.0)}
+        onZoomIn={() => changeToolbarZoom(Math.min(3.5, Number((zoomRef.current + 0.15).toFixed(2))))}
+        onZoomOut={() => changeToolbarZoom(Math.max(0.35, Number((zoomRef.current - 0.15).toFixed(2))))}
+        onResetZoom={() => changeToolbarZoom(1.0)}
         onOpenExport={() => setIsExportModalOpen(true)}
         onExportCurrentPagePdf={handleExportCurrentPagePdf}
         showThumbnails={showThumbnails}
@@ -1256,6 +1337,7 @@ export const NoteEditor = ({
         onToggleFavoriteCurrentPage={() => handleToggleFavoritePage(currentPageIndex)}
         hasClipboardImage={!!clipboardImage}
         onPasteClipboardImage={handlePasteClipboardImage}
+        onImportImage={handleImportImage}
         onCaptureFullPage={handleCaptureFullPage}
       />
 
@@ -1263,7 +1345,7 @@ export const NoteEditor = ({
       <div className="bn-editor-workspace">
         {/* Thumbnail Sidebar */}
         {showThumbnails && (
-          <ThumbnailSidebar 
+          <ThumbnailSidebar templateId={notebook.templateId}
             pages={pages}
             currentPageIndex={currentPageIndex}
             onSelectPage={handleSelectPage}
@@ -1280,11 +1362,11 @@ export const NoteEditor = ({
         {/* Canvas & Inking Board */}
         <main 
           ref={stageRef}
-          className={`bn-editor-canvas-stage ${scrollDirection === 'vertical' ? 'bn-stage-vertical' : ''}`}
+          className={`bn-editor-canvas-stage ${scrollDirection === 'vertical' ? 'bn-stage-vertical' : ''} ${isWhiteboardPage(currentPage, notebook.templateId) ? 'bn-stage-whiteboard' : ''}`}
           onTouchStart={handleStageTouchStart}
           onTouchMove={handleStageTouchMove}
           onTouchEnd={handleStageTouchEnd}
-          onTouchCancel={handleStageTouchEnd}
+          onTouchCancel={handleStageTouchCancel}
         >
           {/* Floating Gesture Toast for Two-Finger Tap Undo */}
           {gestureToast && (
@@ -1294,11 +1376,57 @@ export const NoteEditor = ({
             </div>
           )}
 
-          {scrollDirection === 'vertical' ? (
+          {currentPage?.__unloaded && (scrollDirection !== 'vertical' || isWhiteboardPage(currentPage, notebook.templateId)) ? (
+            currentPage.pdfLazyRaster && cachedPagePreview(currentPage,notebook.templateId) ? (
+              <div ref={stageContentRef} className="bn-horizontal-page-container flex items-center justify-center min-w-full min-h-full">
+                <div className="bn-paper-sheet" style={{width:(currentPage.pageWidth||1200)*zoom,height:(currentPage.pageHeight||1600)*zoom}}>
+                  <img className="bn-pdf-ready-page" src={cachedPagePreview(currentPage,notebook.templateId)} alt={t('page')+' '+(currentPageIndex+1)}
+                    decoding="sync" style={{width:'100%',height:'100%',objectFit:'fill'}} />
+                  {pageLoadError===currentPage.id && <button style={{position:'absolute',bottom:12,right:12}}
+                    onClick={()=>{setPageLoadError(null);ensurePage(currentPage.id).catch(()=>setPageLoadError(currentPage.id));}}>{t('localLoadRetry')}</button>}
+                </div>
+              </div>
+            ) : <div className="bn-loading-screen" role="status">{pageLoadError === currentPage.id ? <button onClick={() => { setPageLoadError(null); ensurePage(currentPage.id).catch(() => setPageLoadError(currentPage.id)); }}>{t('localLoadRetry')}</button> : t('loadingApp')}</div>
+          ) : currentPage && isWhiteboardPage(currentPage, notebook.templateId) ? (
+            <div ref={stageContentRef} className="bn-whiteboard-page">
+                <WhiteboardBoard
+                  key={currentPage.id || `horizontal-page-${currentPageIndex}`}
+                  page={currentPage}
+                  newlyPastedImageId={pastedImageSelection?.pageId === currentPage.id ? pastedImageSelection.imageId : null}
+                  onViewportChange={handleWhiteboardViewportChange}
+                  templateId={notebook.templateId}
+                  activeTool={activeTool}
+                  activeColor={activeColor}
+                  colorSlots={colorSlots}
+                  onColorChange={setActiveColor}
+                  onCustomColorChange={handleCustomColorChange}
+                  activeWidth={activeWidth}
+                  activeShape={activeShape}
+                  penNib={penNib}
+                  highlighterTip={highlighterTip}
+                  isTapered={isTapered}
+                  usePressure={usePressure}
+                  pressureSensitivity={pressureSensitivity}
+                  eraserMode={eraserMode}
+                  scribbleToErase={scribbleToErase}
+                  penOnly={penOnly}
+                  zoom={zoom}
+                  onZoomChange={setZoom}
+                  onToolChange={setActiveTool}
+                  onBatchUpdatePage={(updates, options) => handleBatchUpdatePage(updates, currentPage.id, options)}
+                  onStrokesChange={(newStrokes, options) => handleStrokesChange(newStrokes, currentPage.id, options)}
+                  onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPage.id)}
+                  onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPage.id)}
+                  onSnipComplete={handleSnipComplete}
+                  onUndo={handleUndo}
+                />
+            </div>
+          ) : scrollDirection === 'vertical' ? (
             /* Vertical Continuous Scroll Mode with Viewport Virtualization */
             <div ref={stageContentRef} className="bn-vertical-pages-stack">
               {pages.map((p, idx) => {
-                const isMounted = Math.abs(idx - currentPageIndex) <= 2;
+                const PageBoard = isWhiteboardPage(p, notebook.templateId) ? WhiteboardBoard : CanvasBoard;
+                const isMounted = wantedPageIds.has(p.id) && !p.__unloaded;
                 const pWidth = p.pageWidth || 1200;
                 const pHeight = p.pageHeight || 1600;
 
@@ -1311,15 +1439,22 @@ export const NoteEditor = ({
                   >
                     <div className="bn-vertical-page-badge">{t('page', 'หน้า')} {idx + 1}</div>
                     {isMounted ? (
-                      <CanvasBoard 
+                      <PageBoard
                         key={p.id}
                         page={p}
+                        rasterBudget={(idx === currentPageIndex ? 96 : 12) * 1024 * 1024}
+                        newlyPastedImageId={pastedImageSelection?.pageId === p.id ? pastedImageSelection.imageId : null}
+                        onViewportChange={handleWhiteboardViewportChange}
                         templateId={notebook.templateId}
                         activeTool={activeTool}
                         activeColor={activeColor}
+                        colorSlots={colorSlots}
+                        onColorChange={setActiveColor}
+                        onCustomColorChange={handleCustomColorChange}
                         activeWidth={activeWidth}
                         activeShape={activeShape}
                         penNib={penNib}
+                        highlighterTip={highlighterTip}
                         isTapered={isTapered}
                         usePressure={usePressure}
                         pressureSensitivity={pressureSensitivity}
@@ -1329,10 +1464,11 @@ export const NoteEditor = ({
                         zoom={zoom}
                         onZoomChange={setZoom}
                         onToolChange={setActiveTool}
-                        onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, idx)}
-                        onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, idx)}
-                        onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, idx)}
-                        onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, idx)}
+                        onBatchUpdatePage={(updates, options) => handleBatchUpdatePage(updates, p.id, options)}
+                        selectedPageId={currentPage?.id}
+                        onStrokesChange={(newStrokes, options) => handleStrokesChange(newStrokes, p.id, options)}
+                        onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, p.id)}
+                        onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, p.id)}
                         onSnipComplete={handleSnipComplete}
                         onUndo={handleUndo}
                       />
@@ -1353,16 +1489,17 @@ export const NoteEditor = ({
                           overflow: 'hidden'
                         }}
                       >
-                        {(p.thumbnailUrl || p.pdfPageImage) ? (
+                        {(cachedPagePreview(p,notebook.templateId) || p.pdfPageImage) ? (
                           <img 
-                            src={p.thumbnailUrl || p.pdfPageImage} 
+                            src={cachedPagePreview(p,notebook.templateId) || p.pdfPageImage}
                             alt={`${t('page', 'หน้า')} ${idx + 1}`} 
                             style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.95 }}
-                            loading="lazy"
+                            loading={Math.abs(idx-currentPageIndex)<=4 ? "eager" : "lazy"}
+                            decoding="sync"
                           />
                         ) : (
                           <span style={{ color: '#94a3b8', fontSize: '15px', fontWeight: 600 }}>
-                            {t('page', 'หน้า')} {idx + 1}
+                            {pageLoadError === p.id ? <button onClick={() => { setPageLoadError(null); ensurePage(p.id).catch(() => setPageLoadError(p.id)); }}>{t('localLoadRetry')}</button> : <>{t('page', 'หน้า')} {idx + 1}</>}
                           </span>
                         )}
                       </div>
@@ -1378,12 +1515,17 @@ export const NoteEditor = ({
                 <CanvasBoard 
                   key={currentPage.id || `horizontal-page-${currentPageIndex}`}
                   page={currentPage}
+                  newlyPastedImageId={pastedImageSelection?.pageId === currentPage.id ? pastedImageSelection.imageId : null}
                   templateId={notebook.templateId}
                   activeTool={activeTool}
                   activeColor={activeColor}
+                  colorSlots={colorSlots}
+                  onColorChange={setActiveColor}
+                  onCustomColorChange={handleCustomColorChange}
                   activeWidth={activeWidth}
                   activeShape={activeShape}
                   penNib={penNib}
+                  highlighterTip={highlighterTip}
                   isTapered={isTapered}
                   usePressure={usePressure}
                   pressureSensitivity={pressureSensitivity}
@@ -1393,10 +1535,10 @@ export const NoteEditor = ({
                   zoom={zoom}
                   onZoomChange={setZoom}
                   onToolChange={setActiveTool}
-                  onBatchUpdatePage={(updates) => handleBatchUpdatePage(updates, currentPageIndex)}
-                  onStrokesChange={(newStrokes) => handleStrokesChange(newStrokes, currentPageIndex)}
-                  onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPageIndex)}
-                  onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPageIndex)}
+                  onBatchUpdatePage={(updates, options) => handleBatchUpdatePage(updates, currentPage.id, options)}
+                  onStrokesChange={(newStrokes, options) => handleStrokesChange(newStrokes, currentPage.id, options)}
+                  onTextElementsChange={(newTexts) => handleTextElementsChange(newTexts, currentPage.id)}
+                  onImageElementsChange={(newImgs) => handleImageElementsChange(newImgs, currentPage.id)}
                   onSnipComplete={handleSnipComplete}
                   onUndo={handleUndo}
                 />
@@ -1420,6 +1562,10 @@ export const NoteEditor = ({
         onClose={() => setIsExportModalOpen(false)}
         notebook={notebook}
         pages={pages}
+        loadPages={loadExportPages}
+        loadPdfPage={loadExportPdfPage}
+        loadPage={loadExportPage}
+        loadBNote={loadBNoteExport}
         currentPageIndex={currentPageIndex}
       />
 

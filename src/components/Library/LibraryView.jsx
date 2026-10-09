@@ -39,10 +39,15 @@ import { MoveModal } from './MoveModal';
 import { SearchModal } from './SearchModal';
 import { SettingsModal } from './SettingsModal';
 import BackupStatusModal from './BackupStatusModal';
-import { getAllFavoritePages, savePage } from '../../services/db';
+import { BackupStatusIndicator } from '../Common/BackupStatusIndicator';
+import { getAllFavoritePages, savePage, getSetting, saveSetting } from '../../services/db';
 import { importBnoteFile } from '../../services/fileSystemService';
 import { useLanguage } from '../../services/i18n';
+import { localizeNotebookCopyName } from '../../utils/notebookNames';
 import { autoBackupService } from '../../services/autoBackupService';
+import { backupReadErrorKey } from '../../services/backupReadStatus';
+
+const UserGuide = React.lazy(() => import('../Guide/UserGuide'));
 
 export const LibraryView = ({
   folders = [],
@@ -58,11 +63,13 @@ export const LibraryView = ({
   onDuplicateNotebook,
   onMoveNotebookToFolder,
   onExportNotebookPdf,
+  libraryExports = {},
   onDeleteFolder,
   onDeleteNotebook,
   onImportPdfSuccess,
   onImportBnoteSuccess,
   onOpenDriveModal,
+  onOpenBackupStatus,
   onOpenUpdateModal,
   isDriveConnected,
   isSyncing,
@@ -88,6 +95,7 @@ export const LibraryView = ({
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [isBackupStatusModalOpen, setIsBackupStatusModalOpen] = useState(false);
+  const [backupInitialTab, setBackupInitialTab] = useState('local');
   const [toastMessage, setToastMessage] = useState(null);
   const backupFileInputRef = React.useRef(null);
   const bnoteFileInputRef = React.useRef(null);
@@ -103,37 +111,33 @@ export const LibraryView = ({
   const [cloudBackupDetected, setCloudBackupDetected] = useState(null);
   const [isAutoRestoring, setIsAutoRestoring] = useState(false);
 
+  // Only ID membership affects discovery. Thumbnail/name/time changes do not rescan media.
+  const backupNotebookIds = JSON.stringify(notebooks.map(note => note.id).sort());
   React.useEffect(() => {
-    let isCancelled = false;
+    let isCancelled = false, idleHandle = null;
     async function checkCloudBackups() {
       try {
-        const { autoBackupService } = await import('../../services/autoBackupService');
-        const scan = await autoBackupService.scanAvailableBackups();
-        if (!isCancelled && scan && scan.success && scan.count > 0 && scan.data?.notebooks) {
-          const cloudNotebooks = scan.data.notebooks;
-          // Check if cloud backup has any notebook not present locally
-          const hasUnsynced = cloudNotebooks.some(cloudNb => {
-            const cleanCloudName = (cloudNb.name || '').trim();
-            return !notebooks.some(localNb => 
-              localNb.id === cloudNb.id || (cleanCloudName && (localNb.name || '').trim() === cleanCloudName)
-            );
-          });
-          if (hasUnsynced) {
-            setCloudBackupDetected(scan);
-          } else {
-            setCloudBackupDetected(null);
-          }
-        } else if (!isCancelled) {
-          setCloudBackupDetected(null);
-        }
-      } catch (_) {}
+        const localIds=new Set(JSON.parse(backupNotebookIds));
+        if(localIds.size||(await getSetting('backup_deleted_notebooks_v2'))?.length||await getSetting('backup_migration_hint_closed_v2')){if(!isCancelled)setCloudBackupDetected(null);return;}
+        const path=(await getSetting('gdrive_backup_method'))==='desktop'?await getSetting('gdrive_backup_path'):null;
+        if(!path)return;
+        const choices=await autoBackupService.listRestoreSources(path);
+        const scan=choices?.success&&choices.folders?.length?{success:true,folder:path,count:choices.folders.reduce((n,item)=>n+item.count,0),notebooks:[{id:'migration-hint'}]}:null;
+        if (isCancelled) return;
+
+        const missing = scan?.success && scan.notebooks?.some(note => !localIds.has(note.id));
+        setCloudBackupDetected(missing ? scan : null);
+      } catch (_) { if (!isCancelled) setCloudBackupDetected(null); }
     }
-    const timer = setTimeout(checkCloudBackups, 800);
-    return () => { 
-      isCancelled = true;
-      clearTimeout(timer);
+    const timer = setTimeout(() => {
+      if (window.requestIdleCallback) idleHandle = window.requestIdleCallback(checkCloudBackups, { timeout: 1500 });
+      else checkCloudBackups();
+    }, 800);
+    return () => {
+      isCancelled = true; clearTimeout(timer);
+      if (idleHandle !== null) window.cancelIdleCallback?.(idleHandle);
     };
-  }, [notebooks]);
+  }, [backupNotebookIds]);
 
   const handleExecuteCloudRestore = async (folderPath = null) => {
     setIsAutoRestoring(true);
@@ -143,15 +147,22 @@ export const LibraryView = ({
       const res = await autoBackupService.restoreFromCloudBackup(targetFolder);
       if (res.success) {
         setCloudBackupDetected(null);
-        window.location.reload();
-      } else {
-        alert(t('cloudRestoreFailed', 'กู้คืนไม่สำเร็จ: {reason}', { reason: res.reason || t('backupNotFound', 'ไม่พบไฟล์สำรอง') }));
+        if (res.ignoredRetiredNotebookIds?.length) alert(t('backupRecoveryRetiredEntries', '', { count: res.ignoredRetiredNotebookIds.length }));
+        if (res.recoveredFolderNotebookIds?.length) alert(t('backupRecoveryMissingFolders', '', { count: res.recoveredFolderNotebookIds.length }));
+        if (res.refreshFailed) alert(t('backupRecoveryRefreshFailed'));
+      } else if (res.reason !== 'backup-recovery-cancelled') {
+        alert(t('cloudRestoreFailed', 'กู้คืนไม่สำเร็จ: {reason}', { reason: t(backupReadErrorKey(res.reason)) }));
       }
     } catch (err) {
-      alert(t('cloudRestoreError', 'เกิดข้อผิดพลาดในการกู้คืน: {error}', { error: err.message }));
+      alert(t('cloudRestoreError', 'เกิดข้อผิดพลาดในการกู้คืน: {error}', { error: t(({ 'bnote-empty':'bnoteEmpty','bnote-invalid':'bnoteInvalid','bnote-incomplete':'bnoteIncomplete','bnote-too-large':'bnoteTooLarge','bnote-folder-missing':'bnoteFolderMissing' })[err.code] || 'bnoteImportFailed') }));
     } finally {
       setIsAutoRestoring(false);
     }
+  };
+
+  const openBackupHub = (tab = 'local') => {
+    if (onOpenBackupStatus) onOpenBackupStatus(tab, handleExecuteCloudRestore);
+    else { setBackupInitialTab(tab); setIsBackupStatusModalOpen(true); }
   };
 
   // Clear selection on view or folder change
@@ -444,28 +455,12 @@ export const LibraryView = ({
   const handleSoftDeleteNotebook = (notebookId) => {
     const target = notebooks.find(nb => nb.id === notebookId);
     handleUpdateNotebook(notebookId, { isDeleted: true, deletedAt: Date.now() });
-    if (target?.name) {
-      autoBackupService.pruneDeletedNotebook(target.name);
-    }
     showToast(t('toastMovedNotebookToTrash', 'ย้ายสมุดไปยังถังขยะแล้ว 🗑️'));
   };
 
   const handleRestoreNotebook = (notebookId) => {
     handleUpdateNotebook(notebookId, { isDeleted: false, deletedAt: null });
     showToast(t('toastRestoredNotebook', 'กู้คืนสมุดเรียบร้อยแล้ว ✨'));
-  };
-
-  const handleShare = (item) => {
-    showToast(t('toastReadyToShare', 'พร้อมแชร์ "{name}" แล้ว', { name: item.name }));
-  };
-
-  const handleCopyLink = (item) => {
-    try {
-      navigator.clipboard?.writeText(window.location.href);
-      showToast(t('toastLinkCopiedItem', 'คัดลอกลิงก์ของ "{name}" เรียบร้อยแล้ว 🔗', { name: item.name }));
-    } catch (_) {
-      showToast(t('toastLinkCopied', 'คัดลอกลิงก์สำเร็จ 🔗'));
-    }
   };
 
   // Rename Confirmation
@@ -618,7 +613,7 @@ export const LibraryView = ({
           return;
         }
         for (const f of selectedFolders) {
-          if (onDeleteFolder) await onDeleteFolder(f.id);
+          if (onDeleteFolder) await onDeleteFolder(f.id, { throwOnFailure: true });
         }
         for (const nb of selectedNotebooks) {
           if (onDeleteNotebook) await onDeleteNotebook(nb.id);
@@ -653,7 +648,7 @@ export const LibraryView = ({
         activeView={activeView}
         onSelectView={(view) => {
           setActiveView(view);
-          if (view !== 'documents') {
+          if (view !== 'documents' && view !== 'guide') {
             onNavigateFolder(null);
           }
         }}
@@ -664,7 +659,9 @@ export const LibraryView = ({
       />
 
       {/* 2. Main Content Workspace */}
-      <div className="bn-studio-main">
+      {activeView === 'guide' ? (
+        <React.Suspense fallback={<div className="bn-studio-main" aria-busy="true" />}><UserGuide /></React.Suspense>
+      ) : <div className="bn-studio-main">
         {/* Top Header Section */}
         <header className="bn-gn-topbar">
           {/* Left: Breadcrumbs & Back Arrow & Title */}
@@ -730,20 +727,7 @@ export const LibraryView = ({
               <kbd className="hidden md:inline text-[10px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 ml-1">Ctrl+K</kbd>
             </button>
 
-            {/* Unified Cloud Sync & Backup Protection Pill */}
-            <button
-              type="button"
-              className={`bn-gn-cloud-sync-pill ${isSyncing ? 'is-syncing' : 'is-synced'}`}
-              onClick={() => setIsBackupStatusModalOpen(true)}
-              title={t('libraryDriveMergedTooltip', 'Google Drive & Backup Protection (Click to check backup status & files)')}
-            >
-              <span className={`bn-sync-indicator-dot ${isSyncing ? 'dot-amber' : 'dot-emerald'}`} />
-              <Cloud size={14} className={`bn-sync-cloud-icon ${isSyncing ? 'animate-pulse text-amber-400' : 'text-emerald-400'}`} />
-              <span className="bn-sync-pill-label">
-                {isSyncing ? t('libraryDriveMergedSyncing', 'Syncing...') : t('libraryDriveMergedSynced', 'Drive Sync')}
-              </span>
-              <ShieldCheck size={13} className={`bn-sync-shield-icon ${isSyncing ? 'text-amber-400/80' : 'text-emerald-400/90'}`} />
-            </button>
+            <BackupStatusIndicator onClick={() => openBackupHub('local')} />
 
             {/* Settings Button - Opens Full SettingsModal */}
             <button
@@ -868,7 +852,7 @@ export const LibraryView = ({
                     className="bn-gn-popover-item"
                     onClick={() => {
                       setShowNewMenu(false);
-                      setIsBackupStatusModalOpen(true);
+                      openBackupHub('local');
                     }}
                   >
                     <ShieldCheck size={16} className="text-emerald-400" />
@@ -1040,14 +1024,14 @@ export const LibraryView = ({
                   {t('cloudBackupDetectedTitle', '☁️ ตรวจพบข้อมูลสำรองจาก Google Drive ({folder})', { folder: cloudBackupDetected.folder })}
                 </div>
                 <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px' }}>
-                  {t('cloudBackupDetectedBody', 'มีสมุดโน้ตสำรองทั้งหมด {count} เล่ม คุณต้องการกู้คืนข้อมูลทั้งหมดลงเครื่องนี้ทันทีหรือไม่?', { count: cloudBackupDetected.count })}
+                  {t('backupMigrationHint')}
                 </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 type="button"
-                onClick={handleExecuteCloudRestore}
+                onClick={() => openBackupHub('drive')}
                 disabled={isAutoRestoring}
                 style={{
                   background: '#2563eb',
@@ -1064,11 +1048,11 @@ export const LibraryView = ({
                 }}
               >
                 <FolderSync size={16} className={isAutoRestoring ? 'animate-spin' : ''} />
-                <span>{isAutoRestoring ? t('cloudBackupRestoring', 'กำลังกู้คืนข้อมูล...') : t('cloudBackupRestoreNow', 'กู้คืนข้อมูลทั้งหมดทันที')}</span>
+                <span>{isAutoRestoring ? t('cloudBackupRestoring', 'กำลังกู้คืนข้อมูล...') : t('backupChooseRecoverySource')}</span>
               </button>
               <button
                 type="button"
-                onClick={() => setCloudBackupDetected(null)}
+                onClick={() => {setCloudBackupDetected(null);saveSetting('backup_migration_hint_closed_v2',true).catch(()=>{});}}
                 style={{
                   background: 'rgba(255, 255, 255, 0.1)',
                   color: '#94a3b8',
@@ -1284,11 +1268,11 @@ export const LibraryView = ({
                                   onDelete={() => handleSoftDeleteNotebook(nb.id)}
                                   onDuplicate={onDuplicateNotebook}
                                   onExportPdf={onExportNotebookPdf}
+                        exportProgress={libraryExports[nb.id]}
+                        exportBusy={Object.values(libraryExports).some(item=>!['done','error'].includes(item.stage))}
                                   onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                                   onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                                   onToggleFavorite={handleToggleFavoriteNotebook}
-                                  onShare={handleShare}
-                                  onCopyLink={handleCopyLink}
                                   isSelectMode={isSelectMode}
                                   isSelected={selectedItemIds.has(nb.id)}
                                   onToggleSelect={toggleSelectItem}
@@ -1309,7 +1293,7 @@ export const LibraryView = ({
                           <div className="bn-gn-pages-grid">
                             {favoritePages.map(p => {
                               const parentNb = (notebooks || []).find(n => n && n.id === p.notebookId);
-                              const nbTitle = parentNb ? parentNb.name : t('newNotebook', 'สมุดบันทึก');
+                              const nbTitle = parentNb ? localizeNotebookCopyName(parentNb.name, t('notebookCopySuffix')) : t('newNotebook', 'สมุดบันทึก');
                               return (
                                 <div 
                                   key={p.id} 
@@ -1414,11 +1398,11 @@ export const LibraryView = ({
                             onDelete={() => handleSoftDeleteNotebook(nb.id)}
                             onDuplicate={onDuplicateNotebook}
                             onExportPdf={onExportNotebookPdf}
+                        exportProgress={libraryExports[nb.id]}
+                        exportBusy={Object.values(libraryExports).some(item=>!['done','error'].includes(item.stage))}
                             onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                             onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                             onToggleFavorite={handleToggleFavoriteNotebook}
-                            onShare={handleShare}
-                            onCopyLink={handleCopyLink}
                             isSelectMode={isSelectMode}
                             isSelected={selectedItemIds.has(nb.id)}
                             onToggleSelect={toggleSelectItem}
@@ -1444,7 +1428,7 @@ export const LibraryView = ({
                     <div className="bn-gn-pages-grid">
                       {favoritePages.map(p => {
                         const parentNb = (notebooks || []).find(n => n && n.id === p.notebookId);
-                        const nbTitle = parentNb ? parentNb.name : t('newNotebook', 'สมุดบันทึก');
+                        const nbTitle = parentNb ? localizeNotebookCopyName(parentNb.name, t('notebookCopySuffix')) : t('newNotebook', 'สมุดบันทึก');
                         return (
                           <div 
                             key={p.id} 
@@ -1585,11 +1569,11 @@ export const LibraryView = ({
                         onDelete={activeView === 'trash' ? () => onDeleteNotebook(nb.id) : () => handleSoftDeleteNotebook(nb.id)}
                         onDuplicate={onDuplicateNotebook}
                         onExportPdf={onExportNotebookPdf}
+                        exportProgress={libraryExports[nb.id]}
+                        exportBusy={Object.values(libraryExports).some(item=>!['done','error'].includes(item.stage))}
                         onMoveToFolder={(target) => setMoveItem({ item: target, type: 'notebook' })}
                         onRename={(target) => setRenameItem({ item: target, type: 'notebook' })}
                         onToggleFavorite={handleToggleFavoriteNotebook}
-                        onShare={handleShare}
-                        onCopyLink={handleCopyLink}
                         isSelectMode={isSelectMode}
                         isSelected={selectedItemIds.has(nb.id)}
                         onToggleSelect={toggleSelectItem}
@@ -1619,7 +1603,7 @@ export const LibraryView = ({
             </>
           )}
         </main>
-      </div>
+      </div>}
 
       {/* Floating Toast Notification */}
       {toastMessage && (
@@ -1696,18 +1680,19 @@ export const LibraryView = ({
         onTriggerAutoSync={onTriggerAutoSync}
         onExportBackup={onExportBackup}
         onImportBackup={onImportBackup}
-        onOpenDriveModal={onOpenDriveModal}
+        onOpenDriveModal={() => openBackupHub('drive')}
+        onOpenBackupStatus={() => openBackupHub('local')}
         onOpenUpdateModal={onOpenUpdateModal}
       />
 
       {/* Backup Inspection & Status Modal */}
-      <BackupStatusModal 
-        isOpen={isBackupStatusModalOpen}
+      {!onOpenBackupStatus && <BackupStatusModal
+        initialTab={backupInitialTab} isOpen={isBackupStatusModalOpen}
         onClose={() => setIsBackupStatusModalOpen(false)}
         notebooks={notebooks}
         onTriggerSync={onTriggerAutoSync}
         onRestoreBackup={handleExecuteCloudRestore}
-      />
+      />}
     </div>
   );
 };

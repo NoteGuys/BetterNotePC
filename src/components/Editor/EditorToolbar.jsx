@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, 
   Pen, 
@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ShieldCheck,
   MousePointer,
+  MoreHorizontal,
   Scissors,
   Feather,
   Paintbrush,
@@ -32,16 +33,11 @@ import {
   Image as ImageIcon,
   X
 } from 'lucide-react';
+import { usePenButtonTap } from '../../utils/usePenButtonTap';
 import { useLanguage } from '../../services/i18n';
-import { DEFAULT_TOOL_WIDTH_SLOTS } from '../../services/userPreferences';
-
-const DEFAULT_PRESET_COLORS = [
-  '#1e293b', // Midnight Black
-  '#2563eb', // Royal Blue
-  '#dc2626', // Crimson Red
-  '#16a34a', // Emerald Green
-  '#ea580c'  // Sunset Orange
-];
+import { localizeNotebookCopyName } from '../../utils/notebookNames';
+import { DEFAULT_TOOL_WIDTH_SLOTS, DEFAULT_QUICK_COLORS } from '../../services/userPreferences';
+import { ColorWheelPicker } from '../Common/ColorWheelPicker';
 
 const TOOL_PRESET_WIDTHS = {
   pen: [
@@ -75,6 +71,8 @@ export const EditorToolbar = ({
   setActiveTool,
   activeColor,
   setActiveColor,
+  colorSlots = DEFAULT_QUICK_COLORS,
+  onCustomColorChange,
   activeWidth,
   setActiveWidth,
   toolWidths = {},
@@ -83,6 +81,8 @@ export const EditorToolbar = ({
   setActiveShape,
   penNib,
   setPenNib,
+  highlighterTip = 'square',
+  setHighlighterTip,
   isTapered,
   setIsTapered,
   usePressure = true,
@@ -114,13 +114,26 @@ export const EditorToolbar = ({
   onToggleFavoriteCurrentPage,
   hasClipboardImage,
   onPasteClipboardImage,
+  onImportImage,
   onCaptureFullPage
 }) => {
   const { t, language } = useLanguage();
+  const penTap = usePenButtonTap();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(notebookTitle);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const moreRef = useRef(null);
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const outside = event => { if (!moreRef.current?.contains(event.target)) setShowMoreMenu(false); };
+    const escape = event => { if (event.key === 'Escape') { setShowMoreMenu(false); moreRef.current?.querySelector('button')?.focus(); } };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [showMoreMenu]);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showPenSettings, setShowPenSettings] = useState(false);
+  const [showHighlighterSettings, setShowHighlighterSettings] = useState(false);
   const [showEraserMenu, setShowEraserMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showWidthSlider, setShowWidthSlider] = useState(false);
@@ -194,47 +207,7 @@ export const EditorToolbar = ({
     }
   };
 
-  // 5 Quick Color Slots (Persisted in localStorage for Studio style palette)
-  const [colorSlots, setColorSlots] = useState(() => {
-    try {
-      const saved = localStorage.getItem('betternote_quick_color_slots');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          if (parsed.length >= 5) return parsed.slice(0, 5);
-          // If previously saved with fewer slots (e.g. 3), pad with defaults up to 5
-          const merged = [...parsed];
-          for (let i = merged.length; i < 5; i++) {
-            merged.push(DEFAULT_PRESET_COLORS[i]);
-          }
-          return merged;
-        }
-      }
-    } catch (_) {}
-    return DEFAULT_PRESET_COLORS;
-  });
-
-  const handleSelectSlotColor = (col) => {
-    setActiveColor(col);
-  };
-
-  const handleCustomColorChange = (newColor) => {
-    setActiveColor(newColor);
-    // Replace the slot closest to or currently active, or the last (5th) slot
-    setColorSlots(prev => {
-      const updated = [...prev];
-      const matchIdx = updated.findIndex(c => c.toLowerCase() === activeColor.toLowerCase());
-      if (matchIdx !== -1) {
-        updated[matchIdx] = newColor;
-      } else {
-        updated[updated.length - 1] = newColor; // update last slot (5th slot)
-      }
-      try {
-        localStorage.setItem('betternote_quick_color_slots', JSON.stringify(updated));
-      } catch (_) {}
-      return updated;
-    });
-  };
+  const handleSelectSlotColor = (color) => setActiveColor(color);
 
   const handleTitleSubmit = (e) => {
     e.preventDefault();
@@ -246,6 +219,8 @@ export const EditorToolbar = ({
 
   // Close menus when clicking outside
   const closeAllPopovers = () => {
+    setShowMoreMenu(false);
+    setShowHighlighterSettings(false);
     setShowPenSettings(false);
     setShowShapeMenu(false);
     setShowEraserMenu(false);
@@ -254,7 +229,7 @@ export const EditorToolbar = ({
   };
 
   return (
-    <div className="bn-editor-toolbar-container" onClick={(e) => {
+    <div {...penTap} className="bn-editor-toolbar-container" onClick={(e) => {
       // Don't close if clicking inside a dropdown
       if (!e.target.closest('.bn-pen-settings-dropdown') && !e.target.closest('.bn-shape-dropdown') && !e.target.closest('.bn-width-slider-dropdown')) {
         closeAllPopovers();
@@ -271,7 +246,7 @@ export const EditorToolbar = ({
         </button>
 
         <button 
-          className={`bn-btn-icon ${showThumbnails ? 'bn-btn-icon-active' : ''}`}
+          className={`bn-btn-icon bn-toolbar-small-action ${showThumbnails ? 'bn-btn-icon-active' : ''}`}
           onClick={() => setShowThumbnails(!showThumbnails)}
           title={t('thumbnails', 'มุมมองหน้าทั้งหมด (Page Thumbnails)')}
         >
@@ -280,7 +255,7 @@ export const EditorToolbar = ({
 
         {/* Add Page Button (Standard placement) */}
         <button 
-          className="bn-btn-icon text-blue-400 hover:text-white"
+          className="bn-btn-icon bn-toolbar-extra-action text-blue-400 hover:text-white"
           onClick={onOpenAddPage}
           title={t('addPage', 'เพิ่มหน้ากระดาษใหม่ (A2, A3, A4, ลายจุด, เส้นแคบ, เส้นกว้าง)')}
         >
@@ -289,7 +264,7 @@ export const EditorToolbar = ({
 
         {/* Favorite Current Page Button */}
         <button 
-          className={`bn-toolbar-star-btn ${isCurrentPageFavorite ? 'bn-star-active' : ''}`}
+          className={`bn-toolbar-star-btn bn-toolbar-extra-action ${isCurrentPageFavorite ? 'bn-star-active' : ''}`}
           onClick={onToggleFavoriteCurrentPage}
           title={isCurrentPageFavorite ? t('unstarPage', 'ยกเลิกติดดาวหน้านี้') : t('starPage', 'ติดดาวหน้านี้ (เพิ่มในรายการโปรด)')}
         >
@@ -301,10 +276,10 @@ export const EditorToolbar = ({
           />
         </button>
 
-        <div className="w-[1px] h-4 bg-white/10 mx-0.5" />
+        <div className="bn-toolbar-extra-action w-[1px] h-4 bg-white/10 mx-0.5" />
 
         {/* Notebook Title (Click to rename) */}
-        <div className="bn-toolbar-title-wrapper">
+        <div className="bn-toolbar-title-wrapper bn-toolbar-extra-action">
           {isEditingTitle ? (
             <form onSubmit={handleTitleSubmit}>
               <input 
@@ -325,7 +300,7 @@ export const EditorToolbar = ({
               }}
               title={t('renameNotebookPrompt', 'คลิกเพื่อเปลี่ยนชื่อสมุดโน้ต')}
             >
-              {notebookTitle}
+              {localizeNotebookCopyName(notebookTitle, t('notebookCopySuffix'))}
             </span>
           )}
         </div>
@@ -335,7 +310,7 @@ export const EditorToolbar = ({
       <div className="bn-editor-toolbar-center">
         <div className="bn-tool-pill">
           {/* Pen with Sub-Pip & Settings Dropdown */}
-          <div className="relative">
+          <div className="bn-pen-tool">
             <button 
               className={`bn-tool-btn ${activeTool === 'pen' ? 'bn-tool-btn-active' : ''}`}
               onClick={(e) => {
@@ -363,18 +338,18 @@ export const EditorToolbar = ({
                 className="bn-pen-settings-dropdown" 
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="text-[12px] font-bold text-zinc-100 border-b border-white/10 pb-2 mb-2.5 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <SlidersHorizontal size={14} className="text-blue-400" />
+                <div className="bn-pen-settings-header">
+                  <div className="bn-pen-settings-title">
+                    <SlidersHorizontal size={14} className="bn-pen-settings-icon" />
                     <span>{t('penSettings', 'ตั้งค่าหัวปากกา & แรงกด')}</span>
                   </div>
-                  <span className="text-[10px] text-zinc-400 font-mono">Surface Inking</span>
+                  <span className="bn-pen-settings-caption">Surface Inking</span>
                 </div>
 
                 {/* Nib Types Segmented Choice */}
-                <div className="space-y-1 mb-3">
-                  <div className="text-[11px] font-medium text-zinc-400">{t('nibType', 'ชนิดหัวปากกา')}</div>
-                  <div className="grid grid-cols-3 gap-1 bg-zinc-900/60 p-1 rounded-lg border border-white/10">
+                <div className="bn-pen-settings-nibs">
+                  <div className="bn-pen-settings-section-title">{t('nibType', 'ชนิดหัวปากกา')}</div>
+                  <div className="bn-pen-settings-choices">
                     <button 
                       className={`bn-nib-choice-btn ${penNib === 'fountain' ? 'bn-nib-choice-active' : ''}`}
                       onClick={() => setPenNib('fountain')}
@@ -400,42 +375,42 @@ export const EditorToolbar = ({
                 </div>
 
                 {/* Tapered Stroke Setting */}
-                <div className="mb-2.5 pt-2 border-t border-white/10">
-                  <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">{t('taperedLine', 'คมต้น-คมปลาย (Tapered)')}</span>
+                <div className="bn-pen-settings-section">
+                  <label className="bn-pen-settings-toggle">
+                    <span className="bn-pen-settings-label">{t('taperedLine', 'คมต้น-คมปลาย (Tapered)')}</span>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                      className="bn-pen-settings-checkbox"
                       checked={isTapered}
                       onChange={(e) => setIsTapered(e.target.checked)}
                     />
                   </label>
-                  <span className="text-[10px] text-zinc-400 block">
+                  <span className="bn-pen-settings-description">
                     {isTapered ? t('taperOnDesc', 'เปิด: ปลายเรียวแหลมพลิ้วไหว สไตล์ปากกาคัดลายมือ') : t('taperOffDesc', 'ปิด: เส้นหัวมนสม่ำเสมอคงที่')}
                   </span>
                 </div>
 
                 {/* Pen Pressure Switch Setting */}
-                <div className="mb-2.5 pt-2 border-t border-white/10">
-                  <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">{t('penPressure', 'น้ำหนักกดปากกา (Pressure)')}</span>
+                <div className="bn-pen-settings-section">
+                  <label className="bn-pen-settings-toggle">
+                    <span className="bn-pen-settings-label">{t('penPressure', 'น้ำหนักกดปากกา (Pressure)')}</span>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                      className="bn-pen-settings-checkbox"
                       checked={usePressure}
                       onChange={(e) => setUsePressure && setUsePressure(e.target.checked)}
                     />
                   </label>
-                  <span className="text-[10px] text-zinc-400 block">
+                  <span className="bn-pen-settings-description">
                     {usePressure ? t('pressureOnDesc', 'เปิด: เส้นหนาบางตามแรงกดจริงของ Surface Pen') : t('pressureOffDesc', 'ปิด: เส้นคงที่')}
                   </span>
                 </div>
 
                 {/* Pressure Sensitivity Levels (when pressure is ON) */}
                 {usePressure && (
-                  <div className="pt-2 border-t border-white/10">
-                    <div className="text-[11px] font-medium text-zinc-400 mb-1.5">{t('pressureSensitivity', 'ความไวต่อแรงกด')}</div>
-                    <div className="grid grid-cols-3 gap-1 bg-zinc-900/60 p-1 rounded-lg border border-white/10">
+                  <div className="bn-pen-settings-section">
+                    <div className="bn-pen-settings-section-title">{t('pressureSensitivity', 'ความไวต่อแรงกด')}</div>
+                    <div className="bn-pen-settings-choices bn-pen-settings-choices-pressure">
                       {['low', 'medium', 'high'].map(lvl => (
                         <button
                           key={lvl}
@@ -450,24 +425,24 @@ export const EditorToolbar = ({
                 )}
 
                 {/* Scribble to Erase Toggle Setting */}
-                <div className="mb-2.5 pt-2 border-t border-white/10">
-                  <label className="flex items-center justify-between cursor-pointer py-1">
-                    <span className="text-xs text-zinc-200 font-medium">{t('scribbleToErase', 'ขยี้เส้นเพื่อลบ (Scribble to Erase)')}</span>
+                <div className="bn-pen-settings-section">
+                  <label className="bn-pen-settings-toggle">
+                    <span className="bn-pen-settings-label">{t('scribbleToErase', 'ขยี้เส้นเพื่อลบ (Scribble to Erase)')}</span>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                      className="bn-pen-settings-checkbox"
                       checked={scribbleToErase}
                       onChange={(e) => setScribbleToErase && setScribbleToErase(e.target.checked)}
                     />
                   </label>
-                  <span className="text-[10px] text-zinc-400 block">
+                  <span className="bn-pen-settings-description">
                     {scribbleToErase ? t('scribbleOnDesc', 'เปิด: ขยี้ลายเส้นซ้ำๆ รวดเร็วเพื่อลบ') : t('scribbleOffDesc', 'ปิด: ปิดระบบขยี้ลบ')}
                   </span>
                 </div>
 
-                <div className="mt-3 pt-2 border-t border-white/10 flex justify-end">
+                <div className="bn-pen-settings-footer">
                   <button 
-                    className="bn-btn-primary bn-btn-sm py-1 px-3 text-xs" 
+                    className="bn-btn-primary bn-btn-sm bn-pen-settings-done"
                     onClick={() => setShowPenSettings(false)}
                   >
                     {t('done', 'เรียบร้อย')}
@@ -477,14 +452,54 @@ export const EditorToolbar = ({
             )}
           </div>
 
-          {/* Highlighter */}
-          <button 
-            className={`bn-tool-btn ${activeTool === 'highlighter' ? 'bn-tool-btn-active' : ''}`}
-            onClick={() => { setActiveTool('highlighter'); closeAllPopovers(); }}
-            title={t('highlighter', 'ปากกาไฮไลท์ (Highlighter)')}
-          >
-            <Highlighter size={17} />
-          </button>
+          {/* Highlighter: tap again for its two tip choices. */}
+          <div className="bn-pen-tool">
+            <button
+              className={`bn-tool-btn ${activeTool === 'highlighter' ? 'bn-tool-btn-active' : ''}`}
+              onClick={event => {
+                event.stopPropagation();
+                const open = activeTool === 'highlighter' && !showHighlighterSettings;
+                closeAllPopovers();
+                setActiveTool('highlighter');
+                setShowHighlighterSettings(open);
+              }}
+              title={t('highlighter', 'ปากกาไฮไลท์ (Highlighter)')}
+              aria-label={t('highlighter', 'ปากกาไฮไลท์ (Highlighter)')}
+              aria-expanded={showHighlighterSettings && activeTool === 'highlighter'}
+            >
+              <Highlighter size={17} />
+            </button>
+            {showHighlighterSettings && activeTool === 'highlighter' && (
+              <div className="bn-pen-settings-dropdown bn-highlighter-settings"
+                role="dialog" aria-label={t('highlighterSettings', 'ตั้งค่าหัวไฮไลต์')}
+                onClick={event => event.stopPropagation()}>
+                <div className="bn-pen-settings-header">
+                  <div className="bn-pen-settings-title">
+                    <SlidersHorizontal size={14} />
+                    <span>{t('highlighterSettings', 'ตั้งค่าหัวไฮไลต์')}</span>
+                  </div>
+                </div>
+                <div className="bn-pen-settings-section">
+                  <div className="bn-pen-settings-choices">
+                    {['round', 'square'].map(tip => (
+                      <button key={tip} type="button" aria-pressed={highlighterTip === tip}
+                        className={`bn-nib-choice-btn ${highlighterTip === tip ? 'bn-nib-choice-active' : ''}`}
+                        onClick={() => setHighlighterTip?.(tip)}>
+                        <span aria-hidden="true" style={{width:24,height:8,background:activeColor,
+                          borderRadius:tip === 'round' ? 8 : 0,display:'inline-block'}} />
+                        <span>{tip === 'round' ? t('highlighterTipRound', 'หัวกลม') : t('highlighterTipSquare', 'หัวเหลี่ยม')}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <span className="bn-pen-settings-description">{t('highlighterHoldHint', 'ลากเส้นแล้วค้างปลายปากกาเพื่อปรับเป็นเส้นตรง')}</span>
+                </div>
+                <div className="bn-pen-settings-footer">
+                  <button className="bn-btn-primary bn-btn-sm bn-pen-settings-done"
+                    onClick={() => setShowHighlighterSettings(false)}>{t('done', 'เรียบร้อย')}</button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Eraser */}
           <div className="relative">
@@ -607,25 +622,25 @@ export const EditorToolbar = ({
 
           {/* Text Tool */}
           <button 
-            className={`bn-tool-btn ${activeTool === 'text' ? 'bn-tool-btn-active' : ''}`}
+            className={`bn-tool-btn bn-toolbar-secondary-tool ${activeTool === 'text' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('text'); closeAllPopovers(); }}
             title={t('text')}
           >
             <Type size={17} />
           </button>
 
-          {/* Image Tool (Select, Move, Layer) */}
+          {/* Import image from the computer, then use the existing image controls. */}
           <button 
-            className={`bn-tool-btn ${activeTool === 'image' ? 'bn-tool-btn-active' : ''}`}
-            onClick={() => { setActiveTool('image'); closeAllPopovers(); }}
-            title={t('imageTool')}
+            className={`bn-tool-btn bn-toolbar-secondary-tool ${activeTool === 'image' ? 'bn-tool-btn-active' : ''}`}
+            onClick={() => { setActiveTool('image'); closeAllPopovers(); onImportImage?.(); }}
+            title={t('insertImage', 'Insert image from computer')}
           >
             <ImageIcon size={17} />
           </button>
 
           {/* Snipping Tool (Windows Snipping Tool Style) */}
           <button 
-            className={`bn-tool-btn ${activeTool === 'snip' ? 'bn-tool-btn-active' : ''}`}
+            className={`bn-tool-btn bn-toolbar-secondary-tool ${activeTool === 'snip' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { 
               setActiveTool(activeTool === 'snip' ? 'pen' : 'snip'); 
               closeAllPopovers(); 
@@ -637,7 +652,7 @@ export const EditorToolbar = ({
 
           {/* Hand Pan Tool */}
           <button 
-            className={`bn-tool-btn ${activeTool === 'hand' ? 'bn-tool-btn-active' : ''}`}
+            className={`bn-tool-btn bn-toolbar-secondary-tool ${activeTool === 'hand' ? 'bn-tool-btn-active' : ''}`}
             onClick={() => { setActiveTool('hand'); closeAllPopovers(); }}
             title={t('hand')}
           >
@@ -647,8 +662,8 @@ export const EditorToolbar = ({
           {/* Divider */}
           <div className="w-[1px] h-4 bg-white/15 mx-1" />
 
-          {/* Quick 5-Color Swatches + Custom (+) Picker (Studio style) */}
-          <div className="bn-quick-colors flex items-center gap-1.5 px-1">
+          {/* Quick 5-Color Swatches + Rainbow Picker */}
+          <div className="bn-quick-colors bn-color-wheel-group flex items-center gap-1.5 px-1">
             {colorSlots.map((col, idx) => {
               const isSelected = activeColor.toLowerCase() === col.toLowerCase();
               return (
@@ -662,19 +677,8 @@ export const EditorToolbar = ({
               );
             })}
 
-            {/* Custom Color (+) Button */}
-            <div 
-              className="relative w-5 h-5 rounded-full flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-white/20 cursor-pointer flex-shrink-0 transition-transform hover:scale-110" 
-              title={t('chooseCustomColor', 'เลือกสีเพิ่มเติม (อัปเดตสล็อตสีอัตโนมัติ)')}
-            >
-              <span className="text-[11px] font-bold text-zinc-300 pointer-events-none leading-none">+</span>
-              <input 
-                type="color"
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                value={activeColor}
-                onChange={(e) => handleCustomColorChange(e.target.value)}
-              />
-            </div>
+            <ColorWheelPicker value={activeColor} onChange={onCustomColorChange || setActiveColor}
+              label={t('chooseColorWheel', 'เลือกสีจากวงล้อสี')} />
           </div>
 
           {/* Divider */}
@@ -822,7 +826,7 @@ export const EditorToolbar = ({
       {/* Right Section: Page Tools, Palm Rejection, Undo/Redo, Zoom & Export */}
       <div className="bn-editor-toolbar-right">
         {/* Snip Action Shortcuts (Capture full page & paste) */}
-        <div className="flex items-center gap-0.5">
+        <div className="bn-toolbar-extra-action flex items-center gap-0.5">
           <button
             className="bn-btn-icon"
             onClick={onCaptureFullPage}
@@ -833,7 +837,7 @@ export const EditorToolbar = ({
 
           <button
             className={`bn-btn-icon ${hasClipboardImage ? 'text-amber-400 font-bold' : 'text-zinc-300 hover:text-white'}`}
-            onClick={onPasteClipboardImage}
+            onClick={() => onPasteClipboardImage()}
             title={t('pasteImageTooltip', 'วางรูปภาพจากคลิปบอร์ด / แคปหน้าจอ [Ctrl+V]')}
           >
             <ClipboardPaste size={17} />
@@ -844,7 +848,7 @@ export const EditorToolbar = ({
 
         {/* Palm Rejection Shield (Surface Pen Only Toggle) */}
         <button 
-          className={`bn-btn-icon ${penOnly ? 'bn-shield-active' : 'text-zinc-400 hover:text-white'}`}
+          className={`bn-btn-icon bn-toolbar-small-action ${penOnly ? 'bn-shield-active' : 'text-zinc-400 hover:text-white'}`}
           onClick={() => setPenOnly(!penOnly)}
           title={penOnly ? t('palmRejectionOn') : t('palmRejectionOff')}
         >
@@ -853,7 +857,7 @@ export const EditorToolbar = ({
 
         {/* Scroll Mode Toggle (Continuous Vertical vs Horizontal) */}
         <button 
-          className={`bn-btn-icon ${scrollDirection === 'vertical' ? 'text-blue-400 bg-blue-500/15 border border-blue-500/30' : 'text-zinc-400'}`}
+          className={`bn-btn-icon bn-toolbar-extra-action ${scrollDirection === 'vertical' ? 'text-blue-400 bg-blue-500/15 border border-blue-500/30' : 'text-zinc-400'}`}
           onClick={() => setScrollDirection(scrollDirection === 'vertical' ? 'horizontal' : 'vertical')}
           title={scrollDirection === 'vertical' ? t('scrollVertical') : t('scrollHorizontal')}
         >
@@ -871,7 +875,7 @@ export const EditorToolbar = ({
             <RotateCcw size={16} />
           </button>
           <button 
-            className="bn-btn-icon bn-btn-undo" 
+            className="bn-btn-icon bn-btn-undo bn-toolbar-secondary-tool"
             onClick={onRedo} 
             disabled={!canRedo}
             title={t('redo')}
@@ -881,7 +885,7 @@ export const EditorToolbar = ({
         </div>
 
         {/* Zoom Controls */}
-        <div className="bn-zoom-controls">
+        <div className="bn-zoom-controls bn-toolbar-zoom-action">
           <button className="bn-zoom-btn" onClick={onZoomOut} title={t('zoomOut')}>
             <ZoomOut size={13} />
           </button>
@@ -897,12 +901,52 @@ export const EditorToolbar = ({
 
         {/* Duplicate Notebook */}
         <button 
-          className="bn-btn-icon text-zinc-400 hover:text-white"
+          className="bn-btn-icon bn-toolbar-extra-action text-zinc-400 hover:text-white"
           onClick={onDuplicateNotebook}
           title={t('duplicate')}
         >
           <Copy size={16} />
         </button>
+
+        {/* Less frequent commands stay available without adding a second toolbar row. */}
+        <div className="bn-toolbar-more" ref={moreRef}>
+          <button className="bn-btn-icon" title={t('moreOptions')} aria-label={t('moreOptions')}
+            aria-expanded={showMoreMenu} aria-haspopup="true"
+            onClick={event => { event.stopPropagation(); const open = !showMoreMenu; closeAllPopovers(); setShowMoreMenu(open); }}>
+            <MoreHorizontal size={20} />
+          </button>
+          {showMoreMenu && <div className="bn-toolbar-more-panel" onClick={event => event.stopPropagation()}>
+            {[
+              ['common', 'add-page', FilePlus, t('addPage'), onOpenAddPage],
+              ['common', 'favorite', Star, isCurrentPageFavorite ? t('unstarPage') : t('starPage'), onToggleFavoriteCurrentPage],
+              ['common', 'capture', Camera, t('captureEntirePageTooltip'), onCaptureFullPage],
+              ['common', 'paste', ClipboardPaste, t('pasteImageTooltip'), onPasteClipboardImage],
+              ['common', 'scroll', ScrollText, scrollDirection === 'vertical' ? t('scrollVertical') : t('scrollHorizontal'), () => setScrollDirection(scrollDirection === 'vertical' ? 'horizontal' : 'vertical')],
+              ['common', 'duplicate', Copy, t('duplicate'), onDuplicateNotebook],
+              ['zoom', 'zoom-out', ZoomOut, t('zoomOut'), onZoomOut],
+              ['zoom', 'zoom-reset', ZoomIn, t('zoomReset') + ' (' + Math.round(zoom * 100) + '%)', onResetZoom],
+              ['zoom', 'zoom-in', ZoomIn, t('zoomIn'), onZoomIn],
+              ['small', 'thumbnails', LayoutGrid, t('thumbnails'), () => setShowThumbnails(!showThumbnails)],
+              ['small', 'shield', ShieldCheck, penOnly ? t('palmRejectionOn') : t('palmRejectionOff'), () => setPenOnly(!penOnly)],
+              ['tools', 'redo', RotateCw, t('redo'), onRedo, !canRedo],
+              ['tools', 'text', Type, t('text'), () => setActiveTool('text')],
+              ['tools', 'image', ImageIcon, t('insertImage'), () => { setActiveTool('image'); onImportImage?.(); }],
+              ['tools', 'snip', Scissors, t('snip'), () => setActiveTool(activeTool === 'snip' ? 'pen' : 'snip')],
+              ['tools', 'hand', Hand, t('hand'), () => setActiveTool('hand')],
+            ].map(([group, id, Icon, label, action, disabled]) => <button key={id} data-toolbar-command={id} disabled={disabled}
+              className={'bn-toolbar-more-item bn-toolbar-more-' + group}
+              onClick={() => { closeAllPopovers(); action?.(); }}><Icon size={18} /><span>{label}</span></button>)}
+            <div className="bn-toolbar-more-common">
+              {isEditingTitle ? <form onSubmit={event => { handleTitleSubmit(event); setShowMoreMenu(false); }}>
+                <input className="bn-title-input" aria-label={t('renameNotebookPrompt')} value={tempTitle}
+                  onChange={event => setTempTitle(event.target.value)} autoFocus />
+              </form> : <button className="bn-toolbar-more-item" data-toolbar-command="rename"
+                onClick={() => { setTempTitle(notebookTitle); setIsEditingTitle(true); }}>
+                <Pen size={18} /><span>{t('renameNotebookPrompt')}</span>
+              </button>}
+            </div>
+          </div>}
+        </div>
 
         {/* Dedicated Export PDF Button with Quick Dropdown */}
         <div className="relative">
