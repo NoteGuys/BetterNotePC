@@ -1,738 +1,418 @@
-# 📘 BetterNote Pro Studio — Project Handoff Documentation (HANDOFF.md)
+# BetterNote Pro Studio — HANDOFF รุ่น 1.3.0.0
 
-เอกสารส่งมอบงานสำหรับวิศวกรซอฟต์แวร์หรือ AI ตัวถัดไป เพื่อให้เข้าใจสถาปัตยกรรม โค้ด โครงสร้างข้อมูล และข้อควรระวังของโปรเจกต์ **BetterNote Pro Studio** ทั้งหมดโดยไม่ต้องคาดเดา
+เอกสารส่งมอบงานตามโค้ดที่รวมเข้า `main` เมื่อ 2026-10-09 ใช้สำหรับพัฒนาต่อและเตรียมส่ง Microsoft Store ไม่ใช่ผลรับรองจาก Microsoft
 
----
+สถานะปัจจุบัน: merge commit `f1793b1f82f98e8c49b36c3e54950b777f8fd794` ถูก push แล้ว ไฟล์ทุกไฟล์ตรงกับ `sol-work` ที่ commit `403680dc49f96deac0c9bac8e1f43999fc5c8877` ก่อนแก้เอกสารนี้ ผู้ใช้ยืนยันการใช้งานชุดล่าสุดผ่านแล้ว การตรวจรอบย้ายระบบไม่ได้เปิดแอปหรือแตะข้อมูลโน้ตจริง
 
-## 1. แอปนี้คืออะไร ทำอะไรได้ (สำหรับผู้ที่ไม่เคยเห็นโปรเจกต์นี้มาก่อน)
+## 1. แอปนี้คืออะไร และความสามารถของรุ่นนี้
 
-**BetterNote Pro Studio** คือแอปพลิเคชันสำหรับจดบันทึกด้วยลายมือดิจิทัล (Digital Inking), จัดการสมุดโน้ต, วาดเขียนด้วยปากกา Stylus (ออกแบบมาเพื่อ Windows 10/11 และ Microsoft Surface โดยเฉพาะ) และตรวจแก้/ไฮไลท์เอกสาร PDF
+BetterNote เป็นแอปจดโน้ตด้วยปากกา วาดรูปทรง จัดสมุดและโฟลเดอร์ และเขียนบน PDF สำหรับ Windows/Surface ข้อมูลหลักอยู่ใน IndexedDB ของเครื่อง ใช้เขียนได้ออฟไลน์ ส่วนสำรองไป Google Drive และการตรวจอัปเดตเป็นงานแยก
 
-### ความสามารถหลักของแอป:
-1. **การเขียนลายมือความหน่วงต่ำระดับฮาร์ดแวร์ (120Hz Low-Latency Inking)**:
-   - ใช้สถาปัตยกรรม Canvas 3 ชั้นแบบแยกส่วน (Decoupled Canvas) ทำงานร่วมกับ Pointer Events (`e.pointerType === 'pen'`) และ Coalesced Events (`e.getCoalescedEvents()`) ทำให้เส้นปากกาตามติดหัวปากกาได้ลื่นไหล ไม่แล็ก
-   - มีหัวปากกาให้เลือก 3 ชนิด: ปากกาคอแร้ง (Fountain Pen), ปากกาลูกลื่น (Ballpoint Pen), พู่กัน (Brush) และปากกาไฮไลท์กึ่งโปร่งใส (Highlighter แบบ `multiply` blend mode)
-   - ปรับความหนาเส้น, ความไวต่อแรงกด (Pressure Sensitivity), และการทำหัวท้ายเส้นเรียวคม (Tapering)
-2. **ระบบตรวจจับท่าทางสัมผัสและ Palm Rejection**:
-   - **Scribble-to-Erase (ขยี้ลบ)**: ขีดขยี้ปากกาไปมา 2-3 ครั้งเหนือเส้นหรือข้อความเพื่อลบออกทันที โดยมีระบบป้องกันไม่ให้เผลอลบเมื่อวาดรูปทรงเรขาคณิตแบบปิด
-   - **Two-Finger Double Tap Undo**: แตะ 2 นิ้วสองครั้งเร็วๆ เพื่อสั่งเลิกทำ (Undo)
-   - **Pinch-to-Zoom & Pan**: ใช้ 2 นิ้วหนีบ/กางเพื่อซูม และลากเพื่อเลื่อนหน้ากระดาษอย่างอิสระ
-   - **Hardware Palm Rejection & Screen Lock**: ระบบล็อกหน้าจอขณะวางสันมือเขียน ป้องกันหน้าจอเลื่อนหนีโดยไม่ได้ตั้งใจ พร้อมตัวกรองขนาดสัมผัสของฝ่ามือ
-3. **ระบบสมุดโน้ตและหน้ากระดาษหลายขนาด**:
-   - รองรับขนาดกระดาษ A4, A3, และ A2
-   - รองรับเทมเพลตกระดาษหลากหลาย: เส้นบรรทัด (Ruled), เส้นแคบ, เส้นกว้าง, ลายจุด (Dotted), ตารางกราฟ (Grid), กระดาษเปล่า (Blank), และกระดาษคอร์เนลล์ (Cornell Notes)
-   - เพิ่ม ลบ สลับลำดับหน้า และดูตัวอย่างหน้าขนาดย่อ (Thumbnail Sidebar)
-4. **การนำเข้าและขีดเขียนบน PDF (PDF Annotation & Export)**:
-   - นำเข้าไฟล์ PDF หลายหน้าเพื่อเขียนทับ ไฮไลท์ และจดบันทึก
-   - ส่งออกโน้ตและมาร์กอัปทั้งหมดกลับเป็นไฟล์ PDF คุณภาพสูง (Vector/High-DPI)
-5. **การแทรกรูปภาพ ครอปตัด และสติกเกอร์ (Snip & Image Paste)**:
-   - รองรับการวางภาพจาก Clipboard โดยตรง (`Ctrl+V` หรือคลิกขวา "วาง") จาก Windows Snipping Tool (`Win + Shift + S`)
-   - เครื่องมือ Snip ตัดแปะส่วนใดก็ได้บนหน้ากระดาษมาทำเป็นสติกเกอร์
-   - เครื่องมือ Lasso เลือกวัตถุ ย้าย ย่อ/ขยาย และเปลี่ยนสี
-6. **แท็บทำงานหลายเอกสารพร้อมกัน (Multi-Document Top Tab Bar)**:
-   - เปิดสลับสมุดโน้ตได้สูงสุด 5 แท็บพร้อมกัน
-   - จดจำหน้าที่เปิดค้างไว้ล่าสุดของแต่ละสมุดโน้ตอย่างแม่นยำ (Exact Page Retention)
-7. **ทำงานแบบออฟไลน์ 100% พร้อมระบบสำรองข้อมูลอัตโนมัติ (Zero-Lag Auto Backup)**:
-   - บันทึกข้อมูลทั้งหมดลงใน IndexedDB ภายในเครื่องทันที ไม่ต้องสมัครสมาชิกหรือพึ่งพาเซิร์ฟเวอร์
-   - แบ็กกราวด์เอเจนต์ช่วยสำรองข้อมูลเป็นไฟล์ `.bnote`, `.pdf`, และ `BetterNote_Latest_Backup.json` ไปยังโฟลเดอร์ Google Drive หรือโฟลเดอร์ที่ผู้ใช้เลือก โดยไม่ทำให้หน้าจอเขียนกระตุก
-8. **ระบบหลายภาษา (4 Languages)**:
-   - รองรับภาษาอังกฤษ (English - ค่าเริ่มต้น), ไทย (Thai), จีนตัวย่อ (Simplified Chinese), และรัสเซีย (Russian) พร้อมสลับภาษาได้ทันทีแบบ Reactive
+- ปากกา Fountain/Ballpoint/Brush, Highlighter, สีและความหนา, แรงกดและหัวท้ายเส้นเรียว
+- ยางลบ, ขยี้ลบ, QuickShape, รูปทรง, Lasso, ข้อความ, ภาพ/ครอป, Clipboard และ Snip
+- กระดาษและเทมเพลตหลายแบบ เพิ่ม/ลบ/จัดหน้า, ภาพย่อ, ค้นหา, Favorites, Trash และแท็บสมุดสูงสุด 5 แท็บ
+- Whiteboard, การเลื่อนและซูมด้วยนิ้ว, Palm Rejection และโหมดปากกา
+- นำเข้า PDF/.bnote; ส่งออก PDF หน้าเดียว/ทั้งเล่ม, .bnote และ PNG/JPEG
+- สำรองข้อมูลที่แก้ไข แยกชุดตามเครื่อง; Restore เมื่อผู้ใช้เลือกเครื่องและกดเอง
+- ตรวจอัปเดตวันละครั้ง แจ้งเตือนเล็กที่หน้าหลักประมาณ 5 วินาทีเฉพาะเมื่อพบอัปเดต
+- คู่มือออฟไลน์ใต้ Favorites: 10 หมวด 55 บท ภาพประกอบ 44 ไฟล์; คู่มือไทย/อังกฤษ
+- UI รองรับ English, Thai, Simplified Chinese และ Russian
 
----
+การแก้ไขสำคัญจาก `sol-work`:
 
-## 2. เทคโนโลยีที่ใช้ พร้อมเวอร์ชันจริง
+1. รอ transaction บันทึกสำเร็จก่อนแสดงว่าบันทึกแล้ว มี retry และตัวกั้นการปิดแอปเมื่อยังมีงานค้าง
+2. เก็บ Undo/Redo แยกสมุดตลอด session; จำแท็บและตำแหน่งหน้า; อัปเดตปกจากเนื้อหาปัจจุบัน
+3. ปรับ Surface: การแตะปุ่มด้วยปากกา, แถบเครื่องมือแถวเดียวพร้อม overflow, ปลดสถานะปากกาค้าง, เลื่อน/ซูมและตำแหน่งคำแนะนำ Whiteboard
+4. ปรับรูปทรงให้มุมคม, จานสี/ไฮไลท์และ Lasso; แยกงานเรนเดอร์/แคชภาพย่อและหน้า PDF เพื่อลดภาระขณะเขียน
+5. ส่งออก PDF ทั้งเล่มได้โดยไม่ต้องส่งออกหน้าแรกก่อน แยกเรนเดอร์/ประกอบไฟล์เป็นช่วงงาน มี progress และเก็บ PDF ต้นฉบับ
+6. แก้ .bnote ถูกตัดระหว่างส่งออก: ตรวจข้อมูลและเขียนผ่าน native worker เป็นชิ้น; นำเข้าตรวจครบก่อนบันทึก
+7. แยก Backup ออกจาก Restore: ไม่มี Restore อัตโนมัติเมื่อเปิดแอปหรือพบ Drive และไม่มีแบนเนอร์ชวน Restore ซ้ำในเส้นทางปัจจุบัน
+8. สำรองเฉพาะสมุดที่เปลี่ยน; PDF ทำภายหลังช่วงว่างและใช้แคชรายหน้า; แยกสถานะข้อมูลกู้คืนจาก PDF ที่ยังเตรียมอยู่
+9. สำรองแต่ละเครื่องใต้ `Devices/<device-id>` จึงไม่ทับกัน; เก็บล่าสุดและย้อนหลัง 3 ชุดที่สำรองข้อมูลสำเร็จ
+10. แก้ Restore ชุดใหญ่ด้วย worker, progress, timeout ตามกิจกรรม, snapshot ที่ตรวจ hash และการยกเลิกก่อนเริ่มเขียน
+11. เลือก device เพื่อ Restore ซ้ำได้ และอัปเดตสมุดเดิมที่ไม่ได้แก้ในเครื่องนี้โดยไม่สร้าง “Copy from this device” เกินจำเป็น; หากเนื้อหาแก้ชนกันยังรักษาสำเนาไว้
+12. เก็บข้อมูลโฟลเดอร์/การลบและโครงสร้าง parent ให้ถูกต้อง ป้องกันรายการลบแล้วกลับมาในชุดปัจจุบัน
+13. ใช้ไอคอน BetterNote ในหน้าต่าง/Taskbar/แพ็กเกจและหน้าต่างช่วยส่งออก PDF; แพ็ก `app-icon.ico` ใน ASAR
+14. หน้าตั้งค่า/คู่มือแสดง 1.3.0.0; fallback ของหน้าต่างอัปเดตใช้เวอร์ชันปัจจุบันและไม่เดาเลขเวอร์ชันล่าสุด
 
-ข้อมูลดึงจาก `package.json` และ `package-lock.json`:
+## 2. เวอร์ชันและเทคโนโลยี
 
-| หมวดหมู่ | ไลบรารี / เครื่องมือ | เวอร์ชันจริง | หน้าที่ในระบบ |
-| :--- | :--- | :--- | :--- |
-| **Desktop Runtime** | `electron` | `44.2.0` | เฟรมเวิร์กเดสก์ท็อปสำหรับ Windows จัดการหน้าต่าง, IPC, ฮาร์ดแวร์ และไฟล์ระบบ |
-| **Packaging & Installer** | `electron-builder` | `26.15.3` | เครื่องมือบิลด์ตัวติดตั้ง `.appx` (Microsoft Store), `.exe` (NSIS), และ `.zip` |
-| **UI Framework** | `react` | `18.3.1` | ควบคุม State, Lifecycle ของคอมโพเนนต์ และแท็บเอกสาร |
-| **UI DOM** | `react-dom` | `18.3.1` | เรนเดอร์ Virtual DOM ลงใน Electron Renderer |
-| **Bundler & Dev Server** | `vite` | `6.2.0` (Runtime `6.4.3`) | บิลด์โค้ดฝั่ง Client แบบ ESM และทำ HMR อย่างรวดเร็ว |
-| **Vite React Plugin** | `@vitejs/plugin-react` | `4.3.4` | ปลั๊กอินแปลง JSX/Fast Refresh สำหรับ Vite |
-| **Local Database** | `idb` | `8.0.2` | Promise wrapper สำหรับ HTML5 IndexedDB จัดเก็บข้อมูลโน้ตและหน้ากระดาษ |
-| **PDF Rendering** | `pdfjs-dist` | `4.10.38` | ตัวแยกวิเคราะห์และเรนเดอร์หน้า PDF ลงบนแคนวาส |
-| **PDF Generation** | `jspdf` | `2.5.2` | ตัวประกอบและส่งออกเอกสาร PDF หลายหน้า |
-| **Icons** | `lucide-react` | `1.16.0` | ไอคอนเวกเตอร์สไตล์โมเดิร์นทั่วทั้งแอปพลิเคชัน |
-| **Effects** | `canvas-confetti` | `1.9.4` | เอฟเฟกต์แอนิเมชันเฉลิมฉลองเมื่อทำภารกิจสำเร็จ |
-| **Styling** | Vanilla CSS (`src/index.css`) | - | ระบบธีม Glassmorphism บริสุทธิ์ ไม่มี Tailwind หรือ CSS-in-JS |
+| แหล่งเวอร์ชัน | ค่า |
+| --- | --- |
+| `package.json.version` | `1.3.0` |
+| `package-lock.json.version` และ `packages[""].version` | `1.3.0` |
+| `package.json.build.buildVersion` | `1.3.0.0` |
+| `AppxManifest.xml` ใน repository | `1.3.0.0` |
+| `src/services/updateService.js` | อ่าน version/buildVersion จาก package.json |
+| `src/components/Guide/guideContent.js` | `GUIDE_VERSION = '1.3.0.0'` |
 
----
+electron-builder 26.15.3 สร้าง manifest จาก template ของตัวเอง เพราะ config ไม่ได้กำหนด `customManifestPath` และไม่ได้เปิด `setBuildNumber` ดังนั้นเลข Appx มาจาก `package.json.version` ผ่าน `getVersionInWeirdWindowsForm(false)` ได้ `1.3.0.0` ไม่ได้ใช้ root `AppxManifest.xml` เป็นแหล่งเดียว ส่วน `buildVersion` ใช้กับเลขเวอร์ชัน executable
 
-## 3. วิธีติดตั้ง รัน build และ test (เฉพาะคำสั่งที่รันแล้วผ่านจริง)
+ไม่พบ `1.2.1-test` หรือเลขเวอร์ชันที่ลงท้าย `-test` ใน tracked text ตอนตรวจขั้น A
 
-### ⚠️ หมายเหตุสำคัญเกี่ยวกับสคริปต์ทดสอบ (Test Scripts Limitation):
-จากการตรวจสอบด้วย `git ls-files` และ `.gitignore` พบว่า **โฟลเดอร์ `scratch/` ถูกระบุไว้ใน `.gitignore` และไม่ได้ถูกจัดเก็บใน GitHub**
-- ดังนั้น สคริปต์ทดสอบตรรกะทั้งหมด (`scratch/test_*.mjs`, `scratch/verify_*.py`) **จึงมีอยู่เฉพาะบนเครื่องเดิมนี้เท่านั้น**
-- หากโคลนโปรเจกต์จาก GitHub ไปยังเครื่องใหม่ **จะไม่พบโฟลเดอร์ `scratch/` และจะไม่สามารถรันคำสั่งทดสอบเหล่านี้เพื่อยืนยันผลซ้ำบนเครื่องใหม่ได้โดยตรง** จนกว่าผู้พัฒนาจะทำการคัดลอกโฟลเดอร์ `scratch/` ไปด้วยตนเอง หรือย้ายสคริปต์ทดสอบเข้ามาผูกใน `scripts` ของ `package.json`
+| Dependency | เวอร์ชันที่ lock ไว้ |
+| --- | --- |
+| electron | 44.2.0 |
+| electron-builder | 26.15.3 |
+| react / react-dom | 18.3.1 |
+| vite | 6.4.3 |
+| @vitejs/plugin-react | 4.7.0 |
+| idb | 8.0.3 |
+| pdfjs-dist | 4.10.38 |
+| jspdf | 4.2.1 |
+| pdf-lib | 1.17.1 |
+| lucide-react | 1.41.0 |
+| canvas-confetti | 1.9.4 |
 
-### ข้อกำหนดเบื้องต้นของระบบ:
-- ระบบปฏิบัติการ: Windows 10 หรือ Windows 11 (64-bit)
-- สภาพแวดล้อม: Node.js v18.0.0 ขึ้นไป และ npm
+สไตล์ใช้ Vanilla CSS; เวอร์ชันในตารางอ่านจาก lockfile ไม่ใช่ lower bound ของช่วง semver ใน package.json
 
-### คำสั่งที่ผ่านการทดสอบจริงแล้ว 100%:
+## 3. ติดตั้ง Build Test และแพ็ก Appx
 
-```bash
-# 1. ติดตั้ง Dependencies (ทำงานได้ทั้งเครื่องเดิมและเครื่องใหม่)
-npm install
+รอบตรวจนี้ใช้ Windows, Node.js **v24.21.0**, npm **11.19.0** ใช้ `npm ci` เท่านั้น ไม่แก้ lockfile และไม่รัน `npm install` หรือ `npm audit fix`
 
-# 2. บิลด์โปรเจกต์สำหรับ Production (ทำงานได้ทั้งเครื่องเดิมและเครื่องใหม่ - ผ่านใน ~16.26 วินาที)
+```powershell
+$env:NODE_DISABLE_COMPILE_CACHE = '1'
+$env:CORE_JS_SILENT = '1'
+$env:ADBLOCK = '1'
+npm ci
 npm run build
 ```
 
-### คำสั่งทดสอบเฉพาะบนเครื่องเดิมที่มีโฟลเดอร์ scratch/:
-```bash
-# 3. รันการทดสอบตรรกะระบบแท็บเอกสาร (ผ่าน 8/8 การทดสอบ)
-node scratch/test_tab_system_logic.mjs
+ผลบน `main`: npm ci exit 0; build exit 0 ใช้ 28.76 วินาที ผลละเอียดในหัวข้อ 18
 
-# 4. รันการทดสอบความถูกต้องของการสำรองข้อมูลและการย้ายเครื่อง (ผ่าน 23/23 การทดสอบ)
-node scratch/test_device_migration_and_sync.mjs
+ชุด unit tests ปัจจุบันอยู่ใน `tests/` และเก็บใน Git รันโดยสร้าง QA directory แยกใหม่ ไม่ใช้โฟลเดอร์โน้ตหรือ Drive จริง:
 
-# 5. ตรวจสอบความสอดคล้องของคลังแปลภาษาทั้ง 4 ภาษา (ผ่าน 100% ครบ 674 keys)
-python scratch/verify_all_dicts.py
-
-# 6. ตรวจสอบความถูกต้องของการปรับปรุงระบบธีมและข้อความอัปเดต (ผ่าน 100%)
-node scratch/test_theme_and_updates.mjs
-
-# 7. ตรวจสอบฟิกซ์ความปลอดภัยและการทำงานของระบบซิงค์ (ผ่าน 74/74 การทดสอบ)
-node scratch/test_round2_fixes.mjs
-
-# 8. ตรวจสอบความสมบูรณ์ของ Production Dist Bundle (ผ่าน 100%)
-node scratch/verify_dist_bundle.cjs
+```powershell
+$env:NODE_DISABLE_COMPILE_CACHE = '1'
+New-Item -ItemType Directory -Force -Path scratch | Out-Null
+$env:BETTERNOTE_QA_TEMP = (node -e "const fs=require('fs'),path=require('path');console.log(fs.mkdtempSync(path.resolve('scratch/isolated-qa-')))")
+$testFiles = @(Get-ChildItem -LiteralPath tests -File |
+    Where-Object { $_.Name -match '\.test\.(js|cjs)$' } |
+    ForEach-Object { $_.FullName })
+node --test @testFiles
 ```
 
-### คำสั่งสำหรับรันแอปพลิเคชัน:
-- `npm run dev`: เริ่ม Vite Development Server สำหรับทดสอบบนเบราว์เซอร์
-- `npm run app`: เปิดแอปพลิเคชันเดสก์ท็อป Electron บนเครื่อง
-- `npm run pack`: แพ็กเกจแอปพลิเคชันลงโฟลเดอร์ `release/win-unpacked` โดยไม่ต้องทำตัวติดตั้ง
+สร้าง `scratch/` ก่อนหากยังไม่มี ชุดทดสอบใช้ข้อมูลจำลองและ fixture ใน directory นี้ ไม่ต้องเปิด Electron app ผลตรวจ 36 ไฟล์: **449 ผ่าน, 0 fail/cancelled/skipped**
 
----
+สคริปต์เก่า 6 ไฟล์ที่ HANDOFF รุ่นก่อนอ้างถึง ได้แก่ `scratch/test_tab_system_logic.mjs`, `scratch/test_device_migration_and_sync.mjs`, `scratch/verify_all_dicts.py`, `scratch/test_theme_and_updates.mjs`, `scratch/test_round2_fixes.mjs`, `scratch/verify_dist_bundle.cjs` ไม่มีอยู่ในรอบตรวจนี้ จึงไม่ได้รันและไม่ได้เขียนสคริปต์ทดแทน
 
-## 4. โครงสร้างโฟลเดอร์ และหน้าที่ของแต่ละส่วน
+### คำสั่งแพ็กเฉพาะ Appx x64 ที่ตรวจ config แล้ว (ขั้น C)
 
-```text
-BetterNote/
-├── .agents/
-│   └── skills/                         # คลังทักษะและคู่มือสถาปัตยกรรมสำหรับตัวแทน AI
-│       ├── pc-pen-notebook-dev/        # คู่มือการพัฒนาแอปปากกา Stylus, Canvas 2D, Palm Rejection
-│       └── app-performance-optimization/ # คู่มือป้องกัน UI Thread Freeze และการจัดการ Memory
-├── electron/
-│   ├── main.cjs                        # Electron Main Process: IPC Handlers, ฮาร์ดแวร์สวิตช์, ไดรฟ์สำรอง, Window Lifecycle
-│   └── preload.cjs                     # Context Bridge: เปิดเผย window.electronAPI สู่ Renderer อย่างปลอดภัย
-├── src/
-│   ├── components/
-│   │   ├── Common/                     # คอมโพเนนต์ส่วนกลาง
-│   │   │   ├── DocumentTabBar.jsx      # แถบแท็บด้านบน (สูงสุด 5 แท็บ, LRU eviction, จดจำหน้า)
-│   │   │   ├── GoogleDriveModal.jsx    # หน้าต่างจัดการเชื่อมต่อและสถานะซิงค์ Google Drive
-│   │   │   ├── Navbar.jsx              # แถบนำทางด้านบนของหน้า Library
-│   │   │   ├── UpdateNotificationModal.jsx # หน้าต่างแจ้งเตือนอัปเดตรุ่นใหม่ของ Microsoft Store
-│   │   │   ├── ExportModal.jsx         # หน้าต่างส่งออกเอกสารเป็น PDF / .bnote
-│   │   │   └── PageSelectorModal.jsx   # หน้าต่างเลือกกระดาษและเทมเพลตสำหรับเพิ่มหน้าใหม่
-│   │   ├── Editor/                     # คอมโพเนนต์หน้าแก้ไขโน้ตและแคนวาส
-│   │   │   ├── CanvasBoard.jsx         # หัวใจของแคนวาส 3 ชั้น, จัดการ Pointer Events และการวาด
-│   │   │   ├── NoteEditor.jsx          # ตัวจัดการ State ของหน้าจดโน้ต, ซูม, ท่าทางสัมผัส, Undo/Redo
-│   │   │   ├── EditorToolbar.jsx       # แถบเครื่องมือปากกา, ไฮไลท์, ยางลบ, สี, และความหนา
-│   │   │   ├── ThumbnailSidebar.jsx    # แถบด้านข้างแสดงภาพตัวอย่างของแต่ละหน้า
-│   │   │   ├── ShapePickerModal.jsx    # หน้าต่างเลือกรูปทรงเรขาคณิต
-│   │   │   ├── SnipModal.jsx           # หน้าต่างเครื่องมือตัดแปะภาพสติกเกอร์
-│   │   │   └── TextToolOverlay.jsx     # กล่องข้อความพิมพ์บนหน้ากระดาษ
-│   │   └── Library/                    # คอมโพเนนต์หน้าคลังเอกสาร
-│   │       ├── LibraryView.jsx         # หน้ารายการโฟลเดอร์และสมุดโน้ต, การจัดเรียง, ถังขยะ
-│   │       ├── StudioSidebar.jsx       # แถบเมนูด้านข้างคลังเอกสาร (เอกสารทั้งหมด, รายการโปรด)
-│   │       ├── NotebookCard.jsx        # การ์ดแสดงสมุดโน้ตแบบ 3 มิติ
-│   │       ├── FolderCard.jsx          # การ์ดแสดงโฟลเดอร์
-│   │       ├── SettingsModal.jsx       # หน้าต่างตั้งค่า: แท็บ "ธีมและภาษา" และการสำรองข้อมูล
-│   │       └── BackupStatusModal.jsx   # หน้าต่างแสดงประวัติและสถานะไฟล์สำรองทั้งหมด
-│   ├── config/
-│   │   └── googleConfig.js             # การตั้งค่า Google OAuth Client ID (ปัจจุบันเป็นค่าว่างสำหรับ desktop mount)
-│   ├── data/
-│   │   ├── covers.js                   # ชุดสไตล์และสีหน้าปกสมุดโน้ต
-│   │   └── templates.js                # ขนาดกระดาษ (A4, A3, A2) และเทมเพลตเส้นกระดาษ
-│   ├── services/
-│   │   ├── db.js                       # จัดการ IndexedDB 'BetterNoteDB' v1 ทั้งหมด (CRUD โฟลเดอร์, สมุด, หน้า, การตั้งค่า)
-│   │   ├── autoBackupService.js        # แบ็กกราวด์เซอร์วิสสำรองข้อมูลอัตโนมัติแบบ non-blocking
-│   │   ├── fileSystemService.js        # นำเข้า/ส่งออกไฟล์ `.bnote` และไฟล์กู้คืนระบบ `BetterNote_Latest_Backup.json`
-│   │   ├── i18n.js                     # เครื่องมือแปลภาษา 4 ภาษา (EN, TH, ZH, RU) 674 keys
-│   │   ├── updateService.js            # ตรวจสอบการอัปเดตเวอร์ชันใหม่จาก GitHub Releases
-│   │   ├── userPreferences.js          # จัดการธีม (Light/Dark), การตั้งค่าปากกาเริ่มต้น
-│   │   └── appCacheService.js          # LRU Cache ในหน่วยความจำเพื่อความเร็วในการแสดงผล
-│   ├── utils/
-│   │   ├── inkingEngine.js             # อัลกอริทึมเส้นโค้ง Quadratic Bézier, Tapering, Scribble-to-Erase
-│   │   ├── pdfExportEngine.js          # เครื่องมือเรนเดอร์แคนวาสเป็นเอกสาร PDF หลายหน้า
-│   │   └── shapeRecognition.js         # อัลกอริทึมจำแนกรูปทรงเรขาคณิต (QuickShape)
-│   ├── App.jsx                         # คอมโพเนนต์หลัก จัดการ Routing, Multi-Document Tabs และ Modals
-│   ├── main.jsx                        # จุดเริ่มต้น React DOM Entrypoint
-│   └── index.css                       # ดีไซน์ซิสเต็มและสไตล์ชีท Vanilla CSS
-├── dist/                               # ผลลัพธ์จากการบิลด์ (อยู่ใน .gitignore ไม่ได้เก็บใน GitHub)
-├── release/                            # ไฟล์บิลด์ติดตั้ง .appx, .exe, .zip (อยู่ใน .gitignore ไม่ได้เก็บใน GitHub)
-└── scratch/                            # สคริปต์ทดสอบและตรวจระบบ (อยู่ใน .gitignore อยู่เฉพาะเครื่องเดิม)
+```powershell
+npm ci
+npm run build
+npm run dist -- --win appx --x64 --publish never --config.directories.output=release/store-1.3.0.0-main --config.artifactName=BetterNotePC-1.3.0.0-x64.appx
 ```
 
----
-
-## 5. ระบบหลักของแอปพลิเคชัน
-
-### 5.1 ระบบวาดลายมือ (Inking Engine)
-- **ไฟล์เกี่ยวข้อง**: `src/utils/inkingEngine.js`, `src/components/Editor/CanvasBoard.jsx`
-- **สถาปัตยกรรม Canvas 3 ชั้น (Decoupled Canvas)**:
-  - *Layer 1 (Background)*: วาดพื้นหลังกระดาษ เส้นตาราง และรูปภาพหน้า PDF
-  - *Layer 2 (Static Committed Ink)*: เก็บเส้นปากกาที่วาดเสร็จแล้ว, กล่องข้อความ และรูปภาพที่วาง จะวาดใหม่เฉพาะเมื่อมีการแก้ไข ลบ หรือขยับวัตถุ
-  - *Layer 3 (Active In-Flight Stroke)*: แคนวาสโปร่งใสด้านบนสุด เรนเดอร์เฉพาะเส้นที่หัวปากกากำลังลากอยู่ ณ ปัจจุบันด้วยความเร็ว 60-120 FPS เมื่อยกปากกา (`pointerup`) เส้นจะถูกคอมมิตลง Layer 2 ทันที
-- **อัลกอริทึมเส้นปากกา**:
-  - ใช้ Quadratic Bézier Curve ผ่านจุดกึ่งกลาง (Midpoint Interpolation) เพื่อให้เส้นโค้งเรียบเนียน ไม่หักเป็นเหลี่ยม
-  - คำนวณความหนาเส้นตามแรงกด (`pressure`) และความเร็ว มีการทำหัวท้ายเรียวคม (`calculateTaper`)
-  - รองรับหัวปากกา 3 ชนิด (`fountain`, `ballpoint`, `brush`) และปากกาไฮไลท์ที่ใช้การเบลนด์แบบ `multiply` ทำให้ตัวหนังสือข้างใต้ไม่ถูกกลบ
-- **Scribble-to-Erase (ขยี้ลบ)**:
-  - ฟังก์ชัน `detectScribble` ใน `src/utils/inkingEngine.js` จะตรวจจับการตวัดปากกากลับไปกลับมา (Reversals ในแกน X หรือ Y อย่างน้อย 2-3 ครั้ง) ภายในพื้นที่หนาแน่น
-  - รองรับการขีดฆ่ายาวสูงสุด 1,600px
-  - มีตัวป้องกันความปลอดภัย (`classifyGeometricShape`): หากผู้ใช้ตั้งใจวาดรูปทรงเรขาคณิตแบบปิด เช่น วงกลม สี่เหลี่ยม สามเหลี่ยม ระบบจะไม่ตีความเป็นท่าทางขยี้ลบ
-
-### 5.2 หน้ากระดาษ (Pages & Templates)
-- **ไฟล์เกี่ยวข้อง**: `src/data/templates.js`, `src/components/Editor/NoteEditor.jsx`
-- รองรับขนาดกระดาษ A4 (1200x1697), A3 (1697x2400), และ A2 (2400x3394)
-- เทมเพลตกระดาษถูกวาดแบบ Vector บน Background Canvas ตามระยะห่างพิกเซล (`spacing`)
-- **Viewport Virtualization**: ในโหมดเลื่อนแนวตั้ง (Vertical Scroll) ระบบใน `src/components/Editor/NoteEditor.jsx` จะ Mount แคนวาสจริงเฉพาะหน้าที่อยู่ในระยะสายตา ($\pm 2$ หน้าจากหน้าปัจจุบัน) ส่วนหน้าที่อยู่นอกระยะจะแสดงเป็น Placeholder เปล่าที่มีขนาดกว้างคูณสูงเท่าเดิม เพื่อป้องกันไม่ให้ GPU Memory (VRAM) เต็มเกิน 4GB ซึ่งอาจทำให้โปรแกรมค้าง
-
-### 5.3 ระบบ Undo / Redo
-- **ไฟล์เกี่ยวข้อง**: `src/components/Editor/NoteEditor.jsx`
-- ใช้สแตก `undoStack` และ `redoStack` จัดเก็บ Snapshot ของเส้น (`strokes`), รูปวาด (`drawings`), และข้อความ (`textElements`) ของหน้าปัจจุบัน
-- ทำงานผ่าน: ปุ่มบน Toolbar, คีย์ลัดแป้นพิมพ์ (`Ctrl + Z` และ `Ctrl + Y`), และท่าทางแตะสองนิ้วสองครั้ง (Two-Finger Double Tap Undo)
-
-### 5.4 ระบบซูมและเลื่อน (Zoom & Pan)
-- **ไฟล์เกี่ยวข้อง**: `src/components/Editor/NoteEditor.jsx`
-- **ช่วงการซูมจริงในโค้ด**: **35% ถึง 350%** (ค่าสเกล `0.35` ถึง `3.5`)
-- คำนวณจุดตรึงสายตา (Focal Point Anchoring) ขณะซูม เพื่อให้ตำแหน่งที่นิ้วแตะหรือเมาส์ชี้อยู่คงที่เดิม
-- รองรับการซูมผ่าน Touchscreen (Pinch-to-zoom), Trackpad (`Ctrl + Wheel`), และปุ่มบนหน้าจอ
-- **Screen Lock Palm Rejection**: ป้องกันไม่ให้สันมือที่วางบนหน้าจอทำให้หน้ากระดาษเลื่อนหลุดตำแหน่ง โดยมีกรอบเวลารักษาความปลอดภัย 1,200ms หลังยกปากกา
-
-### 5.5 ระบบแท็บเอกสารหลายหน้า (Multi-Document Top Tab Bar)
-- **ไฟล์เกี่ยวข้อง**: `src/components/Common/DocumentTabBar.jsx`, `src/App.jsx`
-- จำกัดจำนวนแท็บที่เปิดพร้อมกันได้สูงสุด **5 แท็บ**
-- **LRU Automatic Eviction**: หากเปิดเอกสารที่ 6 ระบบจะปิดแท็บที่ไม่ได้ใช้งานนานที่สุดออกโดยอัตโนมัติ
-- **Exact Page Retention**: จดจำหน้าที่เปิดค้างไว้ล่าสุดของแต่ละแท็บ เมื่อกดสลับแท็บจะกลับไปยังหน้านั้นทันที
-- บันทึกสถานะแท็บลง `localStorage` (`betternote_open_tabs` และ `betternote_notebook_page_cache`)
-
----
-
-## 6. การจัดเก็บข้อมูล สคีมา IndexedDB รูปแบบไฟล์ และวิธีกู้คืน
-
-### 6.1 สคีมาของ IndexedDB ใน `src/services/db.js`
-- **ชื่อฐานข้อมูล**: `'BetterNoteDB'`
-- **เวอร์ชัน**: `1`
-- **Object Stores ทั้งหมด 4 ตาราง**:
-
-1. **`folders`** (ที่เก็บโฟลเดอร์):
-   - `keyPath`: `'id'`
-   - Index: `'parentId'` (unique: false)
-   - ฟิลด์ข้อมูล:
-     ```javascript
-     {
-       id: "folder-xxx",
-       name: "ชื่อโฟลเดอร์",
-       parentId: null,        // หรือ id ของโฟลเดอร์แม่
-       color: "#06b6d4",
-       icon: "book",
-       createdAt: 1728000000000,
-       isDeleted: false       // true เมื่ออยู่ในถังขยะ
-     }
-     ```
-
-2. **`notebooks`** (ที่เก็บข้อมูลเมทาดาทาของสมุดโน้ต):
-   - `keyPath`: `'id'`
-   - Indexes: `'folderId'` (unique: false), `'updatedAt'` (unique: false)
-   - ฟิลด์ข้อมูล:
-     ```javascript
-     {
-       id: "nb-xxx",
-       name: "ชื่อสมุดโน้ต",
-       folderId: "folder-xxx", // หรือ null หากอยู่หน้าแรก
-       coverId: "deep-ocean",
-       templateId: "ruled",
-       paperSize: "A4",
-       createdAt: 1728000000000,
-       updatedAt: 1728000000000,
-       pageCount: 5,
-       isPdf: false,
-       isFavorite: false,
-       isDeleted: false,
-       lastOpenedPageIndex: 0
-     }
-     ```
-
-3. **`pages`** (ที่เก็บเนื้อหาของแต่ละหน้ากระดาษ):
-   - `keyPath`: `'id'`
-   - Indexes:
-     - `'notebookId'` (unique: false)
-     - `'notebookPage'` เป็น Compound Index: `['notebookId', 'pageIndex']` (unique: true)
-   - ฟิลด์ข้อมูล:
-     ```javascript
-     {
-       id: "nb-xxx_page_0",
-       notebookId: "nb-xxx",
-       pageIndex: 0,
-       templateId: "ruled",
-       paperColor: "#ffffff",
-       strokes: [
-         {
-           tool: "pen",                // 'pen' | 'highlighter' | 'eraser'
-           nibType: "fountain",         // 'fountain' | 'ballpoint' | 'brush'
-           color: "#2563eb",
-           width: 3,
-           points: [ { x: 120, y: 150, pressure: 0.65, time: 1728000000 } ],
-           isTapered: true,
-           usePressure: true
-         }
-       ],
-       textElements: [
-         { id: "txt-1", x: 100, y: 200, text: "ข้อความ", fontSize: 18, fontFamily: "Inter", color: "#000", bold: false }
-       ],
-       images: [
-         { id: "img-1", x: 150, y: 300, width: 400, height: 300, dataUrl: "data:image/png;base64,..." }
-       ],
-       drawings: [],                   // สำหรับรูปทรง QuickShape
-       pdfPageImage: null,             // ภาพพื้นหลังของหน้า PDF (สำหรับหน้าของเอกสาร PDF)
-       thumbnailUrl: null,
-       isFavorite: false,
-       updatedAt: 1728000000000
-     }
-     ```
-
-4. **`settings`** (ที่เก็บการตั้งค่าและแคชระบบ):
-   - `keyPath`: `'key'`
-   - ฟิลด์ข้อมูล: `{ key: "gdrive_connected", value: true }`
-
----
-
-### 6.2 รูปแบบไฟล์ `.bnote`
-ไฟล์ `.bnote` คือไฟล์ JSON ของสมุดโน้ตเดี่ยว มีโครงสร้างมาตรฐานดังนี้:
-```json
-{
-  "format": "BetterNote_Document",
-  "version": 1,
-  "exportDate": "2026-10-05T11:00:00.000Z",
-  "notebook": {
-    "id": "nb-1728000000",
-    "name": "Soil Mechanics",
-    "folderId": null,
-    "coverId": "deep-ocean",
-    "templateId": "ruled",
-    "paperSize": "A4",
-    "pageCount": 3,
-    "createdAt": 1728000000000,
-    "updatedAt": 1728000000000
-  },
-  "pages": [
-    {
-      "id": "page-1",
-      "notebookId": "nb-1728000000",
-      "pageIndex": 0,
-      "templateId": "ruled",
-      "strokes": [ ... ],
-      "textElements": [ ... ],
-      "images": [ ... ]
-    }
-  ]
-}
-```
-
----
-
-### 6.3 รูปแบบไฟล์ `BetterNote_Latest_Backup.json`
-ไฟล์กู้คืนทั้งระบบ (Full System Backup) มีโครงสร้างดังนี้:
-```json
-{
-  "version": 1,
-  "appName": "BetterNote",
-  "exportDate": "2026-10-05T11:00:00.000Z",
-  "folders": [
-    { "id": "folder-1", "name": "วิชาเรียน", "parentId": null, "color": "#06b6d4", "icon": "book" }
-  ],
-  "notebooks": [
-    {
-      "id": "nb-1",
-      "name": "Lecture 1",
-      "folderId": "folder-1",
-      "pageCount": 2,
-      "pages": [
-        { "id": "p-1", "notebookId": "nb-1", "pageIndex": 0, "strokes": [ ... ] }
-      ]
-    }
-  ]
-}
-```
-*หมายเหตุสำคัญ*: ใน `electron/main.cjs` ฟังก์ชัน `writeBackupData` มีการเรียก `sanitizeNotebookForJson` เพื่อตัดฟิลด์ `pdfBase64` ขนาดใหญ่ออกก่อนเขียนลง JSON เพื่อป้องกันไม่ให้ไฟล์สำรองบวมเกินความจำเป็น
-
----
-
-### 6.4 วิธีกู้คืนจากไฟล์สำรอง (อย่างละเอียดที่สุด)
-
-#### กรณีที่ 1: กู้คืนทั้งระบบจาก `BetterNote_Latest_Backup.json`
-1. **ผ่าน UI หน้าแอป**:
-   - ไปที่แถบการตั้งค่า (Settings Modal) หรือหน้าต่าง Google Drive Modal
-   - กดปุ่ม **"Restore Full Backup" (กู้คืนข้อมูลทั้งหมด)** แล้วเลือกไฟล์ `BetterNote_Latest_Backup.json`
-2. **การทำงานภายในโค้ด (`src/services/fileSystemService.js` ฟังก์ชัน `restoreFullBackup`)**:
-   - ตรวจสอบความถูกต้องของอ็อบเจกต์ หากไม่มีฟิลด์ `notebooks` จะปฏิเสธทันที
-   - วนลูปอ่านอาร์เรย์ `data.folders`: บันทึกแต่ละโฟลเดอร์ลงใน Object Store `folders` ผ่าน `saveFolder(f)`
-   - วนลูปอ่านอาร์เรย์ `data.notebooks`:
-     - ดึง `pages` ออกมา แล้วบันทึกเมทาดาทาของสมุดลงใน Object Store `notebooks` ผ่าน `saveNotebook(notebookMeta)`
-     - วนลูปบันทึกแต่ละหน้าลงใน Object Store `pages` ผ่าน `savePage(p)`
-     - หากสมุดเล่มใดไม่มีหน้าแนบมา จะสร้างหน้าเปล่าเริ่มต้น (`pageIndex: 0`) ให้อัตโนมัติ เพื่อป้องกันสมุดว่างที่เปิดไม่ได้
-   - อัปเดต State บนหน้าจอ และคืนค่าจำนวนโฟลเดอร์และสมุดที่กู้คืนสำเร็จ
-
-#### กรณีที่ 2: นำเข้าสมุดโน้ตเดี่ยวจากไฟล์ `.bnote`
-1. **ผ่าน UI หน้าแอป**:
-   - อยู่ที่หน้า Library View กดปุ่ม **"นำเข้า .bnote" (Import .bnote)** หรือลากไฟล์มาวาง
-2. **การทำงานภายในโค้ด (`src/services/fileSystemService.js` ฟังก์ชัน `importBnoteFile`)**:
-   - อ่านเนื้อหาไฟล์ JSON และตรวจสอบโครงสร้าง (รองรับทั้งฟอร์แมต `BetterNote_Document` และแบบดั้งเดิม)
-   - **การป้องกันการชนกันของ ID**: ระบบจะสุ่ม ID ใหม่เสมอ (`const newNotebookId = 'nb-' + Date.now() + '-' + Math.random().toString(36)...`) เพื่อไม่ให้ทับกับสมุดโน้ตเดิมที่มีอยู่ในเครื่อง
-   - ทำความสะอาดชื่อไฟล์ กำหนดโฟลเดอร์ปลายทาง แล้วบันทึกสมุดลง `notebooks`
-   - วนลูปบันทึกแต่ละหน้าลง `pages` โดยผูก `notebookId` เข้ากับ ID ใหม่ และสร้าง ID ประจำหน้าใหม่ (`page-${newNotebookId}-${i + 1}`)
-
----
-
-## 7. ระบบสำรองข้อมูลอัตโนมัติและการเชื่อม Google Drive
-
-### 7.1 สิ่งที่ถูกสำรอง และโครงสร้างโฟลเดอร์สำรอง
-ทุกครั้งที่ระบบทำการสำรองข้อมูล จะสร้างโครงสร้าง 3 โฟลเดอร์ย่อยในโฟลเดอร์เป้าหมายเสมอ:
-1. `Editable_Notes/*.bnote`: ไฟล์สมุดโน้ตในรูปแบบเวกเตอร์ สามารถเปิดแก้ไขต่อได้
-2. `PDF_Documents/*.pdf`: ไฟล์เอกสาร PDF ที่ถูกเรนเดอร์ครบทุกหน้าสำหรับเปิดอ่านหรือส่งพิมพ์
-3. `Full_System/BetterNote_Latest_Backup.json`: ไฟล์รวมฐานข้อมูลทั้งหมดสำหรับกู้คืนในคลิกเดียว
-
-### 7.2 ตำแหน่งที่จัดเก็บ และการตรวจหาโฟลเดอร์
-ใน `electron/main.cjs` ฟังก์ชัน `getAllBackupTargets` จะค้นหาตามลำดับความสำคัญดังนี้:
-1. **Custom Backup Path**: โฟลเดอร์ที่ผู้ใช้เลือกเองผ่านหน้าจอตั้งค่า (บันทึกลง setting `local_backup_path`)
-2. **Google Drive Desktop Candidates**: ตรวจหาไดรฟ์เสมือนของโปรแกรม Google Drive for Desktop ตามลำดับ:
-   - `H:\My Drive\BetterNote.AppPC`
-   - `G:\My Drive\BetterNote.AppPC`
-   - `I:\My Drive\BetterNote.AppPC`
-   - `D:\My Drive\BetterNote.AppPC`
-   *(จะหยุดที่ไดรฟ์แรกที่พบ เพื่อป้องกันปัญหาการเขียนไฟล์ซ้ำซ้อนข้ามหลายไดรฟ์เครือข่าย)*
-3. **โฟลเดอร์ Documents สำรอง**: หากไม่พบไดรฟ์ Google Drive จะสำรองลง `%USERPROFILE%\Documents\BetterNote.AppPC`
-4. **โฟลเดอร์โลคอลของโปรแกรม**: โฟลเดอร์ `BetterNote_Backups/` ภายในไดเรกทอรีของแอป จะถูกรวมเป็นเป้าหมายสำรองออฟไลน์เสมอ
-
-### 7.3 มี Path ที่ฝังตายตัวในโค้ดหรือไม่?
-- **มี Candidate Paths ในโค้ดจริง**:
-  - `electron/main.cjs` บรรทัดที่ 30-35 มีอาเรย์ `gDriveCandidates` ที่ระบุ `H:\`, `G:\`, `I:\`, `D:\`
-  - `src/App.jsx` บรรทัดที่ 130 มีค่าตั้งต้น `driveEmail = 'G:\\My Drive'`
-  - `src/components/Common/GoogleDriveModal.jsx` มี fallback display string `'G:\\My Drive\\BetterNote.AppPC'`
-  - `src/components/Common/Navbar.jsx` และ `src/services/i18n.js` มีข้อความ tooltip อ้างอิง `H:\My Drive\BetterNote.AppPC`
-- **แต่ระบบไม่ได้ล็อกตายตัว**: ผู้ใช้สามารถกดปุ่ม "เปลี่ยนโฟลเดอร์" ในหน้าตั้งค่าหรือหน้าต่าง Google Drive เพื่อเลือกโฟลเดอร์อื่นใดก็ได้ในเครื่องผ่าน Native Folder Picker (`dialog.showOpenDialog`)
-
----
-
-## 8. ระบบแปลภาษา 674 Keys
-
-- **ไฟล์หลัก**: `src/services/i18n.js` (ความยาว 2,982 บรรทัด)
-- **ภาษาที่รองรับ**:
-  - `en`: English (ภาษาเริ่มต้น / Default)
-  - `th`: ภาษาไทย
-  - `zh`: 简体中文 (Simplified Chinese)
-  - `ru`: Русский (Russian)
-- **จำนวนคีย์**: ปัจจุบันมีทั้งหมด **674 คีย์** ครบถ้วนเท่ากันทุกภาษา (100% 4-Way Parity)
-
-### วิธีเพิ่ม Key ใหม่อย่างถูกต้อง:
-1. เปิดไฟล์ `src/services/i18n.js`
-2. เพิ่ม Key ใหม่ลงในอ็อบเจกต์ทั้ง 4 ภาษา:
-   - `TRANSLATIONS.en`
-   - `TRANSLATIONS.th`
-   - `TRANSLATIONS.zh`
-   - `TRANSLATIONS.ru`
-3. รันคำสั่งตรวจสอบ:
-   ```bash
-   python scratch/verify_all_dicts.py
-   ```
-   *(หมายเหตุ: ต้องมีโฟลเดอร์ `scratch/` บนเครื่อง)*
-4. เรียกใช้งานใน React Component:
-   ```javascript
-   import { useLanguage } from '../../services/i18n';
-
-   const { t } = useLanguage();
-   // ใช้งานแบบข้อความธรรมดา
-   const label = t('myNewKey', 'Fallback English Text');
-   // ใช้งานแบบมีพารามิเตอร์แทนที่ {name}
-   const message = t('welcomeUser', 'Hello {name}!', { name: 'John' });
-   ```
-
----
-
-## 9. สถานะฟีเจอร์: เสร็จแล้ว / ทำค้าง / ยังไม่เริ่ม
-
-### ✅ ฟีเจอร์ที่เสร็จสมบูรณ์แล้ว
-- ระบบวาดลายมือ 120Hz พร้อมหัวปากกา 3 ชนิดและไฮไลท์: `src/utils/inkingEngine.js`, `src/components/Editor/CanvasBoard.jsx`
-- ระบบลบลายเส้นด้วยการขยี้ (Scribble-to-Erase) พร้อมตัวกันลบรูปทรง: `src/utils/inkingEngine.js`
-- ระบบจำแนกรูปทรงเรขาคณิตอัตโนมัติ (QuickShape): `src/utils/shapeRecognition.js`
-- การวางรูปภาพจากคลิปบอร์ดและการตัดแปะสติกเกอร์ (Snip): `src/components/Editor/CanvasBoard.jsx`, `src/components/Editor/SnipModal.jsx`
-- แถบแท็บเอกสารด้านบน (สูงสุด 5 แท็บ, LRU eviction, จดจำหน้า): `src/components/Common/DocumentTabBar.jsx`, `src/App.jsx`
-- การนำเข้า ขีดเขียน และส่งออกไฟล์ PDF: `src/utils/pdfExportEngine.js`, `src/components/Editor/NoteEditor.jsx`
-- ระบบป้องกันสันมือและการล็อกหน้าจอสัมผัส (Palm Rejection Screen Lock): `src/components/Editor/NoteEditor.jsx`
-- ระบบแปลภาษา 4 ภาษา 674 คีย์: `src/services/i18n.js`
-- การตั้งค่าแท็บ "Theme & Language" (ธีม และ ภาษา): `src/components/Library/SettingsModal.jsx`
-- ระบบสำรองข้อมูลเบื้องหลังแบบ Non-blocking (JSON, .bnote, PDF): `src/services/autoBackupService.js`, `electron/main.cjs`
-- การลบสมุดโน้ตแบบปลอดภัยและลบไฟล์ออกจากโฟลเดอร์สำรองทันที: `electron/main.cjs`
-- ระบบแจ้งเตือนอัปเดตเวอร์ชันใหม่ของ Microsoft Store ภายในแอป: `src/services/updateService.js`, `src/components/Common/UpdateNotificationModal.jsx`
-- การแพ็กเกจ Microsoft Store AppX และ NSIS Installer: `package.json`
-
-### ⏳ ฟีเจอร์ที่ทำค้าง / อยู่ในระดับเตรียมพร้อม
-- **Google OAuth API Direct Sync**: ใน `src/config/googleConfig.js` ฟิลด์ `DEFAULT_GOOGLE_CLIENT_ID` ยังเป็นค่าว่าง ปัจจุบันการซิงค์คลาวด์พึ่งพาการซิงค์ผ่านไดรฟ์ของโปรแกรม Google Drive for Desktop ในเครื่อง ไม่ได้ยิง REST API เข้า Google Cloud โดยตรง
-- **Web Browser Standalone Mode**: เมื่อเปิดผ่านเบราว์เซอร์ธรรมดา (ไม่ใช่ Electron) เซอร์วิส `src/services/autoBackupService.js` จะพยายามเรียก `/api/auto-backup` ซึ่งปัจจุบันยังไม่มีเว็บเซิร์ฟเวอร์รองรับ API นี้
-
-### ❌ ฟีเจอร์ที่ยังไม่เริ่ม
-- บัญชีผู้ใช้งานบนคลาวด์และระบบ Real-time Multi-user Collaboration
-- ระบบบันทึกเสียงบรรยายซิงค์กับลายมือ (Audio Recording Sync)
-- การแปลงลายมือเป็นตัวพิมพ์ด้วย AI / OCR (Handwriting-to-Text Recognition)
-
----
-
-## 10. บั๊กที่รู้ และ TODO / FIXME ที่พบในโค้ด
-
-### ผลตรวจ TODO / FIXME:
-- **ไม่พบคำว่า `TODO` หรือ `FIXME` ใดๆ** ในซอร์สโค้ด `src/` และ `electron/` (จำนวนที่พบ: 0 จุด)
-
-### บั๊กที่รู้และพฤติกรรมขอบเขตที่ต้องระวัง (Edge Cases):
-1. **Vite Dynamic Import Chunk Warning**:
-   - เมื่อรัน `npm run build` จะมีการแจ้งเตือนว่า `autoBackupService.js` และ `fileSystemService.js` ถูก import แบบ dynamic ในบางไฟล์ แต่ถูก import แบบ static ใน `App.jsx` ทำให้ Rollup ไม่สามารถแยกก้อนโค้ดเป็น Chunk อิสระได้ ส่งผลให้ขนาดไฟล์ `dist/assets/index-*.js` มีขนาดประมาณ 1.48 MB (มากกว่า 500 kB)
-2. **หน่วยความจำเมื่อเปิด PDF ขนาดใหญ่มาก**:
-   - หากผู้ใช้นำเข้าไฟล์ PDF ที่มีจำนวนหน้าเกิน 100-200 หน้า แม้ว่าระบบจะมี Viewport Virtualization ช่วยคลายภาระแคนวาส แต่การเก็บ Data URL ภาพต้นฉบับของหน้าทั้งหมดในหน่วยความจำอาจทำให้กิน RAM สูง
-3. **การชนกันของไดรฟ์เสมือน Google Drive**:
-   - หากในเครื่องของผู้ใช้มีทั้งไดรฟ์ G: และ H: ติดตั้งอยู่ โค้ดใน `electron/main.cjs` จะเลือกไดรฟ์แรกที่พบ หากผู้ใช้ต้องการให้บันทึกลงอีกไดรฟ์หนึ่ง จะต้องเข้าไปเลือกไดรฟ์ด้วยตนเองผ่านเมนูตั้งค่า
-
----
-
-## 11. การตัดสินใจสำคัญในการออกแบบ (Architectural Decisions) และเหตุผล
-
-1. **การแยกชั้นแคนวาส 3 ชั้น (3-Layer Decoupled Canvas Architecture)**:
-   - *เหตุผล*: หากรวมทุกอย่างไว้บนแคนวาสเดียว ทุกครั้งที่ลากปากกาจะต้องวาดเส้นเก่าทั้งหมดซ้ำ ทำให้เฟรมเรตร่วงทันทีเมื่อมีเส้นจำนวนมาก การแยกแคนวาสทำให้ Layer 3 วาดเฉพาะเส้นปัจจุบันได้ที่ 120 FPS
-2. **การคงแนวทาง Offline-First ไม่พึ่งพาเซิร์ฟเวอร์**:
-   - *เหตุผล*: ผู้ใช้สมุดโน้ตต้องการเปิดแอปแล้วเขียนได้ในเสี้ยววินาที ข้อมูลต้องเป็นส่วนตัว ปลอดภัย และใช้งานได้แม้อยู่บนเครื่องบินหรือไม่มีอินเทอร์เน็ต
-3. **การซิงค์ Google Drive ผ่าน Local Filesystem แทนที่จะใช้ REST API**:
-   - *เหตุผล*: การใช้ไดรฟ์เสมือนของ Google Drive for Desktop ทำให้ไม่ต้องจัดการ Refresh Token, OAuth Consent Screen ที่หมดอายุ, หรือปัญหาเชื่อมต่ออินเทอร์เน็ตสะดุด อีกทั้งยังทำให้ผู้ใช้มองเห็นไฟล์จริงบนคอมพิวเตอร์ของตนเองได้
-4. **การเลือกใช้ Pure Vanilla CSS โดยไม่มี Tailwind หรือ CSS-in-JS**:
-   - *เหตุผล*: ป้องกันภาระการประมวลผลสไตล์ชีทขณะรันไทม์ และลดเวลาการบิลด์ ให้ความเร็วในการตอบสนองสูงสุดบนหน้าจอสัมผัส
-5. **การจำกัดแท็บไว้ที่สูงสุด 5 แท็บพร้อมระบบ LRU Eviction**:
-   - *เหตุผล*: อุปกรณ์สัมผัส เช่น Microsoft Surface มีข้อจำกัดเรื่อง VRAM ของ GPU การเปิดสมุดหลายสิบเล่มพร้อมกันจะทำให้ Chromium GPU Process แคชล้นและแอปค้างได้
-
----
-
-## 12. ตัวแปรสภาพแวดล้อมที่ต้องใช้
-
-โปรเจกต์ BetterNote Pro Studio ถูกออกแบบมาให้ทำงานแบบ Standalone จึง**ไม่ต้องใช้ไฟล์ `.env` และไม่มีการดึง Secret ใดๆ**:
-- ตัวแปรของระบบ Windows ที่โค้ดเรียกอ่าน:
-  - `process.env.USERPROFILE`: อ่าน path โฟลเดอร์ผู้ใช้ Windows เพื่อหา `Documents/BetterNote.AppPC` เป็น Fallback สำหรับการสำรองข้อมูล
-
----
-
-## 13. จุดอันตราย: ส่วนที่แก้ผิดแล้วข้อมูลผู้ใช้อาจเสียหายหรือแอปพัง
-
-### ⚠️ `src/services/db.js`
-- **ห้ามเปลี่ยนชื่อฐานข้อมูล `'BetterNoteDB'` หรือเลขเวอร์ชันโดยไม่มี Migration Handler ใน `onupgradeneeded`**: หากเปลี่ยนโดยไม่ระวัง เบราว์เซอร์/Electron จะสร้างฐานข้อมูลใหม่ว่างเปล่า ทำให้โน้ตเดิมทั้งหมดของผู้ใช้หายไปจากหน้าจอ
-- **การลบสมุด (`deleteNotebook` / `batchDeleteNotebooks`)**: ต้องรันใน Transaction เดียวกันระหว่างตาราง `notebooks` และ `pages` เสมอ มิฉะนั้นจะมีหน้าตกค้างกลายเป็น Orphan Pages ที่กินพื้นที่ IndexedDB ตลอดไป
-
-### ⚠️ `src/services/autoBackupService.js`
-- **ห้ามเขียนทับไฟล์สำรองเมื่อข้อมูลว่างเปล่า**: หากแอปเพิ่งเปิดขึ้นมาและ IndexedDB ยังโหลดไม่เสร็จ (`notebooks.length === 0`) ห้ามสั่งเขียนทับไฟล์สำรองบน Google Drive เด็ดขาด เพราะจะทำให้ไฟล์สำรองที่มีอยู่เดิมถูกแทนที่ด้วยไฟล์เปล่า (ในโค้ดปัจจุบันมี Guard ป้องกันไว้ที่บรรทัด 78-82)
-- **ห้ามเอา Cooperative Yield (`setTimeout(resolve, 30)`) ออก**: การเรนเดอร์ PDF ต้องยอมสละเวลาให้ UI Thread เสมอ หากนำลูปนี้ออกเป็นแบบ Synchronous หน้าจอของ Windows จะค้างและขึ้นข้อความ "(Not Responding)"
-
-### ⚠️ `src/services/fileSystemService.js`
-- **ห้ามใช้ ID เดิมเมื่อนำเข้าไฟล์ `.bnote`**: ฟังก์ชัน `importBnoteFile` ต้องสร้าง `newNotebookId` เสมอ หากใช้ ID เดิมที่ติดมากับไฟล์ อาจไปทับสมุดโน้ตที่มีอยู่แล้วในเครื่องของผู้ใช้
-- **`restoreFullBackup`**: ฟังก์ชันนี้จะบันทึกทับข้อมูลสมุดโน้ตที่มี ID ตรงกัน การแก้ตรรกะการกู้คืนต้องมั่นใจว่าจะไม่ทำให้ข้อมูลหน้ากระดาษขาดหาย
-
-### ⚠️ `electron/main.cjs`
-- **ห้ามสร้างระบบ Prune อัตโนมัติแบบลบไฟล์ที่ไม่มีในเครื่องปัจจุบัน**: ในอดีตเคยมีบั๊กที่เมื่อเปิดแอปบนเครื่องใหม่ที่ยังไม่มีโน้ต ระบบเข้าใจผิดว่าโน้ตบน Google Drive ถูกลบ จึงไปสั่งลบไฟล์บน Google Drive จนหมด ปัจจุบันโค้ดแก้เป็น Zero-Deletion Guarantee โดยจะลบไฟล์สำรองเฉพาะเมื่อผู้ใช้กดสั่งลบสมุดโน้ตเล่มนั้นในแอปอย่างชัดเจนเท่านั้น
-
----
-
-## 14. จุดที่ README.md เดิมไม่ตรงกับโค้ดจริง (ก่อนการแก้ไข)
-
-1. **เลขเวอร์ชันและลิงก์ดาวน์โหลด**:
-   - *README เดิม*: อ้างอิงเวอร์ชัน `v1.1.5` ทั้งบน Badge และลิงก์ดาวน์โหลด
-   - *โค้ดจริง*: เวอร์ชันปัจจุบันใน `package.json` และ GitHub Releases คือ **`v1.2.1`**
-2. **ขนาดไฟล์ดาวน์โหลด**:
-   - *README เดิม*: ระบุขนาดไฟล์ `(~151 MB)`
-   - *ความจริง*: ขนาดไฟล์ zip ของเวอร์ชัน v1.2.1 มีขนาดจริงประมาณ **~184 MB** (193,115,248 bytes)
-3. **ระบบแปลภาษา 4 ภาษา และแท็บการตั้งค่า**:
-   - *README เดิม*: ยังไม่มีการกล่าวถึงระบบ 4 ภาษา (อังกฤษ, ไทย, จีนตัวย่อ, รัสเซีย) และแท็บการตั้งค่าใหม่ "Theme & Language" (ธีม และ ภาษา)
-   - *โค้ดจริง*: มีการรวมศูนย์การเลือกธีมและภาษาไว้ในแท็บเดียวกัน และมีคลังคำศัพท์ครบ 674 คีย์
-4. **ตำแหน่งและระบบการสำรองข้อมูล Google Drive**:
-   - *README เดิม*: ระบุเจาะจงเฉพาะพาธ `H:\My Drive\BetterNote.AppPC`
-   - *โค้ดจริง*: ระบบรองรับการตรวจหาไดรฟ์ Google Drive อัตโนมัติ (`H:\`, `G:\`, `I:\`, `D:\`) และรองรับการเลือกโฟลเดอร์อื่นใดก็ได้ตามความต้องการของผู้ใช้
-5. **ข้อความด้านนโยบายความเป็นส่วนตัว (Privacy Policy)**:
-   - *README เดิม*: อ้างสิทธิ์ว่า "100% Offline & Local" โดยไม่ได้ระบุว่ามีระบบสำรองข้อมูล Google Drive ในเครื่อง
-   - *โค้ดจริง*: ได้รับการอัปเดตเรียบร้อยแล้ว โดยระบุว่าแอปเป็นแบบ Offline-First และระบบซิงค์ Google Drive ในเครื่องเป็นตัวเลือกเสริม (Optional) ที่ผู้ใช้เลือกเปิดหรือปิดได้อิสระ
-
----
-
-## 15. สรุปสาระของไฟล์ใน `.agents/skills` และ `PROJECT_COMPLETION_MANIFEST.md`
-
-### 15.1 `.agents/skills/pc-pen-notebook-dev/SKILL.md`
-- **สาระสำคัญ**: คู่มือสถาปัตยกรรมสำหรับแอปปากกา Stylus บน Windows / Surface PC ครอบคลุมการใช้ Pointer Events, Coalesced Events, Quadratic Bézier Curves, Tapering, และ Dual-Layer Canvas
-- **ความตรงกับโค้ดปัจจุบัน**: **ตรงกับโค้ดปัจจุบัน 100%** โค้ดใน `src/utils/inkingEngine.js` และ `src/components/Editor/CanvasBoard.jsx` ถูกสร้างขึ้นตามแบบแผนในไฟล์นี้ทั้งหมด
-
-### 15.2 `.agents/skills/app-performance-optimization/SKILL.md`
-- **สาระสำคัญ**: คู่มือการจัดการประสิทธิภาพ ป้องกัน UI Thread Freeze ("Not Responding") บน Windows, การแบ่ง Slice เวลา (Yielding), การเลี่ยง `store.getAll()` บนตารางขนาดใหญ่, และการทำ Viewport Virtualization เพื่อเลี่ยง GPU Memory เต็ม 4GB
-- **ความตรงกับโค้ดปัจจุบัน**: **ตรงกับโค้ดปัจจุบัน 100%** โค้ดใน `src/services/autoBackupService.js` มีการ yield ทุก 30-40ms และ `src/components/Editor/NoteEditor.jsx` มีการ virtualize หน้านอก viewport
-
-### 15.3 `PROJECT_COMPLETION_MANIFEST.md`
-- **สาระสำคัญ**: เอกสารสรุปการปิดงานรอบแรก (ลงวันที่ 11 กันยายน 2026) ระบุการเตรียมไฟล์ส่ง Microsoft Store รุ่น v1.0.0, ข้อมูลแพ็กเกจ AppX, ภาพ Store Logos และ Screenshots
-- **ส่วนที่ยังตรงกับโค้ดปัจจุบัน**: ข้อมูล Identity ของ Microsoft Partner Center (`JustStone.3453441DD0CC3`), Publisher ID, และรายการไฟล์ภาพใน `store_logos/`
-- **ส่วนที่ล้าสมัยแล้ว**: เลขเวอร์ชันระบุ 1.0.0 (ปัจจุบัน 1.2.1), ช่วงซูมระบุ (25% - 500%) ขณะที่โค้ดจริงคือ 35% - 350%, และระบุ path ไดรฟ์ H: ทางเดียว
-
----
-
-## 16. การย้ายไปทำงานบนเครื่องใหม่ (New PC Migration & Disaster Recovery)
-
-หัวข้อนี้สรุปขั้นตอน ผลการตรวจสอบโค้ด และพฤติกรรมจริงของระบบเมื่อต้องย้ายโปรเจกต์และข้อมูลโน้ตไปทำงานบนเครื่องคอมพิวเตอร์เครื่องใหม่:
-
-### 16.1 การแยกกันระหว่าง "ซอร์สโค้ด" กับ "ข้อมูลโน้ตจริง"
-- **ซอร์สโค้ด**: มาจาก `git clone` จาก GitHub และติดตั้งแพ็กเกจผ่าน `npm install`
-- **ข้อมูลโน้ตจริง**: **ไม่ได้อยู่ใน Git** แต่จัดเก็บอยู่ในฐานข้อมูลภายในเครื่อง และสำรองไว้บน Google Drive (หรือโฟลเดอร์สำรองข้อมูลภายนอก)
-
-### 16.2 ข้อมูลโน้ตอยู่ใน IndexedDB ที่ผูกกับเครื่อง (ระบุตำแหน่งจริง)
-IndexedDB ของแอปพลิเคชันถูกจัดเก็บไว้ตามสภาพแวดล้อมที่รันบน Windows:
-1. **เมื่อรันด้วยคำสั่ง `npm run app` (โหมดพัฒนา / Electron)**:
-   - อิงตามชื่อ `"name": "betternote"` ใน `package.json`
-   - จัดเก็บที่: `%APPDATA%\betternote\IndexedDB\file__0.indexeddb.leveldb\` และไฟล์บล็อบที่ `file__0.indexeddb.blob\`
-2. **เมื่อติดตั้งด้วยตัวติดตั้ง NSIS (`BetterNotePC Setup.exe`)**:
-   - อิงตาม `"productName": "BetterNotePC"` ใน `package.json`
-   - จัดเก็บที่: `%APPDATA%\BetterNotePC\IndexedDB\file__0.indexeddb.leveldb\`
-3. **เมื่อติดตั้งผ่าน Microsoft Store Package (`.appx`)**:
-   - ถูกกักอยู่ใน Sandbox ของ Windows App Container
-   - จัดเก็บที่: `%LOCALAPPDATA%\Packages\JustStone.3453441DD0CC3_...\LocalCache\Roaming\BetterNotePC\IndexedDB\`
-
-> **สรุปสำคัญ**: การ Clone โค้ดลงเครื่องใหม่เพียงอย่างเดียวจะเปิดขึ้นมาเจอแอปที่ว่างเปล่าเสมอ เพราะ IndexedDB บนเครื่องใหม่ยังไม่มีข้อมูล
-
-### 16.3 ไฟล์ที่มี Path หรือ Drive Letter ฝังในโค้ด และผลกระทบ
-จากการตรวจสอบพบไฟล์ที่เกี่ยวข้องกับ Path หรือ Drive Letter ดังนี้:
-1. `BetterNote App.vbs`: มี path สคริปต์เต็มของเครื่องเดิมสำหรับสั่งรัน bat แบบซ่อนหน้าต่างดำ (ต้องแก้ไขพาธหากต้องการนำ vbs นี้ไปวางบนหน้า Desktop เครื่องใหม่)
-2. `Launch BetterNote & AutoSync.bat`: บรรทัดที่ 4 มีคำสั่ง `cd /d "..."` ที่ชี้ไปยังโฟลเดอร์เครื่องเดิม (หากย้ายโฟลเดอร์บนเครื่องใหม่จะไม่ทำงาน ต้องแก้เป็น `cd /d "%~dp0"`)
-3. `Launch BetterNote Surface App.bat`: ใช้ `%~dp0` อยู่แล้ว จึงย้ายไปเครื่องใหม่ได้ทันที
-4. `electron/main.cjs` (บรรทัดที่ 30-35): มีอาเรย์ Candidate Drive: `['H:\\My Drive\\BetterNote.AppPC', 'G:\\My Drive\\BetterNote.AppPC', 'I:\\My Drive\\BetterNote.AppPC', 'D:\\My Drive\\BetterNote.AppPC']`
-5. `src/App.jsx` (บรรทัดที่ 130): มีค่าเริ่มต้น State: `driveEmail = 'G:\\My Drive'`
-6. `src/components/Common/GoogleDriveModal.jsx`: มี fallback string `'G:\\My Drive\\BetterNote.AppPC'`
-7. `src/components/Common/Navbar.jsx` และ `src/services/i18n.js`: มี Tooltip และ Placeholder ระบุตัวอย่าง `H:\My Drive\BetterNote.AppPC`
-8. `AppxManifest.xml`: ไม่มี Drive letter ฝัง มีเฉพาะค่า `Version="1.2.0.0"`
-
-**ผลกระทบหาก Drive Letter บนเครื่องใหม่ต่างจากเดิม (เช่น กลายเป็น F: หรือ E:)**:
-- หาก Drive Letter ของ Google Drive บนเครื่องใหม่ไม่ได้อยู่ใน H, G, I, D ฟังก์ชัน `getAllBackupTargets` ใน `electron/main.cjs` จะหาโฟลเดอร์ Google Drive ไม่พบ และจะสลับไปใช้ `%USERPROFILE%\Documents\BetterNote.AppPC` ชั่วคราว
-- **วิธีแก้บนเครื่องใหม่**: ให้ผู้ใช้เข้าไปที่เมนูการตั้งค่า (Settings Modal) -> แถบ "สำรองข้อมูล" -> คลิกปุ่ม "เปลี่ยนโฟลเดอร์" แล้วเลือกโฟลเดอร์ `BetterNote.AppPC` บนไดรฟ์ของเครื่องใหม่ แอปจะบันทึกพาธใหม่ลง IndexedDB ทันที
-
-### 16.4 ขั้นตอนการกู้คืนโน้ตบนเครื่องใหม่ทีละขั้น
-1. **เตรียม Google Drive**: ติดตั้งโปรแกรม Google Drive for Desktop บนเครื่องใหม่ ล็อกอินด้วยบัญชีเดียวกับเครื่องเดิม และรอให้ไดรฟ์ซิงค์โฟลเดอร์ `BetterNote.AppPC` ลงเครื่องเสร็จสมบูรณ์
-2. **เตรียมซอร์สโค้ด**:
-   ```bash
-   git clone https://github.com/NoteGuys/BetterNotePC.git
-   cd BetterNotePC
-   npm install
-   npm run build
-   npm run app
-   ```
-3. **ตรวจสอบโฟลเดอร์สำรองข้อมูล**:
-   - เมื่อแอปเปิดขึ้นมา หาก Google Drive เป็นไดรฟ์ H, G, I หรือ D แอปจะตรวจพบอัตโนมัติ
-   - หากเป็นไดรฟ์อื่น ให้กดไอคอนฟันเฟือง (ตั้งค่า) -> "สำรองข้อมูล" -> กด "เปลี่ยนโฟลเดอร์" แล้วเลือกโฟลเดอร์ `BetterNote.AppPC`
-4. **กู้คืนฐานข้อมูล**:
-   - คลิกที่ปุ่มสถานะ Google Drive หรือเข้าเมนูตั้งค่า
-   - กดปุ่ม **"Restore Full Backup" (กู้คืนข้อมูลทั้งหมด)**
-   - เลือกไฟล์ `Full_System/BetterNote_Latest_Backup.json` จากโฟลเดอร์ Google Drive
-   - รอระบบประมวลผลสักครู่ โน้ตทั้งหมด โฟลเดอร์ หน้ากระดาษ เส้นเขียน และมาร์กอัป PDF จะถูกโหลดกลับเข้าสู่ IndexedDB ของเครื่องใหม่ครบถ้วน 100%
-   - *(หรือหากต้องการกู้คืนเฉพาะบางสมุด สามารถกดปุ่ม "นำเข้า .bnote" แล้วเลือกไฟล์ `.bnote` แต่ละเล่มได้)*
-
-### 16.5 ผลตรวจ: สองเครื่องเขียนไฟล์สำรองในโฟลเดอร์เดียวกัน เครื่องที่มีโน้ตน้อยกว่าจะเขียนทับเครื่องที่มีมากกว่าหรือไม่?
-- **ผลการตรวจโค้ดจริงใน `electron/main.cjs` (บรรทัด 187-207)**:
-  - **คำตอบ: ไม่เขียนทับโน้ตเดิม (Safe Smart-Merge)**
-  - เมื่อเครื่องใหม่ (ที่มีสมุดโน้ตน้อยกว่า เช่น มีแค่ Welcome Note 1 เล่ม) รัน Auto Backup ไปยังโฟลเดอร์เดียวกัน ตัวโค้ดจะอ่าน `BetterNote_Latest_Backup.json` เดิมขึ้นมาก่อนเสมอ
-  - ระบบจะเปรียบเทียบ ID และชื่อสมุดโน้ต โดยสมุดโน้ตเดิมที่เครื่องใหม่ยังไม่มีจะถูกคัดแยกเก็บไว้ในอาร์เรย์ `preserved`
-  - จากนั้นระบบจะนำสมุดโน้ตเดิมมารวมเข้ากับสมุดโน้ตใหม่ (`notebooks: [...incoming, ...preserved]`) ก่อนเขียนลงไฟล์
-  - **ดังนั้น ข้อมูลของเครื่องเดิมจะไม่ถูกลบหรือถูกเขียนทับจนหายไป**
-  - *ข้อยกเว้น*: หากสมุดเล่มนั้นมีชื่อและ ID ตรงกันเป๊ะ โน้ตของเครื่องที่เพิ่งสั่งบันทึกจะอัปเดตทับเล่มนั้น
-
-### 16.6 ผลตรวจ: `sanitizeNotebookForJson` ที่ตัด `pdfBase64` ทำให้สมุด PDF กู้คืนไม่ครบหรือไม่?
-- **ผลการตรวจโค้ดจริงใน `src/services/autoBackupService.js` และ `electron/main.cjs`**:
-  - **คำตอบ: กู้คืนได้ครบถ้วน 100% ไม่สูญหาย**
-  - สิ่งที่ถูกตัดออกคือฟิลด์ `nb.pdfBase64` ซึ่งเป็นก้อน Binary ขนาดใหญ่ของไฟล์ PDF ส่งออกทั้งเล่มที่ถูกแนบมาชั่วคราวเพื่อส่งให้ Electron เขียนเป็นไฟล์ `PDF_Documents/*.pdf`
-  - ส่วนหน้ากระดาษและภาพพื้นหลังของแต่ละหน้า PDF ถูกจัดเก็บอยู่ในพร็อพเพอร์ตี `page.pdfPageImage` ภายในอาร์เรย์ `nb.pages`
-  - โค้ดของ `sanitizeNotebookForJson` **ไม่ได้แตะต้องหรือตัด `page.pdfPageImage` ออกเลย**
-  - จากการตรวจสอบไฟล์ `BetterNote_Latest_Backup.json` และไฟล์ `.bnote` จริง พบว่ามีข้อมูล `pdfPageImage` บันทึกอยู่ครบทุกหน้า เมื่อสั่ง Restore จึงได้หน้ากระดาษ PDF กลับมาครบถ้วน
-
-### 16.7 ผลตรวจ: `npm run app` (โหมด Dev) ใช้ฐานข้อมูลและโฟลเดอร์สำรองเดียวกับแอปที่ติดตั้งแล้วหรือไม่?
-- **ผลการตรวจโค้ดจริง**:
-  1. **ฐานข้อมูล IndexedDB: คนละที่กัน**
-     - `npm run app` (รันผ่าน `electron .` ซึ่งใช้ `name: "betternote"`): บันทึกที่ `%APPDATA%\betternote\IndexedDB\`
-     - แอปที่ติดตั้งผ่าน NSIS Setup (ใช้ `productName: "BetterNotePC"`): บันทึกที่ `%APPDATA%\BetterNotePC\IndexedDB\`
-     - แอปจาก Microsoft Store (AppX): บันทึกใน Windows App Container Sandbox
-  2. **โฟลเดอร์สำรองข้อมูล: ขึ้นอยู่กับประเภทของเป้าหมาย**
-     - หากเปิด Auto-Sync หรือเลือกโฟลเดอร์ Google Drive / Custom Directory: **ใช้โฟลเดอร์เดียวกัน** เพราะชี้ไปที่ Path เดียวกันบนระบบไฟล์
-     - หากใช้โฟลเดอร์เริ่มต้น `BetterNote_Backups/` (ซึ่งอิงตาม `process.cwd()`): โหมด Dev จะบันทึกลงโฟลเดอร์โปรเจกต์ ส่วนแอปที่ติดตั้งแล้วจะบันทึกลงไดเรกทอรีโปรแกรมของ Windows ซึ่งอยู่คนละที่กัน
-
----
-
-## 17. งานถัดไป เรียงตามความสำคัญ
-
-1. **[สำคัญสูงสุด] การนำส่งแพ็กเกจ Microsoft Store v1.2.1**:
-   - นำไฟล์ `release/BetterNotePC 1.2.1.appx` หรือ `BetterNotePC-1.2.1-MicrosoftStore-Submission.zip` อัปโหลดขึ้นสู่ Microsoft Partner Center เพื่อเผยแพร่เวอร์ชันใหม่
-2. **การปรับแต่งขนาด Chunk ใน Vite Build**:
-   - จัดการความสัมพันธ์ระหว่าง Dynamic Import และ Static Import ของ `autoBackupService.js` และ `fileSystemService.js` เพื่อกำจัดคำเตือน Bundle size > 500 kB
-3. **การเพิ่มการเลือก Google Drive Drive Letter ในหน้า UI**:
-   - สำหรับผู้ใช้ที่มีหลายไดรฟ์ Google Drive (เช่น งาน และ ส่วนตัว) เพิ่มตัวเลือก Dropdown ให้เลือกไดรฟ์ที่ต้องการได้โดยตรง
-4. **แถบเครื่องมือปากกาโปรด (Pen Preset Favorites)**:
-   - เพิ่มความสามารถในการบันทึกชุดสีและความหนาของปากกาที่ใช้บ่อย เพื่อสลับใช้งานได้ในคลิกเดียว
-5. **การทดสอบบน Windows on ARM (Surface Pro Copilot+)**:
-   - ทดสอบและบิลด์ตัวติดตั้งสำหรับสถาปัตยกรรม ARM64
-
----
-
-## 18. ผล build และ test ล่าสุด พร้อมวันที่
-
-- **วันที่ทำการทดสอบ**: 5 ตุลาคม 2026 (2026-10-05)
-- **เครื่องที่ใช้ทดสอบ**: เครื่องเดิมของผู้พัฒนา (การทดสอบนี้ไม่สามารถยืนยันซ้ำบนเครื่องใหม่ที่โคลนไปได้ทันที เนื่องจากโฟลเดอร์ `scratch/` อยู่ใน `.gitignore`)
-- **ผลการรันคำสั่งบิลด์ (`npm run build`)**:
-  - รหัสส่งออก (Exit code): `0` (สำเร็จ)
-  - ระยะเวลาที่ใช้: `16.26 วินาที`
-  - ผลลัพธ์:
-    - `dist/index.html` (1.39 kB)
-    - `dist/assets/pdf.worker.min-*.mjs` (1,375.84 kB)
-    - `dist/assets/index-*.css` (108.48 kB)
-    - `dist/assets/index-*.js` (1,481.79 kB)
-- **ผลการรันชุดทดสอบ (Test Suites เฉพาะบนเครื่องเดิม)**:
-  - `node scratch/test_tab_system_logic.mjs`: ผ่าน 8/8 การทดสอบ (100%)
-  - `node scratch/test_device_migration_and_sync.mjs`: ผ่าน 23/23 การทดสอบ (100%)
-  - `python scratch/verify_all_dicts.py`: ผ่านครบ 674 คีย์ทั้ง 4 ภาษา (100% 4-Way Parity)
-  - `node scratch/test_theme_and_updates.mjs`: ผ่าน 100%
-  - `node scratch/test_round2_fixes.mjs`: ผ่าน 74/74 การทดสอบ (100%)
-  - `node scratch/verify_dist_bundle.cjs`: ตรวจพบข้อความคีย์ 4 ภาษาใน Production Bundle ครบถ้วน (100%)
-
----
-
-## 19. ผลตรวจหาค่าลับและ Path ส่วนตัวในโค้ดและประวัติ Commit
-
-- **การตรวจหาค่าลับ (API Key, Client Secret, Token)**:
-  - ตรวจค้นใน `src/` และ `electron/`: **ไม่พบค่าลับใดๆ**
-  - ใน `src/config/googleConfig.js`: ตัวแปร `DEFAULT_GOOGLE_CLIENT_ID` ถูกกำหนดเป็นสตริงว่าง `''` ปลอดภัยต่อการเผยแพร่แบบสาธารณะ
-- **การตรวจหา Path ส่วนตัวในโค้ดปัจจุบัน**:
-  - ตรวจค้นใน `src/` และ `electron/`: **ไม่พบพาธส่วนตัว** ของผู้ใช้
-- **การตรวจหาในประวัติ Git Commit ในอดีต**:
-  - ตรวจพบว่าใน Commit ย้อนหลัง มีไฟล์สคริปต์ภายนอก เช่น ไฟล์ `.vbs`, `.bat`, และเอกสาร manifest ในอดีต ที่เคยบันทึก path เต็มของเครื่องเดิมไว้
-  - **ข้อปฏิบัติเข้มงวด**: ในเอกสาร `HANDOFF.md` และ `README.md` นี้ จะไม่มีการระบุ path ส่วนตัวของเครื่องผู้ใช้เด็ดขาด เพื่อความปลอดภัยของ Public Repository
-
----
-
-## 20. กฎการทำงานสำหรับ AI ที่มารับช่วงต่อ
-
-- ก่อนแก้โค้ด ให้บอกแผนและรายชื่อไฟล์ที่จะแก้ แล้วรอผู้ใช้ตอบว่า "ลุย"
-- ทำทีละงานเล็กๆ ห้ามปรับโครงสร้างหลายส่วนพร้อมกัน
-- ห้ามเปลี่ยนรูปแบบการเก็บข้อมูลโน้ตโดยไม่ได้รับอนุญาต
-- ห้ามอัปเกรดไลบรารี และห้ามแก้ไฟล์ lock เอง
-- ห้ามแตะไฟล์ .env และห้ามแสดงค่าลับ
-- หลังแก้ทุกครั้งให้รัน build และ test แล้วรายงานตามจริง
-- ห้ามพูดว่า "เสร็จแล้ว" ถ้ายังไม่ได้ตรวจ ให้แยกระหว่าง "แก้แล้ว" กับ "ตรวจแล้ว"
-- ห้ามใช้ git push --force หรือ git reset --hard โดยไม่ถามก่อน
-- ถ้าไม่แน่ใจ ให้ถามผู้ใช้ ห้ามเดา
-
----
-
-## ส่วนที่ฉันมั่นใจน้อย
-
-เพื่อให้มนุษย์หรือผู้ดูแลโปรเจกต์ช่วยตรวจสอบต่อ:
-1. **การคง candidate paths ใน `electron/main.cjs`**:
-   - พาธ candidate `H:\My Drive\BetterNote.AppPC`, `G:\My Drive\BetterNote.AppPC` ฯลฯ ถูกฝังไว้เพื่อความสะดวกของผู้ใช้ส่วนใหญ่ที่มี Google Drive for Desktop แต่หากผู้ใช้บนเครื่องใหม่เปลี่ยนไปใช้ชื่อโฟลเดอร์อื่นหรือติดตั้งไดรฟ์อื่นที่ไม่ใช่ 4 ตัวนี้ อาจต้องเพิ่มการตั้งค่าผ่าน UI ให้ยืดหยุ่นขึ้น
-2. **การทดสอบบน Surface จริงเทียบกับ Electron บน Desktop**:
-   - การทดสอบ Pointer Events ความหน่วง และ Palm Rejection ได้รับการยืนยันผ่านสคริปต์จำลองและการทำงานบนเบราว์เซอร์/Electron แต่ควรให้ผู้ใช้สัมผัสเขียนบนหน้าจอ Surface จริงด้วยปากกา Surface Pen อีกครั้งเพื่อความมั่นใจในฟีลลิ่งการเขียน
+- `npm run dist` เรียก electron-builder; ตัว script ไม่ได้สั่ง Vite build เอง จึงต้อง build ก่อน
+- `--win appx --x64` เลือกเฉพาะ Appx สำหรับ Intel/AMD Windows และ Intel Surface ไม่ใช่ ARM64 หรือ NSIS
+- ผลลัพธ์ตาม CLI: `release/store-1.3.0.0-main/BetterNotePC-1.3.0.0-x64.appx`
+- Override เฉพาะชื่อ artifact/โฟลเดอร์ผลลัพธ์ ไม่เปลี่ยน `build.appx` หรือ Store identity
+- `--publish never` ไม่อัปโหลดหรือเผยแพร่เอง; อย่าใช้ `npm run dist` เปล่า เพราะ config มีทั้ง appx และ nsis
+- **คำสั่งแพ็กจาก main ยังรอขั้น E**; ผล help/config ยืนยันตัวเลือก แต่ไม่ใช่หลักฐานว่าแพ็ก main สำเร็จแล้ว ต้องตรวจ manifest/hash/commit ของไฟล์ใหม่หลังสร้าง
+- Appx เก่าที่ `release/store-1.3.0.0-final/` เป็นหลักฐานก่อนการรวม ไม่ใช้แทน Appx จาก main
+- ขนาดและ SHA-256 ของ Appx ใหม่ยังไม่ทราบจนกว่าสร้างเสร็จ ห้ามนำ hash เก่ามาอ้างเป็นของใหม่
+
+คำสั่งอื่นสำหรับผู้พัฒนาหลังได้รับอนุญาต: `npm run dev` เปิด Vite, `npm run app` เปิด Electron, `npm run pack` แพ็ก directory ในรอบย้ายระบบนี้ไม่ได้รันคำสั่งเปิดแอป
+
+## 4. แผนที่โค้ดและโฟลเดอร์
+
+| ตำแหน่ง | หน้าที่ |
+| --- | --- |
+| `electron/main.cjs`, `preload.cjs`, `appSecurity.cjs` | หน้าต่าง, guarded IPC, asset protocol, native filesystem และความปลอดภัย |
+| `electron/backupWriter.cjs`, `backup.worker.cjs`, `backupWorkerClient.cjs` | เขียน/ตรวจ/เผยแพร่ backup generation ใน worker |
+| `electron/backupReader.cjs`, `backupReader.worker.cjs`, `backupReaderClient.cjs`, `backupDevices.cjs` | ค้น device และอ่าน/ตรวจชุดกู้คืน |
+| `electron/pdfExport.cjs`, `pdfMerge.worker.cjs` | native PDF sessions/ประกอบผลลัพธ์และล้างไฟล์ชั่วคราว |
+| `electron/bnoteSave.cjs`, `bnoteSave.worker.cjs`, `bnoteFormat.js` | เขียน .bnote เป็นชิ้นและตรวจรูปแบบ |
+| `electron/storeUpdates.cjs`, `storeUpdateCheck.ps1` | ตรวจ Microsoft Store ผ่าน native helper |
+| `src/App.jsx`, `components/Common/DocumentTabBar.jsx` | แท็บสมุด, page retention, สถานะบันทึกและอัปเดต |
+| `src/components/Editor/` | NoteEditor, CanvasBoard, Toolbar, ThumbnailSidebar, เครื่องมือวาด/รูป/ข้อความ |
+| `src/components/Library/` | สมุด/โฟลเดอร์/Trash/Settings/BackupStatusModal |
+| `src/components/Common/GoogleDrivePanel.jsx` | เลือกโฟลเดอร์, backup และเลือก device เพื่อ Restore |
+| `src/components/Guide/`, `public/user-guide/` | คู่มือออฟไลน์และภาพประกอบ |
+| `src/services/db.js`, `localSaveService.js`, `localSaveCore.js` | IndexedDB และคิวบันทึกงานในเครื่อง |
+| `src/services/autoBackupService.js`, `backupController.js`, `backupPreparationService.js` | คิวสำรองและเตรียมข้อมูล/PDF แบบ incremental |
+| `src/services/backupRecovery*`, `backupRestorePlan.js` | ตรวจ/วางแผน/commit Restore และรับรองผลผ่าน receipt |
+| `src/services/editorPagesService.js`, `notebookCoverService.js`, `backupPdfPageCache.js` | แคชหน้าสมุด ปก และ PDF รายหน้า |
+| `src/services/updateService.js`, `updateCore.js`, `i18n.js` | ตรวจอัปเดตและแปลภาษา |
+| `src/utils/`, `src/data/` | Inking, touch, PDF, รูปทรง, ชื่อสมุด, ปกและเทมเพลต |
+| `public/fonts/` | ฟอนต์ออฟไลน์ |
+| `tests/`, `docs/` | ชุดตรวจที่เก็บใน Git และรายงานแต่ละเฟส |
+| `dist/`, `release/`, `scratch/` | Build, artifacts และ QA/logs; อยู่ใน .gitignore ไม่ commit |
+
+## 5. ระบบเขียนและการแสดงผล
+
+### 5.1 Canvas และ Inking
+
+`CanvasBoard.jsx` / `inkingEngine.js` แยกพื้นหลัง, เส้นที่ commit แล้ว และเส้นกำลังวาด รับ Pointer Events และ coalesced events; จัดแรงกด ความหนาและปลายเส้น ประสิทธิภาพจริงขึ้นกับฮาร์ดแวร์ ไม่รับรองเฟรมเรตตายตัว
+
+Scribble-to-Erase ตรวจการกลับทิศของเส้น และมี guard แยกจากรูปทรงปิด QuickShape อยู่ใน `shapeRecognition.js` และการวาดรูปทรงต้องรักษามุม/ปลายคมตามข้อมูล geometry
+
+### 5.2 หน้ากระดาษ PDF และภาพย่อ
+
+รองรับ A4/A3/A2, เทมเพลตและ Whiteboard `editorPagesService` แยกอ่านหน้าจาก UI; ภาพย่อ/ปกมี scheduler/cache และการเตรียมล่วงหน้า แคนวาสนอก viewport ไม่ต้องวาดครบพร้อมกัน ต้องรักษาภาพตัวอย่างขณะ scroll และไม่บันทึกปกว่างทับปกเดิมเมื่อเรนเดอร์ล้มเหลว
+
+PDF pages เก็บ reference ของ PDF ต้นฉบับและภาพ cache โดยไม่จำเป็นต้องเก็บภาพเรนเดอร์เต็มทุกหน้าใน state ตลอดเวลา ส่งออกต้องใช้ต้นฉบับ/เส้น/ข้อความตาม pipeline ที่ตรวจแล้ว
+
+### 5.3 Undo/Redo และแท็บ
+
+`notebookHistoryService.js` เก็บประวัติแยกสมุดตลอด session ไม่ผูกกับอายุ component; เปลี่ยนแท็บไม่ทำให้ Undo ของสมุดอื่นสูญหาย Restore/import ต้องจัดการประวัติที่เกี่ยวข้องหลัง commit เท่านั้น
+
+เปิดสูงสุด 5 แท็บและใช้ LRU เมื่อเกิน limit จดจำหน้าของแต่ละสมุดผ่านสถานะแท็บและ localStorage
+
+### 5.4 Touch / Zoom / Whiteboard
+
+`NoteEditor.jsx`, `src/utils/touchNavigation.js` และ input session ใน CanvasBoard แยก pen/touch/navigation รองรับ pinch, pan, Ctrl+wheel และสองนิ้วแตะสองครั้ง Undo ช่วงซูมกระดาษใน NoteEditor คือ 0.35–3.5
+
+จุดตรึงขณะซูมต้องอยู่บนหน้าที่ผู้ใช้กำลังดู ไม่กระโดดไปหน้าเก่า และต้องเคลียร์สถานะเมื่อ pointercancel/lost capture/blur หลังเขียนต้องกลับไปเลื่อน/ซูมได้โดยไม่จำกัดฝั่งหน้าจอที่เพิ่งเขียน Whiteboard มี viewport ของตัวเอง อย่ารวมข้อจำกัดกระดาษเข้าไปโดยไม่ตรวจ
+
+## 6. ข้อมูล IndexedDB และรูปแบบไฟล์
+
+### 6.1 Schema เดิม ไม่มี schema migration ในรุ่นนี้
+
+เทียบก่อนรวมกับ `sol-work`: ชื่อ **BetterNoteDB**, version **1**, stores/indexes ไม่เปลี่ยน
+
+| Store | keyPath | Indexes |
+| --- | --- | --- |
+| folders | id | parentId (ไม่ unique) |
+| notebooks | id | folderId, updatedAt (ไม่ unique) |
+| pages | id | notebookId (ไม่ unique), notebookPage=[notebookId,pageIndex] (unique) |
+| settings | key | ไม่มี |
+
+`onupgradeneeded` ยังสร้าง stores/indexes เดิม ไม่ได้ bump DB_VERSION การเพิ่ม field/setting ใช้ stores เดิม ไม่ใช่การย้ายฐานข้อมูลใหม่
+
+- folders: id, name, parentId, color/icon, timestamps, isDeleted รวมถึงข้อมูล retirement/permanent deletion และ restoreParentId เมื่อเกี่ยวข้อง
+- notebooks: id, name, folderId, cover/template/paper, timestamps, pageCount, isPdf/isFavorite/isDeleted, lastOpenedPageIndex และ metadata ที่เครื่องมือใช้
+- pages: id, notebookId, pageIndex, template/paper, strokes, textElements, imageElements/ข้อมูลภาพตามรูปแบบเก่า, drawings, thumbnail/cache และข้อมูล PDF
+- PDF fields: pdfOriginalId, pdfOriginalDigest, pdfPageNumber, pdfLazyRaster/pdfNativeRaster และ pdfOriginal payload เก็บครั้งเดียวต่อ source; pdfPageImage อาจเป็น cache ไม่ใช่เนื้อหาเดียวสำหรับกู้คืน
+- settings: ค่าเลือกโฟลเดอร์, backup_device_v2, backup_v2_checkpoint, backup_deleted_notebooks_v2, backup_recovery_receipt, backup_restore_receives_v1, backup_restore_folders_v1, backup_restore_content_base_v1 และ setting เดิม
+
+`writeTransaction` resolve เมื่อ `tx.oncomplete` เท่านั้น `request.onsuccess` ยังไม่ยืนยันว่าทั้ง transaction สำเร็จ pendingWrites และคิว localSave ใช้กั้น backup/close เพื่อไม่สำรองข้อมูลที่ยังไม่ได้บันทึก
+
+### 6.2 .bnote — ไฟล์สมุดเดี่ยวแบบพกพา
+
+ส่งออกแบบ `format: BetterNote_Document`, `version: 1`, notebook metadata และ pages รองรับ legacy standalone notebook ที่มี pages ตรวจ JSON/ขนาด/จำนวนหน้า/ID ก่อนใช้ ไฟล์ที่ถูกตัดหรือไม่สมบูรณ์ไม่สร้างสมุดบางส่วน
+
+การ export ผ่าน `bnoteService` / native bnoteSave worker เป็นชิ้น การ import ผ่าน worker และ `importBnoteAtomic` ใช้ ID ใหม่สำหรับการนำเข้าแบบไฟล์พกพา นี่เป็นคนละกรณีกับ Restore ที่ต้องพิจารณา ID/ต้นกำเนิดสมุดเดิม
+
+### 6.3 Snapshot กู้คืนและ manifest สำรอง
+
+Snapshot JSON เก็บ version/appName/exportDate, folders และ notebooks พร้อม pages รูปแบบกู้คืน version 1 ยังรองรับ ข้อมูล PDF ต้นฉบับต้องเดินทางไปกับ page records อย่าตัดออกเพียงเพราะมี PDF copy อยู่ข้างนอก
+
+Backup ปัจจุบันใช้ manifest **version 2** ที่ `Full_System/backup_manifest.json` ชี้ไปยัง `Full_System/Backup--<sha256>.json` และไฟล์ `.bnote`/PDF ด้วย path, hash, size, revision พร้อม backupDevice, activeIds, fullRevision และ generation metadata
+
+`BetterNote_Latest_Backup.json` เป็นชื่อชุดเก่าที่ reader รองรับ ไม่ใช่ชื่อไฟล์ที่ควรเดาใช้แทน manifest รุ่นปัจจุบัน ชื่อไฟล์ใหม่เป็น content-addressed และชื่อสมุดขึ้นก่อน hash เพื่ออ่านง่าย
+
+### 6.4 Restore ที่ใช้จริง
+
+1. เข้าหน้าหลักแล้วเปิด Backup & Sync เลือก Local Backup หรือ Google Drive และโฟลเดอร์ที่มีชุดสำรอง
+2. Find backups/เลือก source: reader ค้น metadata ของ device แล้วให้ผู้ใช้เลือกเครื่องและวันที่
+3. กด Restore from Folder เอง การค้นพบ backup หรือเปิดแอปไม่ใช่คำสั่งนำเข้า
+4. ระบบ flush local saves, พักคิว backup, อ่าน snapshot ที่ commit แล้ว ตรวจ path/hash/ขนาด/โครงสร้าง และวางแผนใน worker
+5. ก่อนเขียนยกเลิกได้; เมื่อเริ่ม IndexedDB transaction รอ commit/abort ให้ชัดเจน ไม่ terminate ด้วย timeout กลาง transaction
+6. `restoreBackupAtomic` เขียน folders/notebooks/pages/settings ใน transaction เดียว พร้อม operation receipt ใช้ยืนยันกรณี worker ตอบกลับไม่ถึง UI
+7. หลัง commit เคลียร์ประวัติสมุดที่เปลี่ยน อัปเดต Library/ปก แล้วปล่อยคิว backup กลับมาทำงาน ความล้มเหลวของ refresh ไม่ควรถูกตีความว่าข้อมูลไม่ได้ commit
+
+Restore รักษาสมุดที่ไม่เกี่ยวข้อง ถ้าสมุด local ไม่เปลี่ยนจากฐานที่รับมาหรือ incoming รักษาเนื้อหาเดิมครบ จะอัปเดตสมุดเดิมโดยไม่สร้าง copy ส่วนเนื้อหาที่แก้ชนจริงยังเก็บสำเนา ใช้ hash/ancestry ไม่ใช้แค่ชื่อหรือเวลาเป็นหลักฐาน
+
+## 7. Backup และ Google Drive
+
+### 7.1 แยกหน้าที่
+
+Local save คือ IndexedDB; Backup คือคัดข้อมูลที่บันทึกแล้วไป filesystem; Google Drive for desktop เป็นผู้ upload/download ไฟล์; Restore คือคำสั่งผู้ใช้ให้ BetterNote รับชุดสำรองเข้าฐานข้อมูล
+
+`AutoBackupService` ใช้ outbound controller และ idle sync facade ไม่ start ตัวรับ shared-root อัตโนมัติ `backupSyncService.js`/protocol เก่าบางส่วนยังมีไว้รองรับเส้นทางเดิม/แผน reconcile ห้ามเห็นไฟล์นี้แล้วสรุปว่าระบบปัจจุบัน auto-restore
+
+### 7.2 โฟลเดอร์และการแยกเครื่อง
+
+- Local folder ที่เลือกแทนค่า default; default เป็น Documents ของระบบผ่าน `app.getPath('documents')` ต่อด้วย BetterNote.AppPC
+- Drive target ใช้ `gdrive_backup_method = desktop` และ `gdrive_backup_path` ที่เลือกเอง แยกจาก local_backup_path
+- ทั้งสอง target ชี้โฟลเดอร์เดียวกันได้ โดย writer รวมบทบาทที่ canonical path เดียวกันเพื่อไม่เขียนซ้ำ
+- `Devices/<device-id>/Editable_Notes/`: สมุด .bnote ที่แก้ไขต่อได้
+- `Devices/<device-id>/PDF_Documents/`: สำเนาอ่าน PDF
+- `Devices/<device-id>/Full_System/`: manifest และ snapshot กู้คืน
+- `Devices/<device-id>/Backup_History/`: metadata/ไฟล์รุ่นก่อนที่ระบบจัดการ
+
+แต่ละเครื่องเก็บ backup_device_v2 ของตัวเอง การเลือก source Restore ไม่เปลี่ยน device ID ของเครื่องปัจจุบัน จึงไม่เขียนทับชุดของเครื่องต้นทาง ตัวเลือก device อ่าน metadata ก่อน; ตรวจเนื้อหาจริงเมื่อเลือก Restore
+
+### 7.3 Incremental และ PDF ภายหลัง
+
+`backupController` รวมคลิกซ้ำเป็นงานเดียวและขึ้นสถานะทันที รอ local saves ก่อน snapshot สมุดไม่เปลี่ยนใช้ artifact เดิม; แก้หนึ่งสมุดอ่าน/เขียนเฉพาะสมุดนั้น Full snapshot/manifest ยังต้องปรับเมื่อ membership, folder หรือเนื้อหาเปลี่ยน
+
+ข้อมูลกู้คืน commit ก่อน PDF สำเนาอ่าน; PDF รอช่วงว่างจาก pen/touch และใช้ cache รายหน้า แก้หนึ่งหน้าไม่ต้องเรนเดอร์ทั้งเล่มใหม่ สถานะ PDF pending ไม่เท่ากับไม่มี backup กู้คืน และความเร็วไม่ควรรับรองจากตัวเลข fixture บน desktop
+
+### 7.4 การลบและย้อนหลัง
+
+เก็บล่าสุดและ **ย้อนหลัง 3 generation ที่ข้อมูลกู้คืน commit สำเร็จ** ไม่ใช่มีเพียง 3 ไฟล์ทั้งระบบ PDF update ของ generation เดิมไม่ควรไล่ history ข้อมูลกู้คืนออก
+
+ลบสมุดแล้ว next generation เอาออกจาก active set แม้ลบสมุดสุดท้ายต้อง commit empty backup ที่ถูกต้อง ชุดย้อนหลังอาจยังมีสมุดนั้นสำหรับกู้คืนโดยเลือกเอง ไม่เอาสมุดเก่ากลับเข้ามาใน latest อัตโนมัติ
+
+Permanent folder deletion เก็บ retirement/tombstone ไม่ลบทิ้งแค่แถวที่เป็นหลักฐาน ancestry การ cleanup จำกัดเฉพาะไฟล์ BetterNote ที่พิสูจน์ได้ว่าเป็นของ generation หมดอายุ ไม่แตะไฟล์ผู้ใช้หรือชุดเครื่องอื่น
+
+### 7.5 Drive และข้อผิดพลาด
+
+BetterNote ยืนยันได้เฉพาะความสมบูรณ์ของไฟล์ที่อ่านได้ในโฟลเดอร์ ไม่ยืนยันว่า Google upload เสร็จ หาก online-only ต้องรอดาวน์โหลด/ทำ available offline; reader รายงาน bytes/ขั้นตอน และจำกัดการรอเมื่อไม่มีความคืบหน้า การเลือก device ยังเห็นได้แม้ไฟล์ข้อมูลใหญ่ยังไม่พร้อม
+
+Retry มี backoff และหยุดเมื่อชนข้อมูลหรือ destination ใช้งานไม่ได้ ไม่วน backup อย่างไม่สิ้นสุด การเปลี่ยน path หรือยกเลิกต้องปล่อย controller ถูกต้อง ปุ่ม Restore ไม่หายเพียงเพราะ backup ไม่สำเร็จ
+
+## 8. การแปลภาษาและคู่มือ
+
+`src/services/i18n.js` ส่งออก TRANSLATIONS และ useLanguage; UI ใช้ `t(key, fallback, params)` ตรวจครั้งนี้: en/th **1022 keys**, zh/ru **1021 keys** ขาด `backupFolderNewer` ใน zh/ru จึงไม่อ้างว่า parity 100% ไม่แก้ข้อความแอปในงานย้ายระบบนี้
+
+เพิ่ม key ต้องเพิ่มทุกภาษาและตรวจ fallback/params คู่มือใน `guideContent.js` มีไทย/อังกฤษของตัวเองและรูปออฟไลน์ แยกจากคำแปล UI ภาพ 44 ไฟล์ใน public/user-guide ใช้ร่วมกันระหว่างบทได้ อย่าใช้จำนวน figure ของ lessons เป็นจำนวนไฟล์ทั้งหมด
+
+## 9. สถานะฟีเจอร์
+
+ผู้ใช้ยืนยันชุดล่าสุดใช้งานผ่านก่อนเริ่มย้ายระบบ รอบนี้ตรวจ schema/versions/diff, build และ unit tests ผ่าน แต่ไม่ได้ทดสอบซ้ำบน Surface หรือ cloud จริง
+
+Google Drive for desktop เป็นเส้นทางสำรองปัจจุบัน Direct Google OAuth มี client/broker scaffolding และ tests แต่ `GOOGLE_TOKEN_BROKER_URL` ยังว่าง ต้อง deploy/verify server แยกก่อนใช้จริง Client ID ที่ตรวจพบเป็น public identifier ไม่ใช่ client secret
+
+Browser standalone ใช้ส่วนเขียน/ข้อมูลใน browser ได้บางส่วน แต่ native filesystem/Store backup ไม่รองรับ และไม่ได้มี /api/auto-backup server ทดแทน Real-time collaboration, audio recording และ handwriting OCR ไม่ใช่ฟีเจอร์ที่ยืนยันใน release นี้
+
+## 10. ข้อจำกัดและรายการติดตาม
+
+- Build มี 4 คำเตือน dynamic/static import ร่วมกัน: autoBackupService, pdfAssetUrls, pdfService, editorPagesService และ chunk บางไฟล์เกิน 500 KB ไม่ได้แก้ bundle structure ในงานนี้
+- npm ci เตือน deprecated rimraf 2.6.3, inflight 1.0.6, glob 7.2.3, boolean 3.2.0
+- npm 11.19.0 เตือน install scripts ของ core-js 3.50.0, electron-winstaller 5.4.0, esbuild 0.25.12 ยังไม่อยู่ใน allowScripts build ผ่านโดยไม่ได้เพิ่ม approval config
+- Full npm audit: 12 รายการ (9 moderate, 3 high) อยู่ใน dependency ฝั่งเครื่องมือพัฒนา/build; audit --omit=dev: 0 รายการ ณ รอบตรวจ ไม่ใช่รับรองว่าปลอดช่องโหว่ทุกชนิด
+- หลักฐาน release audit เดิมระบุ clipboard image-file fallback มี synchronous filesystem reads อาจหน่วงกับไฟล์ใหญ่/online-only ไม่ขยายเป็น refactor ในงานนี้
+- Reader มีขอบเขตขนาดข้อมูล/จำนวนไฟล์; ห้ามเพิ่ม limit โดยไม่ประเมิน RAM และการยกเลิก ข้อมูลใหญ่/Drive ช้าไม่ได้แปลว่าไฟล์เสียเสมอ
+- ชุด browser เก่าบางชุดยังคาด auto-receive/shared root หรือชื่อ backup alias เก่า ไม่ใช้เป็น release gate ของระบบ manual device Restore
+- Store install/upgrade, native Store update, WACK และ Surface hardware ต้องตรวจแยกก่อนปล่อย ไม่อ้างผล unit tests แทน
+
+## 11. เหตุผลการออกแบบที่ต้องรักษา
+
+1. แยก active ink จากงานเรนเดอร์เก่าและงาน filesystem เพื่อให้ปากกาตอบสนอง
+2. Offline-first: local save มาก่อน backup/PDF/network
+3. Backup per-device และ manifest commit: ข้อมูลอีกเครื่องไม่ถูกเขียนทับเพราะเครื่องนี้มีโน้ตน้อยกว่า
+4. Restore explicit/atomic: การพบ backup ไม่ให้สิทธิ์นำเข้า; ข้อมูลครบก่อน commit และยืนยันผลผ่าน receipt
+5. Hash/ancestry/conflict copies: ใช้หลักฐานเนื้อหาเมื่อแทนสมุดเดิม รักษาการแก้ชนจริง
+6. PDF cache และ incremental backup: ไม่ทำงานทุกสมุดทุกหน้าเมื่อแก้แค่บางส่วน
+7. แยกสถานะ “บันทึกในเครื่อง”, “backup ไฟล์ครบ”, “PDF พร้อม”, “cloud upload” ไม่ใช้คำสำเร็จแทนกัน
+8. เก็บแท็บไม่เกิน 5 และใช้แคช/virtualization แทน mount ทุก canvas พร้อมกัน
+
+## 12. Environment และข้อมูลลับ
+
+เขียนโน้ต/Local backup ไม่ต้องมี `.env` หรือ credential ใน Git `NODE_ENV`/`--dev` ใช้แยกโหมดพัฒนา Windows paths อ่านผ่าน Electron/ระบบและ settings ไม่ฝังค่า path ส่วนตัว
+
+`BETTERNOTE_QA_TEMP` ใช้เฉพาะ fixture tests ตั้งให้เป็น directory ใหม่แยกจริง `NODE_DISABLE_COMPILE_CACHE`, CORE_JS_SILENT, ADBLOCK เป็นตัวแปร verification/build ไม่ใช่การแก้ setting ของแอปผู้ใช้
+
+ห้าม commit .env, tokens/client secrets, โน้ต .bnote, backup JSON หรือไฟล์จาก dist/release/scratch หากเปิดบริการ OAuth ในอนาคตต้องเก็บ secret ฝั่ง server ไม่ใส่ลง renderer/main bundle
+
+## 13. จุดที่แก้ผิดแล้วข้อมูลเสี่ยงเสียหาย
+
+### db.js / localSave
+
+- รักษา DB_NAME/version/stores/indexes; schema ใหม่ต้องมี migration ที่ตรวจแล้ว ไม่สร้างฐานใหม่แล้วบอกว่าข้อมูลเดิมหาย
+- ห้ามถือ request success เป็น save สำเร็จก่อน transaction complete ห้ามลด guard ปิดแอป/flush backup
+- Restore ต้องรวม 4 stores กับ receipt ใน transaction เดียว; ID/index conflict ต้อง abort ไม่ทำให้บางสมุดสำเร็จบางส่วน
+- การลบสมุด/หน้า/โฟลเดอร์ต้องอัปเดต membership/tombstones และ PDF original owner ให้ครบ
+
+### Backup writer/controller
+
+- ห้ามเปิด automatic inbound จาก backupSync scaffolding กลับมาโดยไม่ได้รับอนุมัติ
+- ห้ามเขียนใน device directory ของเครื่องอื่นหรือ root shared legacy แทน current per-device target
+- Empty library ที่ยืนยัน local save แล้วเป็น valid latest generation; ไม่ใช้ guard เดิมที่ทำให้ backup เก่าฟื้นเอง แต่ยังต้องรอ metadata/local save โหลดเสร็จ
+- Publish manifest หลัง snapshot/artifacts ตรวจ hash ครบ ไม่เผยแพร่ staging เป็น complete
+- Retention ล่าสุด+ย้อนหลัง 3 ชุดต้องคุ้มครอง reference ที่ยังใช้ และ cleanup เฉพาะ managed files ที่พิสูจน์ได้ ไม่ลบไฟล์ที่ไม่รู้จัก
+- แยก PDF status และจำกัด retries; cancellation/destination change ต้องหยุดผลลัพธ์เก่าไม่ให้เขียนทับงานใหม่
+
+### Restore / portable import
+
+- `.bnote` import ต้อง validate ก่อน atomic write และสร้าง ID ใหม่ ส่วน device Restore ต้องใช้ ancestry ของสมุดเดิม ไม่บังคับ copy ทุกครั้ง
+- `backup_restore_content_base_v1` และ hash ช่วยแทนสมุด local ที่ไม่ได้เปลี่ยน; same-name หรือ clock ใหม่กว่าอย่างเดียวไม่พิสูจน์ว่าแทนได้
+- Preserve true local conflicts/unrelated work; รักษา parentId/retired folder map ไม่ยัดโฟลเดอร์ไปยัง folder ที่ UI เปิดอยู่
+- ยกเลิก/timeout ได้ก่อน transaction; หลัง writing ต้องรอ commit/abort และอ่าน receipt ถ้าคำตอบ worker หาย
+- Snapshot ที่ตรวจแล้วใช้สำหรับ Restore ขนาดใหญ่ ไม่บังคับโหลด PDF สำเนาอ่านหรือ .bnote ทุกชุดซ้ำก่อนนำเข้า
+
+### Electron / Store / icons
+
+- รักษา sandbox, contextIsolation, guarded IPC, path containment และ resource allowlist
+- อย่าเปลี่ยน userData หรือ AppUserModelId ของ Store โดยพลการ จะกระทบ profile/identity ไอคอน helper ต้องเป็น BetterNote และไม่เปิด Taskbar เพิ่ม
+- ห้ามเปลี่ยน Identity/Publisher/PublisherDisplayName/ProcessorArchitecture หรือ build.appx ที่ผูก Partner Center ในงาน release นี้
+
+## 14. เอกสารและหลักฐานรุ่นเก่า
+
+README, PROJECT_COMPLETION_MANIFEST และรายงานก่อนรุ่นนี้อาจกล่าวถึง 1.2.1, 674 translation keys, shared-root sync หรือ npm install ให้ใช้โค้ด/lockfileและ HANDOFF นี้สำหรับสถานะล่าสุด ไม่แก้ไฟล์อื่นในขั้น D
+
+`docs/RELEASE_1.3.0.0_REVIEW.md` เป็นรายงานก่อน merge มีผล unit/browser/native/ASAR และ Appx เก่าแยกชัด ไม่ใช่รายงาน Appx ใหม่จาก main อย่านำ path/hash/ผล install ของชุดนั้นมาอ้างแทนขั้น E
+
+## 15. Skills และแนวทางวิศวกรรม
+
+`.agents/skills/pc-pen-notebook-dev/SKILL.md` ครอบคลุม pen/Pointer Events/Canvas/Palm Rejection/IndexedDB และ `.agents/skills/app-performance-optimization/SKILL.md` ครอบคลุม workers/yielding/cache/virtual drives ใช้ประกอบการตรวจ ไม่ถือเป็นหลักฐานว่าทุก pattern ในแอปตรง 100%
+
+หลีกเลี่ยง full-library getAll ของ rich pages, JSON/file I/O บน UI และ synchronous work ระหว่างปากกา active ใช้กฎผู้ใช้ล่าสุดก่อนแนวทางทั่วไป
+
+## 16. ย้ายเครื่องและกู้คืนงาน
+
+1. เครื่องต้นทาง: รอ “Saved on this device” แล้ว Back up now ให้ชุดข้อมูลกู้คืนครบ PDF pending ไม่จำเป็นต้องขวาง Restore
+2. รอ Google Drive for desktop อัปโหลดชุดนั้นครบ เครื่องปลายทางเชื่อมโฟลเดอร์เดียวกันและรอให้ไฟล์อ่านได้
+3. เครื่องปลายทาง: เปิด Backup & Sync > Google Drive > Find backups เลือก device/วันที่ต้นทาง แล้วกด Restore from Folder
+4. ตรวจสมุด หน้า รอยเขียน รูป/PDF และตำแหน่งโฟลเดอร์ จากนั้น backup เครื่องปลายทางจะเขียนใน Devices ของตัวเอง
+5. ทำงานสลับสองเครื่องให้รับการแก้ล่าสุดก่อนเริ่มแก้ใหม่ เมื่อทั้งสองแก้พร้อมกันระบบยังรักษาสำเนาที่ชนกัน ไม่รับรองการ merge เส้นสองฝั่งอัตโนมัติ
+
+Clone Git ย้ายเฉพาะโค้ด ไม่ย้าย IndexedDB/โน้ต/profile โหมด dev กับ packaged/Store อาจใช้ profile ต่างกัน ใช้ export/backup/explicit Restore เพื่อย้ายงาน ไม่คัดลอกฐานขณะ Chromium เปิดหรือเปลี่ยน path ให้ใช้ฐานจริงเพื่อทดสอบ
+
+ในรอบย้ายระบบนี้ห้ามเปิดแอปหรือทดลองกับ Drive/โน้ตจริง ขั้นตอนข้างต้นเป็นคำแนะนำสำหรับผู้ใช้ทดสอบเองหลังได้รับ artifact ที่ถูกต้อง
+
+## 17. งานต่อจากนี้
+
+1. ตรวจ/อนุมัติ diff HANDOFF แล้ว commit เอกสารและ push main
+2. สร้าง Appx ใหม่จาก main ที่ clean/ตรง origin/main ตรวจ generated manifest, BetterNote icon, payload, commit และ SHA-256
+3. ให้ผู้ใช้ทดสอบ package ใหม่ โดยเฉพาะ upgrade จาก Store รุ่นเดิม/Surface และ Backup–Restore ด้วยข้อมูลทดสอบ
+4. ติด v1.3.0/after-sol-stable หลังผู้ใช้ตอบ “ติด tag ได้”; เก็บ sol-work และ tags เดิม
+5. ส่ง package เข้า Partner Center และตรวจ validation/WACK/Store identity/update/upgrade ก่อนเผยแพร่
+6. แยกงานปรับ build-tool advisories, legacy test harnesses, translation parity และ chunk warnings ขออนุมัติก่อนเปลี่ยน dependency/แอป
+7. ARM64 ต้องสร้างและตรวจแยก ไม่อ้างว่า Appx x64 นี้เป็น native ARM64
+
+## 18. ผล Build/Test ล่าสุด — 2026-10-09
+
+| รายการ | sol-work ก่อนรวม | main หลังรวม |
+| --- | --- | --- |
+| Source commit | 403680d | f1793b1 |
+| npm ci | exit 0 | exit 0 |
+| npm run build | exit 0, 22.26 s | exit 0, 28.76 s |
+| Unit tests (36 ไฟล์) | 449/449, 53.026 s | 449/449, 61.245 s |
+| fail / cancelled / skipped | 0 / 0 / 0 | 0 / 0 / 0 |
+| git status หลังตรวจ | clean | clean และตรง origin/main หลัง push |
+
+ใช้ Node v24.21.0 / npm 11.19.0 ทั้งสองรอบ Git tree ก่อนแก้ HANDOFF นี้: `c043f9526c5954acc899ba881735d6c2b6417d94` เท่ากันระหว่าง main/sol-work ไม่มี conflict/การแก้แอปเพิ่มระหว่าง merge
+
+npm ci ติดตั้ง 381 packages, audit 382 installed packages; full audit รวม transitive/optional พบ 12 vulnerability records (9 moderate/3 high) ส่วน npm audit --omit=dev exit 0 พบ 0 ทั้งสองอย่างอ่านจากผลตรวจขั้น A Warning build/ci ทั้งหมดสรุปหัวข้อ 10 ไม่มีการรัน audit fix หรือ approve install scripts
+
+หลักฐานรอบนี้อยู่ใน ignored scratch: merge-a/merge-b npm-ci, build, tests logs และ merge-a audit JSON QA fixture directory ถูกสร้างแยกใหม่ ไม่ใช่โน้ตผู้ใช้
+
+ไม่ได้รันสคริปต์ scratch เก่า 6 ไฟล์ที่ไม่มีอยู่ ไม่เปิด Electron/browser app ไม่แตะ Google Drive หรือข้อมูลโน้ตจริง ไม่ทดสอบ native Store install/update รอบนี้ Appx จาก main ยังไม่สร้าง ณ เวลาแก้เอกสารนี้
+
+## 19. Privacy และขอบเขตการตรวจ
+
+ตรวจ added lines/changed filenames ของ 277 ไฟล์ก่อนรวม ไม่พบ .env, .bnote, BetterNote_Latest_Backup.json, tracked dist/release, private-key/token patterns หรือไฟล์เปลี่ยนที่ใหญ่กว่า 5 MiB หลัง cleanup ล่าสุดไม่พบ personal paths ใน diff ที่ตรวจ
+
+Commit `403680d` แก้ path ส่วนตัวในเอกสาร review 4 ไฟล์เป็น relative paths/QA placeholders เท่านั้น ประวัติ Git รุ่นเก่ายังอาจมีค่าเดิมอยู่ ไม่ rewrite history ตามข้อห้ามผู้ใช้ การตรวจ pattern ไม่ใช่หลักฐานว่าไม่มีค่าลับชนิดใดเลย และรอบนี้ไม่ได้ OCR รูปทุกไฟล์
+
+HANDOFF นี้ใช้เฉพาะ repository-relative references และ placeholders ห้ามใส่ absolute path ส่วนตัวหรือเนื้อหาโน้ต/credentials
+
+## 20. กฎสำหรับผู้รับงานต่อ
+
+- รักษาขอบเขตงาน/จุดอนุมัติล่าสุดของผู้ใช้ ห้ามแก้ app/dependencies เพื่อให้ตรวจผ่านโดยไม่ได้รับอนุญาต
+- งานย้ายระบบนี้แก้เฉพาะ HANDOFF ในขั้น D; ข้อยกเว้น version fallback/docs cleanup ก่อนรวมได้รับอนุมัติแยกแล้ว
+- ใช้ npm ci; ห้าม manual lock edits, force push, hard reset, rebase, squash หรือการลบ branch/tag
+- ไม่เปิดแอปหรือแตะโน้ตจริง/Drive/โฟลเดอร์ที่ผู้ใช้ห้ามในการตรวจนี้ Test fixtures ต้องอยู่ใน isolated QA
+- ไม่ commit outputs/โน้ต/สำรอง/ค่าลับ แสดงเพียงชื่อไฟล์และเลขบรรทัดเมื่อพบข้อมูลส่วนตัว
+- เมื่อพบ failure ที่กระทบแอปให้หยุดและถาม; รายงาน actual results/warnings และแยก synthetic tests จาก hardware/Store validation
+- ขั้น D รอ “commit ได้” หลังแสดง diff; ขั้น E รอ “ติด tag ได้” หลังผู้ใช้ทดสอบ Appx; ไม่ข้ามไปติด tag/เผยแพร่
+
+## 21. ประวัติการย้ายระบบ
+
+| Branch / Tag / Commit | สถานะและความหมาย |
+| --- | --- |
+| before-sol | tag เดิมก่อนเริ่มงาน Sol; เก็บไว้ |
+| sol-work | branch งานที่ผู้ใช้ทดสอบผ่าน; เก็บไว้ ไม่ลบ |
+| 896d3e9 | fallback เวอร์ชันอัปเดต ใช้เลขปัจจุบันและไม่เดาเลขล่าสุด; อนุมัติแยกแล้ว |
+| 403680d | cleanup path ส่วนตัวในเอกสาร review 4 ไฟล์; อนุมัติแยกแล้ว |
+| before-merge-sol | สร้าง/push บน main เดิม 82da22c7563434574247a4463c97f8464b102c46 |
+| main / f1793b1 | merge --no-ff sol-work ข้อความ merge: sol-work into main; push แล้ว |
+| v1.3.0 | ยังไม่สร้าง รอ Appx จาก main และคำอนุมัติผู้ใช้ |
+| after-sol-stable | ยังไม่สร้าง ต้องชี้ commit เดียวกับ main ที่สร้าง Appx ผ่านและผู้ใช้อนุมัติ |
+
+Store identity ที่เทียบแล้วไม่เปลี่ยน: JustStone.3453441DD0CC3, Publisher CN=01BEC724-2F5E-47FF-BC4E-71824A714A56, PublisherDisplayName JustStone, architecture x64 ค่า Partner Center ใน build.appx คงเดิม
