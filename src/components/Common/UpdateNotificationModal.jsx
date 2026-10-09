@@ -12,7 +12,7 @@ import {
   Layers
 } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
-import { openMicrosoftStore } from '../../services/updateService';
+import { CURRENT_APP_DISPLAY_VERSION, openMicrosoftStore } from '../../services/updateService';
 
 export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
   const { t, language } = useLanguage();
@@ -22,8 +22,8 @@ export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
 
   if (!isOpen || !updateData) return null;
 
-  const currentVersion = updateData.currentVersion || '1.2.0';
-  const latestVersion = updateData.latestVersion || '1.2.1';
+  const currentVersion = updateData.currentVersion || CURRENT_APP_DISPLAY_VERSION;
+  const latestVersion = updateData.latestVersion || '—';
 
   const localeMap = { en: 'en-US', th: 'th-TH', zh: 'zh-CN', ru: 'ru-RU' };
   const currentLocale = localeMap[language] || 'en-US';
