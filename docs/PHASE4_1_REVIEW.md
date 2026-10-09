@@ -32,7 +32,7 @@
 - หลังแก้ Electron: QA/betternote-ink-input-EWprcA/results.json
 - Migration หลังแก้: QA/betternote-migration-oe2CIw/results.json
 
-QA = C:/Users/มีเชว่โนหนึ่ง/.codex/visualizations/2026/10/05/01a10cdd-b8f1-7902-93ae-6373aed61a54
+QA = [local QA path]
 
 ## ผลตรวจ
 

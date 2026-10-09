@@ -48,7 +48,7 @@ Burst 20 เหตุการณ์ × 100 จุดย่อยยังเก
 - betternote-ink-input-PVD3DE/results.json — Electron 59
 - betternote-backup-preparation-nHAbTX/results.json — worker/PDF 8
 
-QA = C:/Users/มีเชว่โนหนึ่ง/.codex/visualizations/2026/10/05/01a10cdd-b8f1-7902-93ae-6373aed61a54
+QA = [local QA path]
 
 ใช้ข้อมูลและฐานข้อมูลจำลอง โปรไฟล์แยก บล็อก HTTP(S) ไม่เปิดแอปที่ติดตั้ง ไม่อ่านหรือเขียนโน้ต/Drive จริง การตรวจ pointer เป็นเหตุการณ์จำลองร่วมกับ mouse capture จริง ยังไม่ใช่ผลจาก stylus/digitizer จริง
 

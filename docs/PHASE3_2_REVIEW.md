@@ -79,36 +79,36 @@
 
 ตรวจ git status มี 33 ไฟล์ของงาน 3.2 รวมการแก้ Restore ไม่พบไฟล์ลับ/สำรองโน้ตในรายการหรือรูปแบบ credential ที่ตรวจ ไม่รวม core-js-banners และ node-compile-cache/ ยังไม่ git add/commit/push
 
-- D:/AI WorkShop/Codex/BetterNotePC/docs/PHASE3_2_REVIEW.md
-- D:/AI WorkShop/Codex/BetterNotePC/docs/SAFETY_PHASES.md
-- D:/AI WorkShop/Codex/BetterNotePC/electron/backupReader.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/electron/backupReader.worker.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/electron/backupReaderClient.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/electron/backupValidation.js
-- D:/AI WorkShop/Codex/BetterNotePC/electron/backupWriter.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/src/App.jsx
-- D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/LibraryView.jsx
-- D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/SettingsModal.jsx
-- D:/AI WorkShop/Codex/BetterNotePC/src/index.css
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/autoBackupService.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/backupController.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/backupReadStatus.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/backupRecovery.worker.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/backupRecoveryCore.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/backupRecoveryService.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/db.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/fileSystemService.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/i18n.js
-- D:/AI WorkShop/Codex/BetterNotePC/src/services/notebookHistoryService.js
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-controller.test.js
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-discovery.browser.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-reader-client.test.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-reader-large.test.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-reader.test.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-recovery.browser.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-recovery.test.js
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-status.browser.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/backup-writer.test.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/helpers/recovery-worker.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/local-persistence.browser.cjs
-- D:/AI WorkShop/Codex/BetterNotePC/tests/notebook-history.test.js
+- docs/PHASE3_2_REVIEW.md
+- docs/SAFETY_PHASES.md
+- electron/backupReader.cjs
+- electron/backupReader.worker.cjs
+- electron/backupReaderClient.cjs
+- electron/backupValidation.js
+- electron/backupWriter.cjs
+- src/App.jsx
+- src/components/Library/LibraryView.jsx
+- src/components/Library/SettingsModal.jsx
+- src/index.css
+- src/services/autoBackupService.js
+- src/services/backupController.js
+- src/services/backupReadStatus.js
+- src/services/backupRecovery.worker.js
+- src/services/backupRecoveryCore.js
+- src/services/backupRecoveryService.js
+- src/services/db.js
+- src/services/fileSystemService.js
+- src/services/i18n.js
+- src/services/notebookHistoryService.js
+- tests/backup-controller.test.js
+- tests/backup-discovery.browser.cjs
+- tests/backup-reader-client.test.cjs
+- tests/backup-reader-large.test.cjs
+- tests/backup-reader.test.cjs
+- tests/backup-recovery.browser.cjs
+- tests/backup-recovery.test.js
+- tests/backup-status.browser.cjs
+- tests/backup-writer.test.cjs
+- tests/helpers/recovery-worker.cjs
+- tests/local-persistence.browser.cjs
+- tests/notebook-history.test.js

@@ -166,29 +166,29 @@ Production build ผ่าน 2132 modules; ยังมี warning static/dynam
 
 | ไฟล์ | สิ่งที่เปลี่ยน |
 | --- | --- |
-| [electron/main.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/main.cjs>) | ส่งงานสำรองไป worker และเปิดโฟลเดอร์แบบ async |
-| [electron/preload.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/preload.cjs>) | ส่ง notebook ID สำหรับการลบสำรองถาวร |
-| [electron/backupWriter.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backupWriter.cjs>) | ตรวจและเขียนไฟล์สำรอง เก็บรุ่นเดิม ป้องกันข้อมูลชน |
-| [electron/backupWorkerClient.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backupWorkerClient.cjs>) | คิวรับส่งงานกับ worker และจัดการ worker ล้มเหลว |
-| [electron/backup.worker.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backup.worker.cjs>) | ทำงานไฟล์ใน Node worker |
-| [src/App.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/App.jsx>) | เปิดรายละเอียดจากแถบแท็บ และลบสำรองถาวรเพียงครั้งเดียว |
-| [src/components/Common/DocumentTabBar.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/DocumentTabBar.jsx>) | ปุ่มสถานะสำรองข้างสถานะเซฟในเครื่อง |
-| [src/components/Common/BackupStatusIndicator.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/BackupStatusIndicator.jsx>) | สถานะร่วมและผลแยกแต่ละปลายทาง |
-| [src/components/Common/GoogleDriveModal.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/GoogleDriveModal.jsx>) | ใช้ผลสำรองจริงและแยกการเขียนโฟลเดอร์จากคลาวด์ |
-| [src/components/Library/LibraryView.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/LibraryView.jsx>) | แสดงสถานะจริงและคงสำรองเมื่อย้ายสมุดเข้าถังขยะ |
-| [src/components/Library/BackupStatusModal.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/BackupStatusModal.jsx>) | รายละเอียดรุ่นล่าสุด จำนวนไฟล์ และผลของการลองสำรอง |
-| [src/index.css](<D:/AI WorkShop/Codex/BetterNotePC/src/index.css>) | หน้าตาปุ่มและกรอบสถานะ รองรับพาธยาวและหน้าจอเล็ก |
-| [src/services/autoBackupService.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/autoBackupService.js>) | เชื่อมคิวเซฟ ตัวตรวจช่วงเขียน และ controller |
-| [src/services/backupController.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/backupController.js>) | คิวสำรอง สถานะตามรุ่นข้อมูล และการรอช่วงว่าง |
-| [src/services/db.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/db.js>) | แจ้งเมื่อ transaction สำเร็จ และอ่าน snapshot ใน transaction เดียว |
-| [src/services/i18n.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/i18n.js>) | ข้อความสถานะใหม่ 4 ภาษา |
-| [src/utils/backupRevision.js](<D:/AI WorkShop/Codex/BetterNotePC/src/utils/backupRevision.js>) | ตัวระบุรุ่นข้อมูลขนาดเล็ก |
-| [src/utils/backupPdf.js](<D:/AI WorkShop/Codex/BetterNotePC/src/utils/backupPdf.js>) | สร้าง PDF สำหรับสำรองพร้อมตรวจรูปและจำนวนหน้า |
-| [tests/backup-controller.test.js](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-controller.test.js>) | ทดสอบคิว รุ่นข้อมูล และสถานะ |
-| [tests/backup-writer.test.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-writer.test.cjs>) | ทดสอบไฟล์ล้มเหลว ชื่อซ้ำ รุ่นก่อน และข้อมูลจากหลายเครื่อง |
-| [tests/backup-worker.test.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-worker.test.cjs>) | ทดสอบ Node worker จริงด้วยโฟลเดอร์จำลอง |
-| [tests/backup-status.browser.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-status.browser.cjs>) | ทดสอบ React/IndexedDB/UI จริงกับ worker และข้อมูลจำลอง |
-| [docs/SAFETY_PHASES.md](<D:/AI WorkShop/Codex/BetterNotePC/docs/SAFETY_PHASES.md>) | บันทึกขอบเขต ผลตรวจ และรายการไฟล์เฟส 2 |
+| [electron/main.cjs](../electron/main.cjs) | ส่งงานสำรองไป worker และเปิดโฟลเดอร์แบบ async |
+| [electron/preload.cjs](../electron/preload.cjs) | ส่ง notebook ID สำหรับการลบสำรองถาวร |
+| [electron/backupWriter.cjs](../electron/backupWriter.cjs) | ตรวจและเขียนไฟล์สำรอง เก็บรุ่นเดิม ป้องกันข้อมูลชน |
+| [electron/backupWorkerClient.cjs](../electron/backupWorkerClient.cjs) | คิวรับส่งงานกับ worker และจัดการ worker ล้มเหลว |
+| [electron/backup.worker.cjs](../electron/backup.worker.cjs) | ทำงานไฟล์ใน Node worker |
+| [src/App.jsx](../src/App.jsx) | เปิดรายละเอียดจากแถบแท็บ และลบสำรองถาวรเพียงครั้งเดียว |
+| [src/components/Common/DocumentTabBar.jsx](../src/components/Common/DocumentTabBar.jsx) | ปุ่มสถานะสำรองข้างสถานะเซฟในเครื่อง |
+| [src/components/Common/BackupStatusIndicator.jsx](../src/components/Common/BackupStatusIndicator.jsx) | สถานะร่วมและผลแยกแต่ละปลายทาง |
+| [src/components/Common/GoogleDriveModal.jsx](../src/components/Common/GoogleDriveModal.jsx) | ใช้ผลสำรองจริงและแยกการเขียนโฟลเดอร์จากคลาวด์ |
+| [src/components/Library/LibraryView.jsx](../src/components/Library/LibraryView.jsx) | แสดงสถานะจริงและคงสำรองเมื่อย้ายสมุดเข้าถังขยะ |
+| [src/components/Library/BackupStatusModal.jsx](../src/components/Library/BackupStatusModal.jsx) | รายละเอียดรุ่นล่าสุด จำนวนไฟล์ และผลของการลองสำรอง |
+| [src/index.css](../src/index.css) | หน้าตาปุ่มและกรอบสถานะ รองรับพาธยาวและหน้าจอเล็ก |
+| [src/services/autoBackupService.js](../src/services/autoBackupService.js) | เชื่อมคิวเซฟ ตัวตรวจช่วงเขียน และ controller |
+| [src/services/backupController.js](../src/services/backupController.js) | คิวสำรอง สถานะตามรุ่นข้อมูล และการรอช่วงว่าง |
+| [src/services/db.js](../src/services/db.js) | แจ้งเมื่อ transaction สำเร็จ และอ่าน snapshot ใน transaction เดียว |
+| [src/services/i18n.js](../src/services/i18n.js) | ข้อความสถานะใหม่ 4 ภาษา |
+| [src/utils/backupRevision.js](../src/utils/backupRevision.js) | ตัวระบุรุ่นข้อมูลขนาดเล็ก |
+| [src/utils/backupPdf.js](../src/utils/backupPdf.js) | สร้าง PDF สำหรับสำรองพร้อมตรวจรูปและจำนวนหน้า |
+| [tests/backup-controller.test.js](../tests/backup-controller.test.js) | ทดสอบคิว รุ่นข้อมูล และสถานะ |
+| [tests/backup-writer.test.cjs](../tests/backup-writer.test.cjs) | ทดสอบไฟล์ล้มเหลว ชื่อซ้ำ รุ่นก่อน และข้อมูลจากหลายเครื่อง |
+| [tests/backup-worker.test.cjs](../tests/backup-worker.test.cjs) | ทดสอบ Node worker จริงด้วยโฟลเดอร์จำลอง |
+| [tests/backup-status.browser.cjs](../tests/backup-status.browser.cjs) | ทดสอบ React/IndexedDB/UI จริงกับ worker และข้อมูลจำลอง |
+| [docs/SAFETY_PHASES.md](SAFETY_PHASES.md) | บันทึกขอบเขต ผลตรวจ และรายการไฟล์เฟส 2 |
 
 ไฟล์ชั่วคราว core-js-banners และ node-compile-cache/ มีอยู่ก่อนเริ่มเฟส ไม่อ่าน ไม่ลบ และไม่รวมในการเซฟ
 รอผู้ใช้ตอบ “ตกลง” ตามกติกาเซฟ Git ก่อน add/commit/push ไป sol-work; ห้าม push main
@@ -230,29 +230,29 @@ Checkpoint ก่อนรอบนี้เซฟและ push ไป sol-work
 
 | ไฟล์ | สิ่งที่เปลี่ยน |
 | --- | --- |
-| [electron/backup.worker.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backup.worker.cjs>) | ส่งความคืบหน้าจาก worker |
-| [electron/backupWorkerClient.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backupWorkerClient.cjs>) | รับ progress และตรวจการหยุดตอบสนองของงาน |
-| [electron/backupWriter.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/backupWriter.cjs>) | หนึ่ง Local ปลายทาง ตรวจ hash ข้ามไฟล์เดิม และแยกข้อมูลกู้คืนจาก PDF |
-| [electron/main.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/main.cjs>) | ส่ง progress ให้หน้าจอแบบจำกัดความถี่ |
-| [electron/preload.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/preload.cjs>) | ช่องรับ progress และยกเลิก listener |
-| [src/App.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/App.jsx>) | ใช้หน้าต่างสำรองส่วนกลางหนึ่งหน้าต่าง |
-| [src/components/Common/BackupStatusIndicator.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/BackupStatusIndicator.jsx>) | แยกผลข้อมูลกู้คืนกับ PDF และผลตามปลายทาง |
-| [src/components/Common/BackupFilesTable.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/BackupFilesTable.jsx>) | ตารางไฟล์ จำนวน ขนาด เวลา และลอง PDF ใหม่เฉพาะเล่ม |
-| [src/components/Common/GoogleDriveModal.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/GoogleDriveModal.jsx>) | ทางเปิดเดิมพาไปหน้าต่างรวม |
-| [src/components/Common/GoogleDrivePanel.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Common/GoogleDrivePanel.jsx>) | บัญชี Google และ Drive Desktop แยกจาก Local ไม่อ้างการอัปโหลดที่ไม่มีผลยืนยัน |
-| [src/components/Library/BackupStatusModal.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/BackupStatusModal.jsx>) | หน้าต่างกว้างสองแท็บและผลของแท็บที่เลือก |
-| [src/components/Library/LibraryView.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/LibraryView.jsx>) | ปุ่มเดิมพาไปหน้าต่างส่วนกลาง |
-| [src/components/Library/SettingsModal.jsx](<D:/AI WorkShop/Codex/BetterNotePC/src/components/Library/SettingsModal.jsx>) | เหลือหนึ่งทางเข้า Backup & Sync |
-| [src/index.css](<D:/AI WorkShop/Codex/BetterNotePC/src/index.css>) | หน้าต่างใหม่ รองรับหน้าจอแคบ ธีม และคีย์บอร์ด |
-| [src/services/autoBackupService.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/autoBackupService.js>) | ตั้ง Local/Drive คนละปลายทางและรับ progress |
-| [src/services/backupController.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/backupController.js>) | ยืนยันข้อมูลก่อนทำ PDF ต่อและข้ามสมุดที่ไม่เปลี่ยน |
-| [src/services/i18n.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/i18n.js>) | ข้อความใหม่ครบ 4 ภาษา |
-| [src/utils/backupPdf.js](<D:/AI WorkShop/Codex/BetterNotePC/src/utils/backupPdf.js>) | แคชจำกัดขนาดและทำต่อจากหน้าที่ค้าง |
-| [tests/backup-controller.test.js](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-controller.test.js>) | ตรวจคิว สถานะ และข้อมูลก่อน PDF |
-| [tests/backup-status.browser.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-status.browser.cjs>) | ตรวจ React/IndexedDB/หน้าจอจริงด้วยข้อมูลจำลอง |
-| [tests/backup-worker.test.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-worker.test.cjs>) | ตรวจ native worker |
-| [tests/backup-writer.test.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/backup-writer.test.cjs>) | ตรวจไฟล์จริงในโฟลเดอร์จำลอง |
-| [docs/SAFETY_PHASES.md](<D:/AI WorkShop/Codex/BetterNotePC/docs/SAFETY_PHASES.md>) | บันทึกงานและผลตรวจรอบนี้ |
+| [electron/backup.worker.cjs](../electron/backup.worker.cjs) | ส่งความคืบหน้าจาก worker |
+| [electron/backupWorkerClient.cjs](../electron/backupWorkerClient.cjs) | รับ progress และตรวจการหยุดตอบสนองของงาน |
+| [electron/backupWriter.cjs](../electron/backupWriter.cjs) | หนึ่ง Local ปลายทาง ตรวจ hash ข้ามไฟล์เดิม และแยกข้อมูลกู้คืนจาก PDF |
+| [electron/main.cjs](../electron/main.cjs) | ส่ง progress ให้หน้าจอแบบจำกัดความถี่ |
+| [electron/preload.cjs](../electron/preload.cjs) | ช่องรับ progress และยกเลิก listener |
+| [src/App.jsx](../src/App.jsx) | ใช้หน้าต่างสำรองส่วนกลางหนึ่งหน้าต่าง |
+| [src/components/Common/BackupStatusIndicator.jsx](../src/components/Common/BackupStatusIndicator.jsx) | แยกผลข้อมูลกู้คืนกับ PDF และผลตามปลายทาง |
+| [src/components/Common/BackupFilesTable.jsx](../src/components/Common/BackupFilesTable.jsx) | ตารางไฟล์ จำนวน ขนาด เวลา และลอง PDF ใหม่เฉพาะเล่ม |
+| [src/components/Common/GoogleDriveModal.jsx](../src/components/Common/GoogleDriveModal.jsx) | ทางเปิดเดิมพาไปหน้าต่างรวม |
+| [src/components/Common/GoogleDrivePanel.jsx](../src/components/Common/GoogleDrivePanel.jsx) | บัญชี Google และ Drive Desktop แยกจาก Local ไม่อ้างการอัปโหลดที่ไม่มีผลยืนยัน |
+| [src/components/Library/BackupStatusModal.jsx](../src/components/Library/BackupStatusModal.jsx) | หน้าต่างกว้างสองแท็บและผลของแท็บที่เลือก |
+| [src/components/Library/LibraryView.jsx](../src/components/Library/LibraryView.jsx) | ปุ่มเดิมพาไปหน้าต่างส่วนกลาง |
+| [src/components/Library/SettingsModal.jsx](../src/components/Library/SettingsModal.jsx) | เหลือหนึ่งทางเข้า Backup & Sync |
+| [src/index.css](../src/index.css) | หน้าต่างใหม่ รองรับหน้าจอแคบ ธีม และคีย์บอร์ด |
+| [src/services/autoBackupService.js](../src/services/autoBackupService.js) | ตั้ง Local/Drive คนละปลายทางและรับ progress |
+| [src/services/backupController.js](../src/services/backupController.js) | ยืนยันข้อมูลก่อนทำ PDF ต่อและข้ามสมุดที่ไม่เปลี่ยน |
+| [src/services/i18n.js](../src/services/i18n.js) | ข้อความใหม่ครบ 4 ภาษา |
+| [src/utils/backupPdf.js](../src/utils/backupPdf.js) | แคชจำกัดขนาดและทำต่อจากหน้าที่ค้าง |
+| [tests/backup-controller.test.js](../tests/backup-controller.test.js) | ตรวจคิว สถานะ และข้อมูลก่อน PDF |
+| [tests/backup-status.browser.cjs](../tests/backup-status.browser.cjs) | ตรวจ React/IndexedDB/หน้าจอจริงด้วยข้อมูลจำลอง |
+| [tests/backup-worker.test.cjs](../tests/backup-worker.test.cjs) | ตรวจ native worker |
+| [tests/backup-writer.test.cjs](../tests/backup-writer.test.cjs) | ตรวจไฟล์จริงในโฟลเดอร์จำลอง |
+| [docs/SAFETY_PHASES.md](SAFETY_PHASES.md) | บันทึกงานและผลตรวจรอบนี้ |
 
 core-js-banners และ node-compile-cache/ เป็นไฟล์ชั่วคราวเดิม ไม่อ่าน ไม่ลบ และไม่รวมเซฟ
 
@@ -297,11 +297,11 @@ core-js-banners และ node-compile-cache/ เป็นไฟล์ชั่�
 รายชื่อเดิม 23 ไฟล์ด้านบนยังเป็นขอบเขตเดิมของรอบที่ยังไม่เซฟ มีเพิ่มอีก 5 ไฟล์ รวมเป็น 28 ไฟล์:
 | ไฟล์เพิ่มเติม | สิ่งที่เปลี่ยน |
 | --- | --- |
-| [electron/driveDesktop.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/driveDesktop.cjs>) | หาและเปิดแอป Drive ที่ติดตั้งไว้จาก IPC ของหน้าต่างหลักเท่านั้น |
-| [electron/googleDesktopAuth.cjs](<D:/AI WorkShop/Codex/BetterNotePC/electron/googleDesktopAuth.cjs>) | OAuth ผ่าน browser ระบบและ PKCE/callback ตรวจผล Google |
-| [src/services/googleDriveService.js](<D:/AI WorkShop/Codex/BetterNotePC/src/services/googleDriveService.js>) | เชื่อม native auth เก็บ token ในหน่วยความจำ และยกเลิกผลที่มาช้า |
-| [tests/drive-desktop.test.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/drive-desktop.test.cjs>) | ตรวจตัวเปิดแอปแบบจำลองและการตรวจ trusted frame |
-| [tests/google-desktop-auth.test.cjs](<D:/AI WorkShop/Codex/BetterNotePC/tests/google-desktop-auth.test.cjs>) | ตรวจ PKCE/callback/cancel/timeout ด้วย provider จำลองและ localhost จริง |
+| [electron/driveDesktop.cjs](../electron/driveDesktop.cjs) | หาและเปิดแอป Drive ที่ติดตั้งไว้จาก IPC ของหน้าต่างหลักเท่านั้น |
+| [electron/googleDesktopAuth.cjs](../electron/googleDesktopAuth.cjs) | OAuth ผ่าน browser ระบบและ PKCE/callback ตรวจผล Google |
+| [src/services/googleDriveService.js](../src/services/googleDriveService.js) | เชื่อม native auth เก็บ token ในหน่วยความจำ และยกเลิกผลที่มาช้า |
+| [tests/drive-desktop.test.cjs](../tests/drive-desktop.test.cjs) | ตรวจตัวเปิดแอปแบบจำลองและการตรวจ trusted frame |
+| [tests/google-desktop-auth.test.cjs](../tests/google-desktop-auth.test.cjs) | ตรวจ PKCE/callback/cancel/timeout ด้วย provider จำลองและ localhost จริง |
 
 ไฟล์ชั่วคราว core-js-banners และ node-compile-cache/ ไม่รวมเซฟ; ไม่พบ .env/.env.*, .bnote หรือ BetterNote_Latest_Backup.json ในรายการไฟล์ Git
 
