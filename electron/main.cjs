@@ -407,7 +407,11 @@ if (!gotTheLock) {
     }
   });
 
-  app.whenReady().then(() => { registerAssetProtocol(protocol,net,path.dirname(distPath)); createWindow(); });
+  app.whenReady().then(() => {
+    // Store packages receive their identity from Windows; unpackaged builds use our stable taskbar group.
+    if (process.platform === 'win32' && !process.windowsStore) app.setAppUserModelId('com.betternote.studio');
+    registerAssetProtocol(protocol,net,path.dirname(distPath)); createWindow();
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {

@@ -1,6 +1,8 @@
 // Bundle the actual offline workers for isolated browser tests.
 const fs = require('node:fs'), path = require('node:path'), esbuild = require('esbuild');
 exports.setupRecoveryWorker = build => {
+  // Styling is covered by production UI checks; in-memory logic harnesses have no CSS output file.
+  build.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'js' }));
   exports.setupPdfAssets(build);
   build.onResolve({ filter: /(?:backup(?:Recovery|Preparation)|editorPages|bnote|pdfRaster)\.worker\.js\?worker&inline$/ }, args => ({ path: args.path.includes('bnote.worker') ? 'bnote' : args.path.includes('pdfRaster') ? 'pdfRaster' : args.path.includes('editorPages') ? 'editorPages' : args.path.includes('backupPreparation') ? 'backupPreparation' : 'backupRecovery', namespace: 'qa-recovery-worker' }));
   build.onLoad({ filter: /.*/, namespace: 'qa-recovery-worker' }, async args => {

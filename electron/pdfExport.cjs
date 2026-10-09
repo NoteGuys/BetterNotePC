@@ -49,7 +49,7 @@ const registerPdfExport = (ipcMain, BrowserWindow, getMainWindow, {
             return url.protocol === 'file:' && !url.search && !url.hash && ownPaths.has(pathKey(fileURLToPath(url)));
           } catch (_) { return false; }
         };
-        win = new BrowserWindow({ show: false, width: 1200, height: 900, webPreferences: {
+        win = new BrowserWindow({ show: false, skipTaskbar: true, icon: path.join(__dirname, '../app-icon.ico'), width: 1200, height: 900, webPreferences: {
           nodeIntegration: false, contextIsolation: true, sandbox: true, javascript: false,
           backgroundThrottling: false, partition: 'betternote-pdf-' + randomUUID()
         } });

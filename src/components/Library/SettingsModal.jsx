@@ -31,6 +31,7 @@ import { appCacheService } from '../../services/appCacheService';
 import { useLanguage } from '../../services/i18n';
 import { 
   CURRENT_APP_VERSION,
+  CURRENT_APP_DISPLAY_VERSION,
   getInstalledAppInfo,
   checkForStoreUpdate, 
   openMicrosoftStore,
@@ -88,7 +89,7 @@ export const SettingsModal = ({
           onOpenUpdateModal(res);
         }
       } else if (res?.status === 'current') {
-        setCheckingUpdateMsg(t('updateIsLatest', `BetterNote ของคุณเป็นเวอร์ชันล่าสุดแล้ว (v${CURRENT_APP_VERSION})`, { version: res.currentVersion || appInfo.version }));
+        setCheckingUpdateMsg(t('updateIsLatest', `BetterNote ของคุณเป็นเวอร์ชันล่าสุดแล้ว (v${CURRENT_APP_VERSION})`, { version: (res.currentVersion || appInfo.version) === CURRENT_APP_VERSION ? CURRENT_APP_DISPLAY_VERSION : res.currentVersion || appInfo.version }));
         setTimeout(() => setCheckingUpdateMsg(null), 4000);
       } else {
         setCheckingUpdateMsg(t(res?.reason==='feed-not-configured'?'updateFeedUnavailable':'updateConnectError'));
@@ -618,7 +619,7 @@ export const SettingsModal = ({
                       </span>
                     </div>
                     <p className="bn-settings-card-desc">
-                      {t('updateSectionTitle', 'เวอร์ชันและการอัปเดต')} • Version {appInfo.version}
+                      {t('updateSectionTitle', 'เวอร์ชันและการอัปเดต')} • Version {appInfo.version === CURRENT_APP_VERSION ? CURRENT_APP_DISPLAY_VERSION : appInfo.version}
                     </p>
                   </div>
                 </div>
@@ -692,10 +693,15 @@ export const SettingsModal = ({
                   {t('updateFeaturesTitle', 'What\'s New & Improvements')}
                 </h5>
                 <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: '#cbd5e1', lineHeight: '1.5' }}>
-                  <li>{t('updateChangelog1')}</li>
-                  <li>{t('updateChangelog2')}</li>
-                  <li>{t('updateChangelog3')}</li>
-                  <li>{t('updateChangelog4')}</li>
+                  {[1, 2, 3, 4].map(index => <li key={index}>{t('updateChangelog' + index)}</li>)}
+                </ul>
+              </div>
+              <div className="bn-settings-card">
+                <h5 style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc', margin: '0 0 10px 0' }}>
+                  {t('updateBugFixesTitle')}
+                </h5>
+                <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                  {[1, 2, 3, 4, 5, 6].map(index => <li key={index}>{t('updateFix' + index)}</li>)}
                 </ul>
               </div>
             </div>

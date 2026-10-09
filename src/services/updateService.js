@@ -2,6 +2,7 @@ import packageInfo from '../../package.json' with { type:'json' };
 import { createUpdateChecker, openUpdateDestination, STORE_URL } from './updateCore.js';
 export {compareVersions,isNewerVersion,LAST_UPDATE_CHECK_DATE_KEY,STORE_PRODUCT_ID,STORE_URL,STORE_WEB_URL,RELEASES_URL} from './updateCore.js';
 export const CURRENT_APP_VERSION = packageInfo.version;
+export const CURRENT_APP_DISPLAY_VERSION = packageInfo.build?.buildVersion || CURRENT_APP_VERSION;
 const checker=createUpdateChecker({
   currentVersion:CURRENT_APP_VERSION,
   getStoreUpdate:async()=>window.electronAPI?.checkStoreUpdate?.(),

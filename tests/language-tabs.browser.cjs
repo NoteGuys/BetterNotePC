@@ -35,6 +35,8 @@ module.exports = async ({page, fixture, mount, flush, check, preview}) => {
     }
   });
   await check('Editor title, tabs and export subtitle translate legacy names without changing export filenames',async()=>{
+    // The title is in the overflow menu on Surface widths; this case covers the visible desktop title.
+    await page.setViewportSize({width:1900,height:1000});
     await page.evaluate(()=>qa.lang.setAppLanguage('en'));await mount(cardNotebook);
     // MountEditor normally uses a generic synthetic tab title; remount it with the raw stored title.
     await page.evaluate(nb=>qa.mountTabBar([{id:nb.id,title:nb.name,pageIndex:2}],nb.id),cardNotebook);
@@ -64,6 +66,7 @@ module.exports = async ({page, fixture, mount, flush, check, preview}) => {
       await page.evaluate(()=>{window.electronAPI.isElectron=qa.originalElectronFlag;if(qa.originalSavePicker)window.showSaveFilePicker=qa.originalSavePicker;else delete window.showSaveFilePicker;delete qa.exportPayload;delete qa.exportName;});
     }
     assert.equal(await page.evaluate(async()=>(await qa.db.getNotebookById('language-card')).name),legacyName);
+    await page.setViewportSize({width:1360,height:1000});
   });
   for(const locale of ['en','th','zh','ru']) {
     await check('New notebook copies use the selected ' + locale + ' suffix and preserve page content',async()=>{

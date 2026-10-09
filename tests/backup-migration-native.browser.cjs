@@ -59,7 +59,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('drive-sync-capabilities',event=>{trusted(event);return{protocol:1};});
  ipcMain.handle('save-auto-backup',(event,command)=>{trusted(event);for(const folder of[command.localBackupPath,command.driveBackupPath].filter(Boolean))assert.ok(folder===config.local||folder===config.drive);
   global.qaTelemetry.actions.push(command.action);return writer.execute(command,progress=>{if(!win.isDestroyed())win.webContents.send('backup-progress',progress);});});
- ipcMain.handle('scan-backup-folder',(event,folder,options)=>{trusted(event);assert.equal(folder,config.drive);global.qaTelemetry.reads.push(options?.syncMode||'discovery');return reader.execute({folderPath:folder,...options});});
+ ipcMain.handle('scan-backup-folder',(event,folder,options)=>{trusted(event);assert.ok(folder===config.drive||path.resolve(folder).startsWith(config.drive+path.sep));global.qaTelemetry.reads.push(options?.syncMode||'discovery');return reader.execute({folderPath:folder,...options});});
  app.on('window-all-closed',()=>app.quit());await win.loadFile(path.join(config.fixture,'index.html'));
 });
 app.on('will-quit',()=>{writer.close();reader.close();});
@@ -80,7 +80,7 @@ app.on('will-quit',()=>{writer.close();reader.close();});
   b=await launch('B');await seed(b,false);
   await check('Native receiver uses typed binary IPC and restores identical writing without an automation data bridge',async()=>{
    const session=await b.page.context().newCDPSession(b.page);await session.send('Profiler.enable');await session.send('Profiler.start');
-   await b.page.evaluate(()=>qa.measure());const result=await b.page.evaluate(()=>qa.backup.runAutoBackup({notebookIds:[]}));metrics.receiveAndSave=await b.page.evaluate(()=>qa.endMeasure());
+   await b.page.evaluate(()=>qa.measure());const result=await b.page.evaluate(async drive=>{const sources=await qa.backup.listRestoreSources(drive);if(!sources.success)throw Error(JSON.stringify(sources));return qa.backup.restoreFromCloudBackup(sources.folders[0].folder);},drive);metrics.receiveAndSave=await b.page.evaluate(()=>qa.endMeasure());
    const {profile}=await session.send('Profiler.stop');await disk.writeFile(path.join(fixture,'receive-cpu-profile.json'),JSON.stringify(profile));
    const nodes=new Map(profile.nodes.map(n=>[n.id,n.callFrame])),hot=new Map();profile.samples.forEach((id,i)=>{const node=nodes.get(id),key=node.functionName||('(anonymous) '+node.url.split('/').at(-1)+':'+(node.lineNumber+1));hot.set(key,(hot.get(key)||0)+(profile.timeDeltas[i]||0)/1000);});
    metrics.receiveHotFunctions=Array.from(hot,([name,sampledMs])=>({name,sampledMs})).sort((a,b)=>b.sampledMs-a.sampledMs).slice(0,10);await session.detach();
@@ -95,9 +95,9 @@ app.on('will-quit',()=>{writer.close();reader.close();});
    const hash=await b.page.evaluate(()=>qa.hash());await b.page.evaluate(()=>{qa.backup.stopScheduledSync();qa.renderer.unmount();});await b.application.close();
    const reopened=await launch('B');b=reopened;assert.equal(await reopened.page.evaluate(()=>qa.hash()),hash);assert.equal(await reopened.page.evaluate(async()=>(await qa.db.getBackupNotebookSnapshot('native-large')).pages.length),24);
   });
-  await check('Native idle sync reads only metadata and performs no disk writes',async()=>{
+  await check('Native repeated backup reuses notebook data and never reads another device automatically',async()=>{
    await b.application.evaluate(()=>{global.qaTelemetry={reads:[],actions:[]};});await b.page.evaluate(()=>qa.backup.runAutoBackup({checkDriveOnly:true}));
-   const seen=await b.application.evaluate(()=>global.qaTelemetry);assert.deepEqual(seen.actions,[]);assert.deepEqual(seen.reads.filter(x=>x!=='discovery'),['preview']);
+   const seen=await b.application.evaluate(()=>global.qaTelemetry);assert.ok(seen.actions.every(action=>['begin','reuse','finish','status','inspect'].includes(action)),JSON.stringify(seen));assert.deepEqual(seen.reads,[]);
   });
   await check('Native renderer has no unhandled errors',async()=>assert.deepEqual(errors,[]));
   const report={passed:passed.length,failed:0,fixture,metrics,syntheticOnly:true,realDriveAccess:false,realElectron:true,actualPreload:true,offlineFileOrigin:true};

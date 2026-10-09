@@ -47,6 +47,8 @@ import { localizeNotebookCopyName } from '../../utils/notebookNames';
 import { autoBackupService } from '../../services/autoBackupService';
 import { backupReadErrorKey } from '../../services/backupReadStatus';
 
+const UserGuide = React.lazy(() => import('../Guide/UserGuide'));
+
 export const LibraryView = ({
   folders = [],
   notebooks = [],
@@ -646,7 +648,7 @@ export const LibraryView = ({
         activeView={activeView}
         onSelectView={(view) => {
           setActiveView(view);
-          if (view !== 'documents') {
+          if (view !== 'documents' && view !== 'guide') {
             onNavigateFolder(null);
           }
         }}
@@ -657,7 +659,9 @@ export const LibraryView = ({
       />
 
       {/* 2. Main Content Workspace */}
-      <div className="bn-studio-main">
+      {activeView === 'guide' ? (
+        <React.Suspense fallback={<div className="bn-studio-main" aria-busy="true" />}><UserGuide /></React.Suspense>
+      ) : <div className="bn-studio-main">
         {/* Top Header Section */}
         <header className="bn-gn-topbar">
           {/* Left: Breadcrumbs & Back Arrow & Title */}
@@ -1599,7 +1603,7 @@ export const LibraryView = ({
             </>
           )}
         </main>
-      </div>
+      </div>}
 
       {/* Floating Toast Notification */}
       {toastMessage && (

@@ -1,7 +1,7 @@
 {
   "name": "betternote",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Ultra-responsive digital handwriting, PDF annotation, and stylus notebook for Windows and Surface PC",
   "author": "NoteGuys",
   "type": "module",
@@ -39,6 +39,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "app-icon.ico",
       "package.json"
     ],
     "win": {
@@ -62,6 +63,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "BetterNotePC"
-    }
+    },
+    "buildVersion": "1.3.0.0"
   }
 }
