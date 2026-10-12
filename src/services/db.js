@@ -856,6 +856,19 @@ export const getBackupMetadata = async () => {
     }
   });
 };
+export const getBackupNotebookDescription = async notebookId => {
+  const db=await openDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(['notebooks','pages'],'readonly');let notebook;const pages=[];
+    const request=tx.objectStore('notebooks').get(notebookId);request.onsuccess=()=>{notebook=request.result;};
+    const cursorRequest=tx.objectStore('pages').index('notebookId').openCursor(notebookId);
+    cursorRequest.onsuccess=()=>{const cursor=cursorRequest.result;if(!cursor)return;const p=cursor.value;
+      pages.push({id:p.id,updatedAt:p.updatedAt,pageIndex:p.pageIndex,templateId:p.templateId,pageWidth:p.pageWidth,pageHeight:p.pageHeight});cursor.continue();};
+    tx.oncomplete=()=>resolve(notebook?{...notebook,pages:pages.sort((a,b)=>a.pageIndex-b.pageIndex)}:null);
+    tx.onabort=()=>reject(tx.error||Error('Notebook description unavailable'));tx.onerror=()=>{};
+  });
+};
+
 export const getBackupNotebookSnapshot = async notebookId => {
   const db = await openDB();
   return new Promise((resolve, reject) => {

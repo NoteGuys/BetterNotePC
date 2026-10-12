@@ -1,5 +1,6 @@
 import { savePage, getPendingWriteCount, subscribePendingWrites, waitForPendingWrites } from './db.js';
 import { notebookHistoryStore } from './notebookHistoryService.js';
+import {performanceMetrics} from '../utils/performanceMetrics.js';
 
 // Pending snapshots belong to the app, so switching/unmounting an editor cannot
 // discard failed saves. Committed snapshots are released immediately.
@@ -31,7 +32,8 @@ export const createPageSaveQueue = (writePage) => {
         const page = entry.page;
         const revision = entry.revision;
         try {
-          await writePage(page);
+          const started=performance.now();
+          try{await writePage(page);}finally{performanceMetrics.record('save',performance.now()-started);}
           settle(entry, revision);
           if (entry.revision === revision) {
             if (entries.get(page.id) === entry) entries.delete(page.id);

@@ -176,14 +176,14 @@ export const createBackupController = ({ getMetadata, getNotebook, waitForLocalS
           if (!targets.some(target => !target.error && !hasConflicts(target) && !Object.hasOwn(target.notebookIssues || {}, info.id) &&
             target.notebooks?.[info.id]?.editable?.revision === notebookBackupRevision(info))) continue;
           if (pathsKey(await readPaths()) !== pathsKey(paths) || generation !== startGeneration && metadataPending) break;
-          if (recoveryPauses || !canRenderPdf()) { pdfDeferred = true; break; }
+          if (recoveryPauses || !canRenderPdf({automatic:!!options.automatic})) { pdfDeferred = true; break; }
           const note = await getNotebook(info.id, { pdf: true });
           if (!note?.pages?.length || notebookBackupRevision(note) !== notebookBackupRevision(info)) { pdfDeferred = true; continue; }
           pdfProgress = { ...pdfProgress, notebookId: info.id, name: info.name, page: 0, totalPages: note.pages.length, rendered:0,reused:0,currentCompleted:false }; publish();
           let base64 = null, pdfError = null;
           try {
             base64 = await makePdf(note, page => {
-              if (recoveryPauses || !canRenderPdf()) throw new Error('pdf-backup-deferred');
+              if (recoveryPauses || !canRenderPdf({automatic:!!options.automatic})) throw new Error('pdf-backup-deferred');
               if (page?.page) { pdfProgress = { ...pdfProgress, page: page.page, totalPages: page.totalPages || note.pages.length, ...(page.rendered!==undefined?{rendered:page.rendered,reused:page.reused}:{}) }; publish(); }
             }, { force: !!options.forcePdf });
             if (!base64) pdfError = 'pdf-backup-incomplete';

@@ -1,101 +1,29 @@
+import {runForegroundJob} from '../services/foregroundJobs.js';
 import { pageForPdfExport } from '../services/pdfRasterService.js';
 // PDF Export Engine for BetterNote using jsPDF & Canvas
 import { jsPDF } from 'jspdf';
 import { isWhiteboardPage } from './whiteboard.js';
-import { renderWhiteboardToDataUrl, getWhiteboardPdfDimensions } from './whiteboardExport.js';
-import { renderPaperBackground } from './paperRenderer.js';
-import { renderAllStrokes } from './inkingEngine.js';
-import { PAPER_TEMPLATES } from '../data/templates.js';
+import { getWhiteboardPdfDimensions } from './whiteboardExport.js';
 import { buildExportDocument, documentFromSections, exportPageSection, downloadExportBlob, renderExportPageImage } from './exportDocument.js';
 
 /**
  * Render a single page to an offscreen canvas and return data URL
  */
-export const renderPageToCanvasDataUrl = async (page, templateId = 'ruled', width = 1200, height = 1600) => {
+const renderPageToCanvasDataUrlImpl = async (page, templateId = 'ruled', width = 1200, height = 1600) => {
   page = await pageForPdfExport(page);
-  if (isWhiteboardPage(page, templateId)) return renderWhiteboardToDataUrl(page);
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(100, Number(page.pageWidth) || width || 1200);
-  canvas.height = Math.max(100, Number(page.pageHeight) || height || 1600);
-  const ctx = canvas.getContext('2d');
-
-  // 1. Draw PDF page background or Paper template (with timeout safety to prevent hanging promises)
-  if (page.pdfPageImage) {
-    await new Promise((resolve) => {
-      const img = new Image();
-      const timer = setTimeout(resolve, 3000);
-      img.onload = () => {
-        clearTimeout(timer);
-        try {
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        } catch (_) {}
-        resolve();
-      };
-      img.onerror = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      img.src = page.pdfPageImage;
+  for(const src of [page.pdfPageImage,...(page.imageElements||[]).map(image=>image.src)].filter(Boolean)) {
+    if(!/^data:image\//i.test(src))throw Error('Image is unavailable for offline capture');
+    await new Promise((resolve,reject)=>{
+      const image=new Image();let finished=false;
+      const finish=error=>{if(finished)return;finished=true;clearTimeout(timer);image.onload=image.onerror=null;image.src='';error?reject(error):resolve();};
+      const timer=setTimeout(()=>finish(Error('Image capture timed out')),30000);
+      image.onload=()=>finish(image.naturalWidth>0&&image.naturalHeight>0?null:Error('Image is unavailable for capture'));
+      image.onerror=()=>finish(Error('Image is unavailable for capture'));image.src=src;
     });
-  } else {
-    const tmpl = PAPER_TEMPLATES.find(t => t.id === (page.templateId || templateId)) || PAPER_TEMPLATES[0];
-    renderPaperBackground(ctx, canvas.width, canvas.height, tmpl);
   }
-
-  // Helper to draw image elements on canvas (with timeout safety)
-  const drawImages = async (imgs) => {
-    if (!imgs || imgs.length === 0) return;
-    for (const imgEl of imgs) {
-      if (imgEl.src) {
-        await new Promise((resolve) => {
-          const img = new Image();
-          const timer = setTimeout(resolve, 3000);
-          img.onload = () => {
-            clearTimeout(timer);
-            try {
-              ctx.drawImage(img, imgEl.x, imgEl.y, imgEl.width, imgEl.height);
-            } catch (_) {}
-            resolve();
-          };
-          img.onerror = () => {
-            clearTimeout(timer);
-            resolve();
-          };
-          img.src = imgEl.src;
-        });
-      }
-    }
-  };
-
-  // 2. Draw under-ink image elements (handwriting can be drawn over them)
-  const underImages = (page.imageElements || []).filter(img => img.layer !== 'over');
-  await drawImages(underImages);
-
-  // 3. Draw all handwritten strokes
-  if (page.strokes && page.strokes.length > 0) {
-    renderAllStrokes(ctx, page.strokes);
-  }
-
-  // 3.5 Draw over-ink image elements (images placed in front of ink)
-  const overImages = (page.imageElements || []).filter(img => img.layer === 'over');
-  await drawImages(overImages);
-
-  // 4. Draw text boxes
-  if (page.textElements && page.textElements.length > 0) {
-    for (const txt of page.textElements) {
-      ctx.save();
-      ctx.font = `${txt.bold ? 'bold' : 'normal'} ${txt.fontSize || 18}px ${txt.fontFamily || 'sans-serif'}`;
-      ctx.fillStyle = txt.color || '#000000';
-      const lines = (txt.text || '').split('\n');
-      const lineHeight = (txt.fontSize || 18) * 1.35;
-      lines.forEach((line, index) => {
-        ctx.fillText(line, txt.x, txt.y + index * lineHeight);
-      });
-      ctx.restore();
-    }
-  }
-
-  return canvas.toDataURL('image/jpeg', 0.92);
+  const normalized={...page,pageWidth:page.pageWidth||width,pageHeight:page.pageHeight||height};
+  const result=await renderExportPageImage(normalized,templateId,getPagePdfDimensions,{format:'jpeg',dpi:150});
+  return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Unable to prepare page image'));reader.readAsDataURL(result.blob);});
 };
 
 /**
@@ -125,7 +53,7 @@ export const getPagePdfDimensions = (page, templateId) => {
 /**
  * Export full notebook as a PDF document preserving natural aspect ratio
  */
-export const exportNotebookToPdf = async (notebook, pages, onProgress = null, { loadPage } = {}) => {
+const exportNotebookToPdfImpl = async (notebook, pages, onProgress = null, { loadPage } = {}) => {
   if (!pages || pages.length === 0) {
     throw new Error('สมุดบันทึกไม่มีหน้าเอกสารให้ส่งออก');
   }
@@ -225,7 +153,7 @@ export const exportNotebookToPdf = async (notebook, pages, onProgress = null, { 
 /**
  * Export single page as a PDF document preserving natural aspect ratio
  */
-export const exportSinglePageToPdf = async (notebook, page, pageIndex = 0) => {
+const exportSinglePageToPdfImpl = async (notebook, page, pageIndex = 0) => {
   if (!page) {
     throw new Error('ไม่พบข้อมูลหน้าเอกสารที่ต้องการส่งออก');
   }
@@ -308,3 +236,9 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
 // Explicit image exports only; backup and preview renderers keep their original defaults.
 export const exportPageAsImage = async (page, templateId, options) =>
   renderExportPageImage(await pageForPdfExport(page), templateId, getPagePdfDimensions, options);
+
+export const exportSinglePageToPdf=(...args)=>runForegroundJob(()=>exportSinglePageToPdfImpl(...args));
+
+export const exportNotebookToPdf=(...args)=>runForegroundJob(()=>exportNotebookToPdfImpl(...args));
+
+export const renderPageToCanvasDataUrl=(...args)=>runForegroundJob(()=>renderPageToCanvasDataUrlImpl(...args));

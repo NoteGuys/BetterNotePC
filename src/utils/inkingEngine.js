@@ -72,7 +72,7 @@ export const calculateTaper = (index, totalPoints, isTapered = true) => {
  */
 const angularShapeTypes = new Set(['line', 'rectangle', 'square', 'triangle', 'arrow', 'polyline']);
 
-export const renderStroke = (ctx, stroke) => {
+export const renderStroke = (ctx, stroke, segmentRange = null) => {
   const { 
     tool, 
     color, 
@@ -194,18 +194,23 @@ export const renderStroke = (ctx, stroke) => {
   }
 
   // For Pen with Tapered Start & End (คมต้นคมปลาย) & Dynamic Pressure
-  let prevMidPoint = getMidPoint(points[0], points[1]);
+  const segmentStart = segmentRange?.start ?? 1;
+  const segmentEnd = segmentRange?.end ?? points.length - 1;
+  let prevMidPoint = getMidPoint(points[Math.max(0,segmentStart-1)], points[segmentStart]);
 
-  // Initial leader line
-  const startTaper = calculateTaper(0, points.length, isTapered);
-  ctx.lineWidth = calculateNibWidth(nibType, width, points[0].pressure || 0.5, startTaper, pressureSensitivity, usePressure);
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  ctx.lineTo(prevMidPoint.x, prevMidPoint.y);
-  ctx.stroke();
+  // Range previews use identical pressure/taper mathematics and segment order.
+  if (segmentRange?.leader !== false) {
+    // Initial leader line
+    const startTaper = calculateTaper(0, points.length, isTapered);
+    ctx.lineWidth = calculateNibWidth(nibType, width, points[0].pressure || 0.5, startTaper, pressureSensitivity, usePressure);
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(prevMidPoint.x, prevMidPoint.y);
+    ctx.stroke();
 
+  }
   // Segments with dynamic width
-  for (let i = 1; i < points.length - 1; i++) {
+  for (let i = segmentStart; i < segmentEnd; i++) {
     const pCurrent = points[i];
     const pNext = points[i + 1];
     const midPoint = getMidPoint(pCurrent, pNext);
@@ -222,14 +227,16 @@ export const renderStroke = (ctx, stroke) => {
     prevMidPoint = midPoint;
   }
 
-  // Final tail line (sharp needle end)
-  const lastIndex = points.length - 1;
-  const endTaper = calculateTaper(lastIndex, points.length, isTapered);
-  ctx.lineWidth = calculateNibWidth(nibType, width, points[lastIndex].pressure || 0.3, endTaper, pressureSensitivity, usePressure);
-  ctx.beginPath();
-  ctx.moveTo(prevMidPoint.x, prevMidPoint.y);
-  ctx.lineTo(points[lastIndex].x, points[lastIndex].y);
-  ctx.stroke();
+  if (segmentRange?.tail !== false) {
+    // Final tail line (sharp needle end)
+    const lastIndex = points.length - 1;
+    const endTaper = calculateTaper(lastIndex, points.length, isTapered);
+    ctx.lineWidth = calculateNibWidth(nibType, width, points[lastIndex].pressure || 0.3, endTaper, pressureSensitivity, usePressure);
+    ctx.beginPath();
+    ctx.moveTo(prevMidPoint.x, prevMidPoint.y);
+    ctx.lineTo(points[lastIndex].x, points[lastIndex].y);
+    ctx.stroke();
+  }
 
   ctx.restore();
 };

@@ -1,5 +1,5 @@
 // File System Service for Local Disk & Synced Cloud Drive (Google Drive/OneDrive folder)
-import { getAllFolders, getAllNotebooks, getPagesByNotebookId } from './db';
+import {prepareFullBackupBlob} from './fullBackupService.js';
 import { restoreBackup } from './backupRecoveryService.js';
 import { importPortableBnote, validateBnoteBlob, saveNativeBnote } from './bnoteService.js';
 
@@ -54,27 +54,7 @@ export const saveFileToDisk = async (blob, suggestedName, fileTypes = null) => {
  * Export full BetterNote database to a local backup file
  */
 export const exportFullBackup = async () => {
-  const folders = await getAllFolders({ includeRetired: true });
-  const notebooks = await getAllNotebooks();
-
-  const backupData = {
-    version: 1,
-    appName: 'BetterNote',
-    exportDate: new Date().toISOString(),
-    folders,
-    notebooks: []
-  };
-
-  for (const nb of notebooks) {
-    const pages = await getPagesByNotebookId(nb.id);
-    backupData.notebooks.push({
-      ...nb,
-      pages
-    });
-  }
-
-  const jsonStr = JSON.stringify(backupData, null, 2);
-  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const blob = await prepareFullBackupBlob();
   const filename = `BetterNote_Backup_${new Date().toISOString().slice(0, 10)}.json`;
 
   return await saveFileToDisk(blob, filename);

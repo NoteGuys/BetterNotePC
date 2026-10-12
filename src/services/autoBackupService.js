@@ -4,6 +4,8 @@ import { createBackupPreparationService } from './backupPreparationService.js';
 import { createBackupController } from './backupController.js';
 import { resolveBackupReadFolder, backupReadErrorKey } from './backupReadStatus.js';
 import { t } from './i18n';
+import {hasForegroundJobs} from './foregroundJobs.js';
+import {canStartBackgroundPdf} from '../utils/backgroundPdfPolicy.js';
 import { restoreBackup, configureRecoveryBackups } from './backupRecoveryService.js';
 // Backup is outbound only. Import is performed exclusively by an explicit recovery action.
 const idleSync=()=>{const snapshot=Object.freeze({status:'idle'});return {getSnapshot:()=>snapshot,subscribe:()=>()=>{},stop:()=>{}};};
@@ -28,7 +30,7 @@ class AutoBackupService {
           ? (await getSetting('gdrive_backup_path')) || null : null
       }),
       makePdf: (note, check, options) => this.preparation.makePdf(note, check, options),
-      canRenderPdf: () => this.pointerIds.size === 0 && getLocalSaveSnapshot().status === 'saved' && Date.now() - this.lastInput > 700,
+      canRenderPdf: (options={}) => canStartBackgroundPdf({paused:hasForegroundJobs(),automatic:options.automatic!==false,pointers:this.pointerIds.size,lastInput:this.lastInput,saved:getLocalSaveSnapshot().status==='saved',hidden:typeof document!=='undefined'&&document.hidden}),
       persist: data => saveSetting('backup_v2_checkpoint', data)
     });
     configureRecoveryBackups(() => this.controller.pauseForRecovery());
@@ -88,17 +90,18 @@ class AutoBackupService {
       ? window.electronAPI.onBackupProgress(event => this.controller.nativeProgress(event)) : () => {};
     const down = e => {
       this.pointerIds.add(e.pointerId);
-      if (e.target?.closest?.('canvas')) { this.canvasPointerIds.add(e.pointerId); this.lastInput = Date.now(); }
+      this.lastInput = Date.now();
+      if (e.target?.closest?.('canvas')) this.canvasPointerIds.add(e.pointerId);
     };
     const up = e => {
       this.pointerIds.delete(e.pointerId);
-      if (this.canvasPointerIds.delete(e.pointerId)) this.lastInput = Date.now();
+      this.canvasPointerIds.delete(e.pointerId); this.lastInput = Date.now();
     };
     const move = e => { if (e.pointerType !== 'touch' && !e.buttons) { this.pointerIds.delete(e.pointerId); this.canvasPointerIds.delete(e.pointerId); } };
     const blur = () => { this.pointerIds.clear(); this.canvasPointerIds.clear(); };
     const key = e => { if (e.target?.closest?.('input,textarea,[contenteditable="true"]')) this.lastInput = Date.now(); };
     const events = [['pointerdown', down], ['pointerup', up], ['pointercancel', up],
-      ['lostpointercapture', up], ['pointermove', move], ['blur', blur], ['keydown', key]];
+      ['lostpointercapture', up], ['pointermove', move], ['blur', blur], ['keydown', key], ['wheel',()=>{this.lastInput=Date.now();}]];
     if (typeof window !== 'undefined') events.forEach(([event, handler]) => window.addEventListener(event, handler, { capture: true, passive: true }));
     this.stopSubscriptions = () => {
       offData(); offLocal(); offProgress();

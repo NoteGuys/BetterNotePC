@@ -1,5 +1,6 @@
+import {assertJsonSize} from '../utils/jsonSizeBudget.js';
 import { openRasterPdf, rasterPdfPage, pdfBytesFromUrl, configurePdfAssets } from '../utils/pdfRaster.js';
-import { getBackupNotebookSnapshot, getBackupMetadata } from './db.js';
+import { getBackupNotebookSnapshot, getBackupMetadata, getBackupNotebookDescription } from './db.js';
 import { notebookBackupRevision } from '../utils/backupRevision.js';
 import { notebookPdfRevision } from './backupController.js';
 import { createVerifiedBackupPdfRenderer } from '../utils/backupPdf.js';
@@ -46,7 +47,7 @@ const execute = async data => {
   active = data.requestId;configurePdfAssets(data.assets);
   try {
     if (data.action === 'metadata') { self.postMessage({requestId:active,result:await getBackupMetadata()}); return; }
-    const note = await getBackupNotebookSnapshot(data.id);
+    const note = await (data.action==='describe'?getBackupNotebookDescription(data.id):getBackupNotebookSnapshot(data.id));
     if (!note?.pages?.length) throw new Error('notebook-snapshot-unavailable');
     const description = describe(note);
     if (data.action === 'pdf') {
@@ -56,6 +57,7 @@ const execute = async data => {
       const bytes = await renderer.render(note,progress=>{if(progress?.rendered!==undefined)self.postMessage({requestId:active,pdfCacheProgress:progress});}, {force:!!data.force});
       self.postMessage({requestId:active,result:bytes},[bytes]);
     } else if (data.action === 'snapshot') {
+      assertJsonSize(note);
       const bytes = new TextEncoder().encode(JSON.stringify(note)).buffer;
       if (bytes.byteLength > 272 * 1048576) throw new Error('backup-too-large');
       self.postMessage({requestId:active,result:{...description,backupEncoded:bytes}},[bytes]);

@@ -2,6 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
+import {startPerformanceMonitor} from './services/performanceMonitor.js';
+startPerformanceMonitor();
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -15,6 +17,7 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('BetterNote caught an unhandled error:', error, errorInfo);
+    window.electronAPI?.recordPerformance?.({event:'renderer-error',scope:'renderer'});
   }
 
   render() {

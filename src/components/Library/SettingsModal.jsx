@@ -687,6 +687,8 @@ export const SettingsModal = ({
                 </div>
               </div>
 
+              {window.electronAPI?.exportDiagnostics && <button type="button" className="bn-settings-btn-alt" onClick={async()=>{const result=await window.electronAPI.exportDiagnostics();if(!result.success&&!result.canceled)setCheckingUpdateMsg(language==='th'?'บันทึกรายงานไม่สำเร็จ กรุณาลองใหม่':'Unable to save report. Please retry.');}}>{language==='th'?'บันทึกรายงานเพื่อแจ้งปัญหา':'Save diagnostic report'}</button>}
+
               {/* What's New in Current Version */}
               <div className="bn-settings-card">
                 <h5 style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc', margin: '0 0 10px 0' }}>

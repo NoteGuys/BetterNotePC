@@ -9,7 +9,7 @@ const fixture = (response = 0) => {
   const sent = [], timers = new Map(), messages = [];
   let timerId = 0;
   Object.assign(window, {
-    webContents: { mainFrame: {}, send: (channel, data) => sent.push({ channel, data }) },
+    webContents: Object.assign(new EventEmitter(), { mainFrame: {}, send: (channel, data) => sent.push({ channel, data }) }),
     destroyed: false, closed: 0, focused: 0,
     isDestroyed() { return this.destroyed; },
     focus() { this.focused++; },
@@ -20,7 +20,13 @@ const fixture = (response = 0) => {
       return event;
     }
   });
-  const trusted = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  // Electron's BrowserWindow getter throws after the native window is destroyed.
+  const contents = window.webContents;
+  Object.defineProperty(window, 'webContents', { get() {
+    if (this.destroyed) throw new TypeError('Object has been destroyed');
+    return contents;
+  } });
+  const trusted = { sender: contents, senderFrame: contents.mainFrame };
   const dispose = installLocalSaveGuard({
     window, ipcMain,
     dialog: { showMessageBox: async (_window, options) => { messages.push(options); return { response }; } },
@@ -30,7 +36,7 @@ const fixture = (response = 0) => {
   const ready = () => ipcMain.emit('local-save-ready', trusted, { labels: { message: 'Translated message' } });
   const request = () => sent.filter(message => message.channel === 'local-save-before-close').at(-1).data.requestId;
   const reply = (success, event = trusted, requestId = request()) => ipcMain.emit('local-save-close-result', event, { requestId, success });
-  return { ipcMain, window, sent, timers, messages, trusted, ready, request, reply, dispose };
+  return { ipcMain, window, contents, sent, timers, messages, trusted, ready, request, reply, dispose };
 };
 
 test('Closing before the renderer can edit does not wait for a nonexistent listener', () => {
@@ -96,4 +102,18 @@ test('A spoofed readiness message cannot enable or reconfigure the guard', () =>
   const f = fixture();
   f.ipcMain.emit('local-save-ready', { sender: {} }, { labels: { message: 'Spoof' } });
   f.window.close(); assert.equal(f.window.closed, 1);
+});
+
+test('A crashed renderer releases the pending close acknowledgement instead of trapping the window',()=>{
+ const f=fixture();f.ready();f.window.close();f.window.webContents.emit('render-process-gone',{}, {reason:'crashed'});assert.equal(f.window.close().prevented,false);assert.equal(f.window.closed,1);
+});
+
+test('Closing a destroyed native window removes the renderer listener without reading its getter', () => {
+ const f=fixture();f.ready();f.window.close();
+ assert.equal(f.contents.listenerCount('render-process-gone'),1);
+ assert.doesNotThrow(()=>f.reply(true));
+ assert.equal(f.window.closed,1);assert.throws(()=>f.window.webContents,/Object has been destroyed/);
+ assert.equal(f.contents.listenerCount('render-process-gone'),0);
+ assert.equal(f.ipcMain.listenerCount('local-save-ready'),0);assert.equal(f.ipcMain.listenerCount('local-save-close-result'),0);
+ assert.equal(f.window.listenerCount('close'),0);assert.equal(f.timers.size,0);assert.doesNotThrow(()=>f.dispose());
 });

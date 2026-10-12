@@ -4,7 +4,7 @@ exports.setupRecoveryWorker = build => {
   // Styling is covered by production UI checks; in-memory logic harnesses have no CSS output file.
   build.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'js' }));
   exports.setupPdfAssets(build);
-  build.onResolve({ filter: /(?:backup(?:Recovery|Preparation)|editorPages|bnote|pdfRaster)\.worker\.js\?worker&inline$/ }, args => ({ path: args.path.includes('bnote.worker') ? 'bnote' : args.path.includes('pdfRaster') ? 'pdfRaster' : args.path.includes('editorPages') ? 'editorPages' : args.path.includes('backupPreparation') ? 'backupPreparation' : 'backupRecovery', namespace: 'qa-recovery-worker' }));
+  build.onResolve({ filter: /(?:backup(?:Recovery|Preparation)|editorPages|bnote|pdfRaster|fullBackup)\.worker\.js\?worker&inline$/ }, args => ({ path: args.path.includes('fullBackup.worker') ? 'fullBackup' : args.path.includes('bnote.worker') ? 'bnote' : args.path.includes('pdfRaster') ? 'pdfRaster' : args.path.includes('editorPages') ? 'editorPages' : args.path.includes('backupPreparation') ? 'backupPreparation' : 'backupRecovery', namespace: 'qa-recovery-worker' }));
   build.onLoad({ filter: /.*/, namespace: 'qa-recovery-worker' }, async args => {
     const root = path.resolve(__dirname, '../..');
     if (process.env.BETTERNOTE_QA_BUILT_WORKER === '1') {

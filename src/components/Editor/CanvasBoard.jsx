@@ -1,5 +1,7 @@
 import { cachedPdfRaster, loadPdfRaster } from '../../services/pdfRasterService.js';
 import { canvasRasterScale, appendedStrokeStart } from '../../utils/canvasBudget.js';
+import {createInkPreview} from '../../utils/inkPreview.js';
+import {performanceMetrics} from '../../utils/performanceMetrics.js';
 import React, { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import { renderPaperBackground } from '../../utils/paperRenderer';
 import { 
@@ -163,9 +165,13 @@ export const CanvasBoard = ({
   const currentPointsRef = useRef([]);
   const inkFrameRef = useRef(null);
   const shapePreviewRef = useRef(null);
+  const inkPreviewRef = useRef(null);
+  const inkFrameStartedRef = useRef(null);
   const cancelInkPreview = useCallback(() => {
+    inkPreviewRef.current?.reset();
     if (inkFrameRef.current !== null) cancelAnimationFrame(inkFrameRef.current);
     inkFrameRef.current = null;
+    inkFrameStartedRef.current = null;
     shapePreviewRef.current = null;
   }, []);
   const strokeStartTimeRef = useRef(0);
@@ -464,8 +470,11 @@ export const CanvasBoard = ({
   // Keep the established nib/taper renderer so saved and preview ink match.
   const scheduleInkPreview = () => {
     if (inkFrameRef.current !== null) return;
+    inkFrameStartedRef.current=performance.now();
     inkFrameRef.current = requestAnimationFrame(() => {
       inkFrameRef.current = null;
+      if(inkFrameStartedRef.current!==null)performanceMetrics.record('frame',performance.now()-inkFrameStartedRef.current);
+      inkFrameStartedRef.current=null;
       if (!isDrawingRef.current || heldShapeRef.current) return;
       const canvas = activeCanvasRef.current;
       if (!canvas) return;
@@ -473,16 +482,22 @@ export const CanvasBoard = ({
       const ctx = canvas.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      renderStroke(ctx, {
-        tool: activeTool, color: activeColor, width: activeWidth,
-        points: currentPointsRef.current, nibType: penNib, highlighterTip,
-        isTapered, usePressure, pressureSensitivity
+      if(!inkPreviewRef.current)inkPreviewRef.current=createInkPreview(()=>{
+        const layer=staticCanvasRef.current;if(!layer)return;
+        const committed=layer.getContext('2d');committed.setTransform(dpr,0,0,dpr,0,0);
+        committed.clearRect(0,0,canvasWidth,canvasHeight);renderAllStrokes(committed,latestStrokesRef.current);
       });
+      const started=performance.now();
+      const committed=staticCanvasRef.current?.getContext('2d');
+      committed?.setTransform(dpr,0,0,dpr,0,0);
+      const ink={tool:activeTool,color:activeColor,width:activeWidth,points:currentPointsRef.current,nibType:penNib,highlighterTip,isTapered,usePressure,pressureSensitivity};
+      if(committed)inkPreviewRef.current.draw(committed,ctx,ink);else renderStroke(ctx,ink);
+      performanceMetrics.record('ink',performance.now()-started);
     });
   };
 
-  useEffect(() => () => cancelInkPreview(),
-    [page?.id, activeTool, canvasWidth, canvasHeight, cancelInkPreview]);
+  useEffect(() => () => {cancelInkPreview();inkPreviewRef.current=null;},
+    [page?.id, activeTool, canvasWidth, canvasHeight, rasterScale, cancelInkPreview]);
 
   // Navigation belongs to NoteEditor (or WhiteboardBoard), never both layers.
   // Keep touch timestamps and the existing paste hold; fingers still never draw ink.

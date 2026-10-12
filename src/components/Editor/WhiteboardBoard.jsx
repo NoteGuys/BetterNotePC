@@ -114,9 +114,11 @@ export const WhiteboardBoard = ({ page, zoom = 1, onViewportChange, ...props }) 
   }, []);
 
   const records = useMemo(() => Object.fromEntries(['strokes', 'imageElements', 'textElements'].map(kind => [kind, (page[kind] || []).map(item => ({ item, box: getElementBounds(item, kind) }))])), [page.strokes, page.imageElements, page.textElements]);
-  const worldViewport = { ...view, width: size.width / zoom, height: size.height / zoom };
-  const visible = Object.fromEntries(Object.entries(records).map(([kind, entries]) => [kind, entries.filter(record => intersectsViewport(record.box, worldViewport) || (kind === 'textElements' && !record.item.text?.trim())).map(record => record.item)]));
-  const viewportPage = { ...page, pageWidth: size.width, pageHeight: size.height, ...Object.fromEntries(Object.entries(visible).map(([kind, items]) => [kind, items.map(item => transformElement(item, kind, view, zoom))])) };
+  const worldViewport = useMemo(()=>({ ...view, width: size.width / zoom, height: size.height / zoom }),[view,size.width,size.height,zoom]);
+  const visible = useMemo(()=>Object.fromEntries(Object.entries(records).map(([kind, entries]) => [kind, entries.filter(record => intersectsViewport(record.box, worldViewport) || (kind === 'textElements' && !record.item.text?.trim())).map(record => record.item)])),[records,worldViewport]);
+  const transform = useMemo(()=>{const cache=new WeakMap();return (item,kind)=>{let result=cache.get(item);if(!result){result=transformElement(item,kind,view,zoom);cache.set(item,result);}return result;};},[view.x,view.y,zoom]);
+  const projected = useMemo(()=>Object.fromEntries(Object.entries(visible).map(([kind,items])=>[kind,items.map(item=>transform(item,kind))])),[visible,transform]);
+  const viewportPage = { ...page, pageWidth: size.width, pageHeight: size.height, ...projected };
   const update = (updates, options) => {
     const worldUpdates = {};
     for (const kind of ['strokes', 'imageElements', 'textElements']) if (updates[kind] !== undefined) {

@@ -2,6 +2,8 @@
 // window close until the trusted renderer acknowledges local persistence.
 const installLocalSaveGuard = ({ window, ipcMain, dialog, timeoutMs = 15000,
   schedule = setTimeout, cancel = clearTimeout }) => {
+  // Keep the EventEmitter reference before BrowserWindow's native getter is destroyed.
+  const contents = window.webContents;
   let ready = false, allowed = false, pending = null, sequence = 0, showingDialog = false, readyLabels;
   const trusted = event => event.sender === window.webContents &&
     event.senderFrame === window.webContents.mainFrame;
@@ -51,13 +53,16 @@ const installLocalSaveGuard = ({ window, ipcMain, dialog, timeoutMs = 15000,
       window.close();
     } else void fail(result.labels);
   };
+  const rendererGone = () => {ready=false;if(pending)cancel(pending.timer);pending=null;};
   const dispose = () => {
+    contents.removeListener('render-process-gone', rendererGone);
     if (pending) cancel(pending.timer);
     pending = null;
     ipcMain.removeListener('local-save-ready', onReady);
     ipcMain.removeListener('local-save-close-result', onResult);
     window.removeListener('close', onClose);
   };
+  contents.on('render-process-gone', rendererGone);
   window.on('close', onClose);
   window.once('closed', dispose);
   ipcMain.on('local-save-ready', onReady);

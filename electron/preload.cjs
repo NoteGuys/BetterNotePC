@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
+  recordPerformance: data => ipcRenderer.invoke('record-performance', data).catch(()=>{}),
+  exportDiagnostics: () => ipcRenderer.invoke('export-diagnostics'),
   saveBnote: command => ipcRenderer.invoke('save-bnote-file', command),
   checkStoreUpdate: () => ipcRenderer.invoke('check-store-update'),
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),

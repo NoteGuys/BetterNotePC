@@ -7,20 +7,23 @@ const { registerDriveDesktop } = require('./driveDesktop.cjs');
 const { registerGoogleDesktopAuth } = require('./googleDesktopAuth.cjs');
 const { createGoogleTokenExchange } = require('./googleTokenExchange.cjs');
 const { GOOGLE_TOKEN_BROKER_URL } = require('./googleOAuthConfig.cjs');
-
-// Surface Pro Hardware Acceleration, High-DPI & Touch/Stylus Flags
-app.commandLine.appendSwitch('enable-features', 'TouchEvents,VaapiVideoDecoder');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('high-dpi-support', '1');
+const readImageFile = require('./imageRead.cjs').createImageReader();
+let diagnostics;
+// Hardware A/B testing is opt-in for unpackaged builds; keep release settings.
+const gpuProfile=require('./gpuProfile.cjs').configureGpuProfile(app);
 
 const { ASSET_SCHEME, createGuardedIpc, protectWindow, registerAssetProtocol } = require('./appSecurity.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:ASSET_SCHEME,privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);
 const distPath = path.join(__dirname,'../dist/index.html');
 const devUrl = process.env.NODE_ENV === 'development' && process.argv.includes('--dev') ? 'http://localhost:3000/' : null;
 let mainWindow = null;
-const guardedIpc = createGuardedIpc(ipcMain,()=>mainWindow,distPath,devUrl);
+const trustedIpc = createGuardedIpc(ipcMain,()=>mainWindow,distPath,devUrl);
+const operationChannels={'save-auto-backup':'backup','scan-backup-folder':'restore','export-pdf-document':'pdf','read-clipboard-image':'clipboard','select-image':'image'};
+const guardedIpc={handle(channel,handler){trustedIpc.handle(channel,async(event,...args)=>{
+  const operation=operationChannels[channel];if(operation)diagnostics?.record({event:'operation',operation,phase:'start'});
+  try{return await handler(event,...args);}catch(error){if(operation)diagnostics?.record({event:'operation',operation,phase:'failed'});throw error;}
+  finally{if(operation)diagnostics?.record({event:'operation',operation,phase:'finish'});}
+});}};
 
 // Backup disk work and serialization run in a worker, not the Electron UI process.
 let backupClient;
@@ -115,6 +118,20 @@ function createWindow() {
   });
 
   protectWindow(mainWindow,distPath,devUrl);
+  mainWindow.webContents.on('render-process-gone',(_event,details)=>diagnostics?.record({event:'renderer-gone',...details}));
+  mainWindow.on('unresponsive',()=>diagnostics?.record({event:'unresponsive'}));
+  mainWindow.on('responsive',()=>diagnostics?.record({event:'responsive'}));
+  let lastReport=0;
+  guardedIpc.handle('record-performance',(_event,data)=>{if(Date.now()-lastReport<100)return;lastReport=Date.now();for(const item of (Array.isArray(data)?data.slice(0,4):[data]))if(item?.event==='renderer-error'||item?.event==='performance')diagnostics?.record(item);});
+  let exportingDiagnostics=false;
+  guardedIpc.handle('export-diagnostics',async()=>{
+    if(exportingDiagnostics)return {success:false,canceled:true};exportingDiagnostics=true;
+    try {
+      const result=await dialog.showSaveDialog(mainWindow,{defaultPath:'BetterNote-diagnostics.jsonl',filters:[{name:'Diagnostic report',extensions:['jsonl']}]});
+      if(result.canceled||!result.filePath)return {success:false,canceled:true};
+      await diagnostics.exportReport(result.filePath);return {success:true};
+    }catch(_){return {success:false};}finally{exportingDiagnostics=false;}
+  });
   installLocalSaveGuard({ window: mainWindow, ipcMain, dialog });
   registerDriveDesktop({ ipcMain: guardedIpc, shell, getWindow: () => mainWindow });
   registerGoogleDesktopAuth({ ipcMain: guardedIpc, shell, getWindow: () => mainWindow,
@@ -251,8 +268,7 @@ function createWindow() {
       const extension = path.extname(filePath).slice(1).toLowerCase();
       const mimeType = Object.hasOwn(mimeTypes, extension) ? mimeTypes[extension] : null;
       if (!mimeType) return { success: false, error: 'unsupported-image' };
-      const data = await fs.promises.readFile(filePath);
-      return { success: true, dataUrl: `data:${mimeType};base64,${data.toString('base64')}` };
+      return await readImageFile(filePath);
     } catch (_) {
       return { success: false, error: 'image-read-failed' };
     }
@@ -323,19 +339,7 @@ function createWindow() {
 
       const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.svg'];
       if (filePath && imageExtensions.some(ext => filePath.toLowerCase().endsWith(ext))) {
-        if (fs.existsSync(filePath)) {
-          const ext = path.extname(filePath).slice(1).toLowerCase();
-          const mime = ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
-          const buffer = fs.readFileSync(filePath);
-          const base64 = buffer.toString('base64');
-          const dataUrl = `data:${mime};base64,${base64}`;
-          return {
-            success: true,
-            dataUrl,
-            width: 600,
-            height: 450
-          };
-        }
+        return await readImageFile(filePath);
       }
 
       // 4. Check HTML snippet in clipboard (e.g. copied an image element from a web page)
@@ -410,7 +414,20 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     // Store packages receive their identity from Windows; unpackaged builds use our stable taskbar group.
     if (process.platform === 'win32' && !process.windowsStore) app.setAppUserModelId('com.betternote.studio');
+    diagnostics=require('./performanceDiagnostics.cjs').createDiagnosticLog({directory:path.join(app.getPath('userData'),'diagnostics'),version:app.getVersion(),runtime:process.versions.electron});
+    diagnostics.record({event:'startup',gpuProfile});
+    let gpuReadPending=false;
+    const recordGpu=()=>{
+      if(gpuReadPending)return;gpuReadPending=true;
+      app.getGPUInfo('basic').then(info=>{const gpu=info.gpuDevice?.find(item=>item.active)||info.gpuDevice?.[0];diagnostics.record({event:'gpu-info',gpu:app.getGPUFeatureStatus(),vendorId:gpu?.vendorId,deviceId:gpu?.deviceId,driverVersion:gpu?.driverVersion||info.auxAttributes?.driverVersion});}).catch(()=>{}).finally(()=>{gpuReadPending=false;});
+    };
+    app.on('gpu-info-update',recordGpu);
+    app.on('child-process-gone',(_event,details)=>diagnostics.record({event:'child-gone',...details}));
+    const sample=()=>{try{const metrics=app.getAppMetrics();diagnostics.record({event:'resources',processCount:metrics.length,workingSetKiB:metrics.reduce((n,p)=>n+(p.memory?.workingSetSize||0),0),privateKiB:metrics.reduce((n,p)=>n+(p.memory?.privateBytes||0),0),peakWorkingSetKiB:metrics.reduce((n,p)=>n+(p.memory?.peakWorkingSetSize||0),0),cpuPercent:metrics.reduce((n,p)=>n+(p.cpu?.percentCPUUsage||0),0)});}catch(_){}};
+    const sampler=setInterval(sample,30000);sampler.unref();sample();
+    app.once('will-quit',()=>clearInterval(sampler));
     registerAssetProtocol(protocol,net,path.dirname(distPath)); createWindow();
+    mainWindow.webContents.once('did-finish-load',recordGpu);
   });
 
   app.on('window-all-closed', () => {
