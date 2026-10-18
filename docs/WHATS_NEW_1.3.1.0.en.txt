@@ -1,0 +1,13 @@
+What's new in BetterNote 1.3.1.0
+
+• Improved memory use when working with large notebooks, images and PDFs. Pages and high-resolution backgrounds load as needed.
+• Improved handwriting rendering and background task scheduling to keep writing responsive.
+• Fixed segmented cracks and visible joins in exported handwriting when viewing PDFs in Microsoft Edge.
+• Reused unchanged PDF pages during backup preparation, reducing repeated work after small edits.
+• Improved cleanup when cancelling PDF imports and exports.
+• Fixed the “Object has been destroyed” error on close and improved closing from minimized or hidden windows while waiting for local saves.
+• Improved Surface Pen handling for Export options and the close button. Popup menus now stay within the window near its edges.
+• Added Spanish, German and Arabic (Beta), including translated help content.
+• Expanded Settings and added links to previous releases and feedback.
+
+Arabic is available as a beta translation. This release keeps the existing notebook and backup formats.

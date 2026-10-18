@@ -1,4 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { languageLocale } from '../../services/languageCatalog.js';
+import React, { useState, useEffect } from 'react';
+import { ViewportPopover } from '../Common/ViewportPopover';
+import { usePenButtonTap } from '../../utils/usePenButtonTap';
 import { 
   ChevronDown, 
   Star, 
@@ -38,7 +41,7 @@ export const NotebookCard = ({
   const [showMenu, setShowMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [firstPageThumbnail, setFirstPageThumbnail] = useState(notebook.pdfCoverSnapshot || null);
-  const menuRef = useRef(null);
+  const penTap = usePenButtonTap();
 
   const usesThumbnailCover = notebook.coverId === THUMBNAIL_COVER_ID;
   const cachedThumbnail = /^data:image\/png;base64,/i.test(notebook.firstPageThumbnail?.dataUrl || '') ? notebook.firstPageThumbnail.dataUrl : null;
@@ -73,17 +76,6 @@ export const NotebookCard = ({
     return () => { isMounted = false; };
   }, [notebook.id, notebook.pdfCoverSnapshot, notebook.isPdf, usesThumbnailCover]);
 
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setShowMenu(false);
-      }
-    };
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMenu]);
 
   // Multilingual Date formatting
   const formatLocalizedDate = (timestamp) => {
@@ -94,6 +86,7 @@ export const NotebookCard = ({
       return 'Jul 1, 2026 at 1:07 PM';
     }
     const date = new Date(timestamp);
+    if (['ar','es','de'].includes(language)) return date.toLocaleString(languageLocale(language), {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     if (language === 'zh') {
       return date.toLocaleString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
     }
@@ -151,7 +144,7 @@ export const NotebookCard = ({
   };
 
   return (
-    <div 
+    <div {...penTap}
       className={`bn-gn-notebook-card ${isDragging ? 'opacity-50 scale-95' : ''} ${isSelected ? 'bn-card-is-selected' : ''}`}
       draggable={!isSelectMode}
       onDragStart={handleDragStart}
@@ -288,8 +281,7 @@ export const NotebookCard = ({
 
       {/* Studio Notebook Context Menu (Screenshot 3) */}
       {showMenu && (
-        <div 
-          ref={menuRef}
+        <ViewportPopover align="center" onDismiss={() => setShowMenu(false)}><div
           className="bn-gn-context-menu bn-gn-notebook-menu"
           onClick={(e) => e.stopPropagation()}
         >
@@ -354,7 +346,7 @@ export const NotebookCard = ({
             <Trash2 size={16} />
             <span>{t('moveToTrash', 'ย้ายไปยังถังขยะ')}</span>
           </button>
-        </div>
+        </div></ViewportPopover>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 // Persistent User Preferences Service for BetterNote Studio
 // Stores and restores pen, color, width, pressure, palm rejection, and view modes
 
+import { LANGUAGE_CODES, applyLanguageToDom } from './languageCatalog.js';
 const PREFERENCES_STORAGE_KEY = 'betternote_user_preferences';
 
 
@@ -34,7 +35,7 @@ export const DEFAULT_TOOL_WIDTH_SLOTS = {
 
 export const DEFAULT_PREFERENCES = {
   theme: 'dark', // 'dark' | 'light'
-  language: 'en', // 'en' | 'th' | 'zh' | 'ru'
+  language: 'en', // Supported codes are shared with languageCatalog.js.
   activeTool: 'pen',
   activeColor: '#2563eb', // Royal Blue
   activeWidth: 3.5,
@@ -79,7 +80,7 @@ export const loadEditorPreferences = () => {
     let resolvedLanguage = DEFAULT_PREFERENCES.language;
     try {
       const savedLang = localStorage.getItem('betternote_language');
-      const validLangs = ['en', 'th', 'zh', 'ru'];
+      const validLangs = LANGUAGE_CODES;
       if (validLangs.includes(savedLang)) {
         resolvedLanguage = savedLang;
       } else if (validLangs.includes(parsed.language)) {
@@ -149,12 +150,12 @@ export const applyThemeToDom = (theme) => {
 };
 
 /**
- * Get current language ('th' | 'en')
+ * Get the current supported language.
  */
 export const getAppLanguage = () => {
   try {
     const saved = localStorage.getItem('betternote_language');
-    if (saved === 'en' || saved === 'th') return saved;
+    if (LANGUAGE_CODES.includes(saved)) return saved;
   } catch (_) {}
   const prefs = loadEditorPreferences();
   return prefs.language || 'th';
@@ -164,7 +165,8 @@ export const getAppLanguage = () => {
  * Set application language
  */
 export const setAppLanguage = (lang) => {
-  const normalized = lang === 'en' ? 'en' : 'th';
+  const normalized = LANGUAGE_CODES.includes(lang) ? lang : 'en';
+  applyLanguageToDom(normalized);
   saveEditorPreferences({ language: normalized });
   try {
     localStorage.setItem('betternote_language', normalized);

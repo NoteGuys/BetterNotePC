@@ -1371,7 +1371,7 @@ export const CanvasBoard = ({
     
     // 4. Automatically switch back to Pen tool so Snipping Tool does not stay active!
     if (onToolChange) onToolChange('pen');
-    showToast(language === 'en' ? 'Pasted image onto this page! 📋' : 'วางภาพลงในหน้านี้เรียบร้อย! 📋');
+    showToast(t('imagePasted'));
   };
 
   // Close Snip Modal and return to Pen tool
@@ -1506,7 +1506,7 @@ export const CanvasBoard = ({
         onImageElementsChange(newImages);
       }
       setSelectedImageId(newImg.id);
-      showToast(language === 'en' ? 'Pasted image successfully! 📋✨' : 'วางรูปภาพสำเร็จ! 📋✨');
+      showToast(t('imagePasted'));
     };
     img.src = imgDataUrl;
   };
@@ -1556,7 +1556,7 @@ export const CanvasBoard = ({
     const updated = imageElements.map(img => {
       if (img.id === imgId) {
         const nextLayer = img.layer === 'over' ? 'under' : 'over';
-        showToast(nextLayer === 'over' ? (language === 'en' ? 'Moved image to: In front of handwriting 📄🔝' : 'ย้ายรูปภาพไป: หน้ารอยเขียน 📄🔝') : (language === 'en' ? 'Moved image to: Behind handwriting ✍️📄' : 'ย้ายรูปภาพไป: ใต้รอยเขียน (เขียนทับภาพได้) ✍️📄'));
+        showToast(nextLayer === 'over' ? (t('imageAboveToast')) : (t('imageBehindToast')));
         return { ...img, layer: nextLayer };
       }
       return img;
@@ -1578,7 +1578,7 @@ export const CanvasBoard = ({
           setLassoSelection(null);
           setShowLassoColorPicker(false);
         }
-        showToast(nextLocked ? (language === 'en' ? 'Image position locked 🔒' : 'ล็อกตำแหน่งรูปภาพแล้ว 🔒') : (language === 'en' ? 'Image position unlocked 🔓' : 'ปลดล็อกรูปภาพแล้ว 🔓'));
+        showToast(nextLocked ? (t('imageLockedToast')) : (t('imageUnlockedToast')));
         return { ...img, locked: nextLocked };
       }
       return img;
@@ -1806,8 +1806,8 @@ export const CanvasBoard = ({
       setSelectedImageId(null);
     }
     showToast(nextLocked
-      ? (language === 'en' ? 'Image position locked 🔒' : 'ล็อกตำแหน่งรูปภาพแล้ว 🔒')
-      : (language === 'en' ? 'Image position unlocked 🔓' : 'ปลดล็อกรูปภาพแล้ว 🔓'));
+      ? (t('imageLockedToast'))
+      : (t('imageUnlockedToast')));
   };
 
   // Lasso Selection Drag (Move) Handlers - Zero-Flicker 60fps
@@ -2235,7 +2235,7 @@ export const CanvasBoard = ({
       onStrokesChange(newStrokes);
     }
     setShowLassoColorPicker(false);
-    showToast(language === 'en' ? 'Recolored selected strokes! 🎨' : 'เปลี่ยนสีลายเส้นที่เลือกแล้ว! 🎨');
+    showToast(t('selectionRecolored'));
   };
 
   const handleLassoDuplicate = () => {
@@ -2293,7 +2293,7 @@ export const CanvasBoard = ({
         height: lassoSelection.bbox.height
       }
     });
-    showToast(language === 'en' ? 'Duplicated selection! 📋' : 'คัดลอกส่วนที่เลือกแล้ว (Duplicated) 📋');
+    showToast(t('selectionDuplicated'));
   };
 
   const handleLassoDelete = () => {
@@ -2327,7 +2327,7 @@ export const CanvasBoard = ({
     }
     setLassoSelection(null);
     setShowLassoColorPicker(false);
-    showToast(language === 'en' ? 'Deleted selection! 🗑️' : 'ลบส่วนที่เลือกแล้ว 🗑️');
+    showToast(t('selectionDeleted'));
   };
 
   // Reusable Image Element Renderer with Layer Status, Locking, and Action Bar
@@ -2700,10 +2700,10 @@ export const CanvasBoard = ({
                     e.stopPropagation(); 
                     setShowLassoColorPicker(!showLassoColorPicker); 
                   }}
-                  title={language === 'en' ? 'Recolor selected strokes' : 'เปลี่ยนสีลายเส้นที่เลือก'}
+                  title={t('recolorSelected')}
                 >
                   <Palette size={13} className="text-blue-400" />
-                  <span>{language === 'en' ? 'Recolor' : 'เปลี่ยนสี'}</span>
+                  <span>{t('recolor')}</span>
                 </button>
 
                 {/* Studio style Color Palette Popover */}
@@ -2725,7 +2725,7 @@ export const CanvasBoard = ({
                           e.stopPropagation(); 
                           handleLassoRecolor(col); 
                         }}
-                        title={language === 'en' ? `Change to ${col}` : `เปลี่ยนเป็นสี ${col}`}
+                        title={t('changeToColor','',{color:col})}
                       />
                     ))}
                     <ColorWheelPicker value={activeColor} onChange={color => {
@@ -2782,7 +2782,7 @@ export const CanvasBoard = ({
                   setLassoSelection(null); 
                   setShowLassoColorPicker(false);
                 }}
-                title={language === 'en' ? 'Deselect (Close)' : 'ยกเลิกการเลือก (Close)'}
+                title={t('deselect')}
               >
                 <X size={14} />
               </button>
@@ -2797,28 +2797,28 @@ export const CanvasBoard = ({
                   onPointerDown={(e) => handleLassoResizePointerDown(e, 'nw')}
                   onPointerMove={handleLassoResizePointerMove}
                   onPointerUp={handleLassoResizePointerUp}
-                  title={language === 'en' ? 'Resize (Top-Left)' : 'ย่อ/ขยาย (บนซ้าย)'}
+                  title={t('resizeTopLeft')}
                 />
                 <div
                   className="bn-lasso-corner-handle bn-lasso-corner-ne"
                   onPointerDown={(e) => handleLassoResizePointerDown(e, 'ne')}
                   onPointerMove={handleLassoResizePointerMove}
                   onPointerUp={handleLassoResizePointerUp}
-                  title={language === 'en' ? 'Resize (Top-Right)' : 'ย่อ/ขยาย (บนขวา)'}
+                  title={t('resizeTopRight')}
                 />
                 <div
                   className="bn-lasso-corner-handle bn-lasso-corner-se"
                   onPointerDown={(e) => handleLassoResizePointerDown(e, 'se')}
                   onPointerMove={handleLassoResizePointerMove}
                   onPointerUp={handleLassoResizePointerUp}
-                  title={language === 'en' ? 'Resize (Bottom-Right)' : 'ย่อ/ขยาย (ล่างขวา)'}
+                  title={t('resizeBottomRight')}
                 />
                 <div
                   className="bn-lasso-corner-handle bn-lasso-corner-sw"
                   onPointerDown={(e) => handleLassoResizePointerDown(e, 'sw')}
                   onPointerMove={handleLassoResizePointerMove}
                   onPointerUp={handleLassoResizePointerUp}
-                  title={language === 'en' ? 'Resize (Bottom-Left)' : 'ย่อ/ขยาย (ล่างซ้าย)'}
+                  title={t('resizeBottomLeft')}
                 />
               </>
             )}
@@ -2857,7 +2857,7 @@ export const CanvasBoard = ({
             <button 
               className="bn-floating-paste-btn"
               onClick={() => handleExecutePaste(floatingPasteMenu.canvasX, floatingPasteMenu.canvasY)}
-              title={language === 'en' ? 'Paste image from clipboard (Paste Image)' : 'วางรูปภาพจากคลิปบอร์ด (Paste Image)'}
+              title={t('pasteImageTooltip')}
             >
               <ClipboardPaste size={15} />
               <span>{t('floatingPaste', 'วาง')}</span>
@@ -2901,7 +2901,7 @@ export const CanvasBoard = ({
               } : it));
             }
             setCropModalImg(null);
-            showToast(language === 'en' ? 'Cropped image successfully! ✂️' : 'ครอบตัดรูปภาพสำเร็จ! ✂️');
+            showToast(t('imageCropped'));
           }}
           onClose={() => setCropModalImg(null)}
         />

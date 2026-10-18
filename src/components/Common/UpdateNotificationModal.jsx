@@ -1,3 +1,4 @@
+import { languageLocale } from '../../services/languageCatalog.js';
 import React, { useState } from 'react';
 import { 
   Sparkles, 
@@ -25,8 +26,7 @@ export function UpdateNotificationModal({ isOpen, onClose, updateData }) {
   const currentVersion = updateData.currentVersion || CURRENT_APP_DISPLAY_VERSION;
   const latestVersion = updateData.latestVersion || '—';
 
-  const localeMap = { en: 'en-US', th: 'th-TH', zh: 'zh-CN', ru: 'ru-RU' };
-  const currentLocale = localeMap[language] || 'en-US';
+  const currentLocale = languageLocale(language);
 
   // Format release date according to active language locale
   const dateValue=updateData.releaseDateRaw || updateData.releaseDate;

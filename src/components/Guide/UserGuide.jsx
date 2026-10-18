@@ -1,3 +1,4 @@
+import { languageDirection } from '../../services/languageCatalog.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, Folder, PenLine, Shapes, Image, Files, Hand, Download, HardDrive, Settings, Search, ArrowLeft, ArrowRight, ChevronRight, X, Maximize2, Menu, Check, Info } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
@@ -35,7 +36,9 @@ function Figure({id,language,words}){
 }
 export default function UserGuide(){
  const {language:appLanguage}=useLanguage();
- const [language,setLanguage]=useState(()=>appLanguage==='th'?'th':'en');
+ const resolveLanguage=code=>guideText[code]?code:'en';
+ const [language,setLanguage]=useState(()=>resolveLanguage(appLanguage));
+ useEffect(()=>setLanguage(resolveLanguage(appLanguage)),[appLanguage]);
  const words=guideText[language], [category,setCategory]=useState('all'),[query,setQuery]=useState(''),[articleId,setArticleId]=useState(null),[contentsOpen,setContentsOpen]=useState(false);
  const scroll=useRef(null),heading=useRef(null),first=useRef(true);
  const article=lessons.find(item=>item.id===articleId),group=categories.find(item=>item.id===(article?.category||category));
@@ -47,10 +50,10 @@ export default function UserGuide(){
  const related=article?.related.map(id=>lessons.find(item=>item.id===id)).filter(Boolean)||[];
  const siblings=article?lessons.filter(item=>item.category===article.category):[];
  const position=siblings.findIndex(item=>item.id===articleId);
- return <section className="bn-studio-main bn-guide" aria-label={words.title}>
+ return <section className="bn-studio-main bn-guide" aria-label={words.title} lang={language} dir={languageDirection(language)}>
   <header className="bn-guide-header"><button type="button" className="bn-guide-brand" onClick={home}><BookOpen size={21}/><span>{words.title}</span></button>
    <div className="bn-guide-search"><Search size={17}/><input type="search" value={query} placeholder={words.search} aria-label={words.search} onChange={e=>{setQuery(e.target.value);setArticleId(null);setCategory('all');}}/>{query&&<button type="button" onClick={()=>setQuery('')} aria-label={words.clear}><X size={16}/></button>}</div>
-   <select value={language} onChange={e=>setLanguage(e.target.value)} aria-label={words.language}><option value="th">ไทย</option><option value="en">English</option></select>
+   <select value={language} onChange={e=>setLanguage(e.target.value)} aria-label={words.language}>{[['th','ไทย'],['en','English'],['es','Español'],['de','Deutsch'],['ar','العربية (نسخة تجريبية)']].map(([code,label])=><option key={code} value={code}>{label}</option>)}</select>
   </header>
   <div className="bn-guide-body">
    <button type="button" className="bn-guide-toc-toggle" aria-expanded={contentsOpen} onClick={()=>setContentsOpen(!contentsOpen)}><Menu size={18}/>{contentsOpen?words.hideContents:words.showContents}</button>
@@ -75,11 +78,11 @@ export default function UserGuide(){
      {related.length>0&&<div className="bn-guide-related"><h2>{words.related}</h2>{related.map(item=><button type="button" key={item.id} onClick={()=>openArticle(item.id)}>{item.title[language]}<ArrowRight size={16}/></button>)}</div>}
      <footer className="bn-guide-article-footer">{position>0?<button type="button" onClick={()=>openArticle(siblings[position-1].id)}><ArrowLeft size={16}/>{words.previous}</button>:<button type="button" onClick={()=>chooseCategory(article.category)}><ArrowLeft size={16}/>{group[language]}</button>}{position<siblings.length-1&&<button type="button" onClick={()=>openArticle(siblings[position+1].id)}>{words.next}<ArrowRight size={16}/></button>}</footer>
     </article>:<div className="bn-guide-home">
-     {!query&&category==='all'&&<><div className="bn-guide-intro"><span className="bn-guide-eyebrow">BETTERNOTE / USER GUIDE</span><h1 ref={heading} tabIndex={-1}>{words.subtitle}</h1><p className="bn-guide-lead">{words.intro}</p><div className="bn-guide-meta">{categories.length} {language==='th'?'หมวด':'topics'}<span>·</span>{lessons.length} {words.lessons}<span>·</span>{GUIDE_VERSION}</div></div>
-     <div className="bn-guide-featured"><div><span className="bn-guide-eyebrow">PC → SURFACE</span><h2>{language==='th'?'เขียนต่ออีกเครื่องอย่างมั่นใจ':'Pick up on another device'}</h2><p>{language==='th'?'สำรองงาน เลือกเครื่องต้นทาง แล้วกู้คืนให้ถูกชุด':'Back up your work, choose the source and restore the right set.'}</p><button type="button" onClick={()=>openArticle('restore')}>{words.read}<ArrowRight size={17}/></button></div>{figures['restore']&&<img src={asset(figures.restore.file)} alt={language==='th'?'ตัวเลือกเครื่องต้นทางสำหรับกู้คืน':'Restore source picker'}/>}</div>
+     {!query&&category==='all'&&<><div className="bn-guide-intro"><span className="bn-guide-eyebrow">BETTERNOTE / {words.title}</span><h1 ref={heading} tabIndex={-1}>{words.subtitle}</h1><p className="bn-guide-lead">{words.intro}</p><div className="bn-guide-meta">{categories.length} {words.topics}<span>·</span>{lessons.length} {words.lessons}<span>·</span>{GUIDE_VERSION}</div></div>
+     <div className="bn-guide-featured"><div><span className="bn-guide-eyebrow">PC → SURFACE</span><h2>{words.featuredTitle}</h2><p>{words.featuredDescription}</p><button type="button" onClick={()=>openArticle('restore')}>{words.read}<ArrowRight size={17}/></button></div>{figures['restore']&&<img src={asset(figures.restore.file)} alt={words.restoreImageAlt}/>}</div>
      <h2>{words.popular}</h2><div className="bn-guide-popular">{popular.map((id,i)=>{const item=lessons.find(l=>l.id===id);return <button type="button" key={id} onClick={()=>openArticle(id)}><span>{String(i+1).padStart(2,'0')}</span><strong>{item.title[language]}</strong><ArrowRight size={17}/></button>;})}</div>
-     <h2>{words.browse}</h2><div className="bn-guide-category-grid">{categories.map((c,i)=>{const Icon=icons[c.icon];return <button type="button" key={c.id} onClick={()=>chooseCategory(c.id)}><div className="bn-guide-category-top"><Icon size={23}/><span>{String(i+1).padStart(2,'0')}</span></div><h3>{c[language]}</h3><p>{c[language==='th'?'descriptionTh':'descriptionEn']}</p><small>{lessons.filter(l=>l.category===c.id).length} {words.lessons}<ArrowRight size={15}/></small></button>;})}</div></>}
-     {(query||category!=='all')&&<><div className="bn-guide-breadcrumb"><button type="button" onClick={home}><ArrowLeft size={15}/>{words.back}</button></div><span className="bn-guide-eyebrow">{query?words.search:words.contents}</span><h1 ref={heading} tabIndex={-1}>{query?`“${query}”`:group[language]}</h1><p className="bn-guide-lead">{query?`${filtered.length} ${words.lessons}`:group[language==='th'?'descriptionTh':'descriptionEn']}</p><div className="bn-guide-lesson-list">{filtered.map((item,i)=><button type="button" key={item.id} onClick={()=>openArticle(item.id)}><span>{String(i+1).padStart(2,'0')}</span><div><h3>{item.title[language]}</h3><p>{item.intro[language]}</p></div><ArrowRight size={18}/></button>)}</div>{filtered.length===0&&<div className="bn-guide-empty"><Search size={28}/><h2>{words.empty}</h2><p>{words.emptyHelp}</p><button type="button" onClick={()=>setQuery('')}>{words.clear}</button></div>}</>}
+     <h2>{words.browse}</h2><div className="bn-guide-category-grid">{categories.map((c,i)=>{const Icon=icons[c.icon];return <button type="button" key={c.id} onClick={()=>chooseCategory(c.id)}><div className="bn-guide-category-top"><Icon size={23}/><span>{String(i+1).padStart(2,'0')}</span></div><h3>{c[language]}</h3><p>{c[language==='th'?'descriptionTh':language==='en'?'descriptionEn':'description'+language]}</p><small>{lessons.filter(l=>l.category===c.id).length} {words.lessons}<ArrowRight size={15}/></small></button>;})}</div></>}
+     {(query||category!=='all')&&<><div className="bn-guide-breadcrumb"><button type="button" onClick={home}><ArrowLeft size={15}/>{words.back}</button></div><span className="bn-guide-eyebrow">{query?words.search:words.contents}</span><h1 ref={heading} tabIndex={-1}>{query?`“${query}”`:group[language]}</h1><p className="bn-guide-lead">{query?`${filtered.length} ${words.lessons}`:group[language==='th'?'descriptionTh':language==='en'?'descriptionEn':'description'+language]}</p><div className="bn-guide-lesson-list">{filtered.map((item,i)=><button type="button" key={item.id} onClick={()=>openArticle(item.id)}><span>{String(i+1).padStart(2,'0')}</span><div><h3>{item.title[language]}</h3><p>{item.intro[language]}</p></div><ArrowRight size={18}/></button>)}</div>{filtered.length===0&&<div className="bn-guide-empty"><Search size={28}/><h2>{words.empty}</h2><p>{words.emptyHelp}</p><button type="button" onClick={()=>setQuery('')}>{words.clear}</button></div>}</>}
     </div>}
    </main>
   </div>

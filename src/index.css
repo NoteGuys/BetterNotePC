@@ -7693,6 +7693,19 @@ svg.bn-star-gold {
 /* Surface pen/touch targets: enlarge actual buttons, never overlapping hit areas. */
 .bn-export-dialog .bn-modal-close-btn { width: 44px; height: 44px; flex-shrink: 0; touch-action: manipulation; }
 
+/* Open menus escape clipped cards/toolbars and are positioned in viewport pixels. */
+.bn-viewport-popover {
+  position: fixed !important; right: auto !important; bottom: auto !important;
+  margin: 0 !important; transform: none !important; animation: none !important;
+  overflow-y: auto; overscroll-behavior: contain; z-index: 9000;
+  -webkit-app-region: no-drag;
+}
+.bn-viewport-popover.bn-export-menu { width: 230px; }
+.bn-viewport-popover.bn-width-slider-dropdown { width: 260px; }
+.bn-viewport-popover .bn-shape-item, .bn-viewport-popover .bn-gn-action-item { min-height: 44px; touch-action: manipulation; }
+.bn-viewport-popover .bn-shape-item > svg, .bn-viewport-popover .bn-gn-action-item > svg { flex-shrink: 0; }
+.bn-viewport-popover .bn-shape-item { text-align: start; }
+
 .bn-editor-toolbar-container { display: flex; flex-wrap: nowrap; height: 56px; min-height: 56px; max-height: 56px; padding: 0 8px; gap: 6px; }
 .bn-editor-toolbar-left, .bn-editor-toolbar-right, .bn-editor-toolbar-center { flex-wrap: nowrap; flex-shrink: 0; gap: 4px; }
 .bn-editor-toolbar-container .bn-tool-pill { flex-wrap: nowrap; gap: 2px; }

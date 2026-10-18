@@ -74,7 +74,7 @@ export const SearchModal = ({
         {/* Search Input Bar */}
         <div className="bn-search-bar-top">
           <Search size={20} className="text-blue-400" style={{ flexShrink: 0 }} />
-          <input
+          <input dir="auto"
             ref={inputRef}
             type="text"
             placeholder={t('searchModalPlaceholder', 'ค้นหาเอกสาร สมุดโน้ต หรือโฟลเดอร์ทั้งหมด...')}

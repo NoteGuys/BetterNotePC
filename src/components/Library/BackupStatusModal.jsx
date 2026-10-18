@@ -117,7 +117,7 @@ export default function BackupStatusModal({ isOpen, onClose, notebooks = [], onT
   };
   const chooseFolder = async () => {
     try {
-      const chosen = window.electronAPI?.selectFolder ? await window.electronAPI.selectFolder()
+      const chosen = window.electronAPI?.selectFolder ? await window.electronAPI.selectFolder({title:t('backupFolderPicker')})
         : window.prompt(t('backupChooseFolder'), folder);
       if (!chosen?.trim()) return;
       await autoBackupService.setLocalBackupPath(chosen); setLocalPath(chosen); setDetails(null);

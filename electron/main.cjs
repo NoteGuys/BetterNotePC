@@ -124,10 +124,11 @@ function createWindow() {
   let lastReport=0;
   guardedIpc.handle('record-performance',(_event,data)=>{if(Date.now()-lastReport<100)return;lastReport=Date.now();for(const item of (Array.isArray(data)?data.slice(0,4):[data]))if(item?.event==='renderer-error'||item?.event==='performance')diagnostics?.record(item);});
   let exportingDiagnostics=false;
-  guardedIpc.handle('export-diagnostics',async()=>{
+  guardedIpc.handle('export-diagnostics',async(_event,options)=>{
     if(exportingDiagnostics)return {success:false,canceled:true};exportingDiagnostics=true;
     try {
-      const result=await dialog.showSaveDialog(mainWindow,{defaultPath:'BetterNote-diagnostics.jsonl',filters:[{name:'Diagnostic report',extensions:['jsonl']}]});
+      const label=typeof options?.title==='string'&&options.title.length<=200?options.title:'Diagnostic report';
+      const result=await dialog.showSaveDialog(mainWindow,{title:label,defaultPath:'BetterNote-diagnostics.jsonl',filters:[{name:label,extensions:['jsonl']}]});
       if(result.canceled||!result.filePath)return {success:false,canceled:true};
       await diagnostics.exportReport(result.filePath);return {success:true};
     }catch(_){return {success:false};}finally{exportingDiagnostics=false;}
@@ -217,11 +218,11 @@ function createWindow() {
   guardedIpc.handle('reveal-backup-file', (event, filePath) => externalActions.revealFile(filePath));
 
   // Handle native folder picker dialog
-  guardedIpc.handle('select-folder', async () => {
+  guardedIpc.handle('select-folder', async (_event, options) => {
     try {
       const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory', 'createDirectory'],
-        title: 'เลือกโฟลเดอร์สำหรับสำรองข้อมูล BetterNote'
+        title: typeof options?.title === 'string' && options.title.length <= 200 ? options.title : 'BetterNote'
       });
       if (!result.canceled && result.filePaths && result.filePaths.length > 0) {
         return result.filePaths[0];

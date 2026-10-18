@@ -1276,7 +1276,7 @@ export const NoteEditor = ({
   );
 
   return (
-    <div className="bn-editor-container">
+    <div className="bn-editor-container" dir="ltr">
       <input
         ref={imageFileInputRef}
         type="file"

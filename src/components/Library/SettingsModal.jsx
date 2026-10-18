@@ -1,3 +1,5 @@
+import { LANGUAGES } from '../../services/languageCatalog.js';
+import { COMMUNITY_DOWNLOADS, COMMUNITY_FEEDBACK, openCommunityLink } from '../../services/communityLinks.js';
 import { backupReadErrorKey } from '../../services/backupReadStatus.js';
 import React, { useState, useRef, useEffect } from 'react';
 import { 
@@ -25,6 +27,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { PAPER_SIZES } from '../../data/templates';
+const Github = ({size=24}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.08c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.5-.28-5.13-1.25-5.13-5.54 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .95-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.08-1.15 3.08-1.15.62 1.54.23 2.68.11 2.96.72.78 1.16 1.78 1.16 3 0 4.3-2.63 5.25-5.14 5.53.4.35.76 1.04.76 2.09v3.08c0 .3.2.65.78.54A11.2 11.2 0 0 0 12 .8Z"/></svg>;
 import { getSetting, saveSetting } from '../../services/db';
 import { useBackupSnapshot, backupStateKey } from '../Common/BackupStatusIndicator';
 import { appCacheService } from '../../services/appCacheService';
@@ -57,6 +60,7 @@ export const SettingsModal = ({
 }) => {
   const { language, setLanguage, t } = useLanguage();
   const backupState = useBackupSnapshot();
+  const [communityError,setCommunityError]=useState(false);
   const [activeTab, setActiveTab] = useState('drive'); // 'drive', 'backup', 'defaults', 'theme', 'updates'
   const fileInputRef = useRef(null);
   const [backupPath, setBackupPath] = useState(
@@ -164,7 +168,7 @@ export const SettingsModal = ({
     // 1. Electron Native Folder Dialog
     if (typeof window !== 'undefined' && window.electronAPI?.selectFolder) {
       try {
-        const chosen = await window.electronAPI.selectFolder();
+        const chosen = await window.electronAPI.selectFolder({title:t('backupFolderPicker')});
         if (chosen) {
           handleSaveBackupPath(chosen);
         }
@@ -194,7 +198,7 @@ export const SettingsModal = ({
   return (
     <div className="bn-modal-backdrop" onClick={onClose}>
       <div 
-        className="bn-modal-card bn-modal-md"
+        className="bn-modal-card bn-modal-md bn-settings-window"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -422,7 +426,7 @@ export const SettingsModal = ({
                     <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
                       • {t('template_dotted', 'Dotted (25px)')}
                     </span>
-                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>Bullet Journal & Planner</span>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>{t('bulletPlanner')}</span>
                   </div>
                   <div className="bn-new-paper-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '12.5px', color: '#f4f4f5', fontWeight: 500 }}>
@@ -521,77 +525,14 @@ export const SettingsModal = ({
                   {t('languageChoice')}
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  {/* English Card */}
-                  <div
-                    className={`bn-new-paper-card ${language === 'en' ? 'bn-new-paper-card-active' : ''}`}
-                    style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
-                    onClick={() => setLanguage('en')}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '18px' }}>🇬🇧</span>
-                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langEnglish')}</span>
-                      </div>
-                      {language === 'en' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
-                    </div>
-                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {t('langEnglishDesc')}
-                    </span>
-                  </div>
+                  {LANGUAGES.map(item => <button type="button" key={item.code}
+                    className={`bn-new-paper-card bn-language-card ${language === item.code ? 'bn-new-paper-card-active' : ''}`}
+                    aria-pressed={language === item.code} onClick={() => setLanguage(item.code)}>
+                    <span className="bn-language-card-heading"><b dir="auto">{t(item.key)}</b>
+                      {language === item.code && <small>{t('inUse')}</small>}</span>
+                    <span>{t(item.description)}</span>
+                  </button>)}
 
-                  {/* Thai Card */}
-                  <div
-                    className={`bn-new-paper-card ${language === 'th' ? 'bn-new-paper-card-active' : ''}`}
-                    style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
-                    onClick={() => setLanguage('th')}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '18px' }}>🇹🇭</span>
-                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langThai')}</span>
-                      </div>
-                      {language === 'th' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
-                    </div>
-                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {t('langThaiDesc')}
-                    </span>
-                  </div>
-
-                  {/* Simplified Chinese Card */}
-                  <div
-                    className={`bn-new-paper-card ${language === 'zh' ? 'bn-new-paper-card-active' : ''}`}
-                    style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
-                    onClick={() => setLanguage('zh')}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '18px' }}>🇨🇳</span>
-                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langChinese')}</span>
-                      </div>
-                      {language === 'zh' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
-                    </div>
-                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {t('langChineseDesc')}
-                    </span>
-                  </div>
-
-                  {/* Russian Card */}
-                  <div
-                    className={`bn-new-paper-card ${language === 'ru' ? 'bn-new-paper-card-active' : ''}`}
-                    style={{ padding: '14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
-                    onClick={() => setLanguage('ru')}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '18px' }}>🇷🇺</span>
-                        <span style={{ fontWeight: 700, fontSize: '13px' }}>{t('langRussian')}</span>
-                      </div>
-                      {language === 'ru' && <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>{t('inUse')}</span>}
-                    </div>
-                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                      {t('langRussianDesc')}
-                    </span>
-                  </div>
                 </div>
               </div>
             </>
@@ -687,7 +628,7 @@ export const SettingsModal = ({
                 </div>
               </div>
 
-              {window.electronAPI?.exportDiagnostics && <button type="button" className="bn-settings-btn-alt" onClick={async()=>{const result=await window.electronAPI.exportDiagnostics();if(!result.success&&!result.canceled)setCheckingUpdateMsg(language==='th'?'บันทึกรายงานไม่สำเร็จ กรุณาลองใหม่':'Unable to save report. Please retry.');}}>{language==='th'?'บันทึกรายงานเพื่อแจ้งปัญหา':'Save diagnostic report'}</button>}
+              {window.electronAPI?.exportDiagnostics && <button type="button" className="bn-settings-btn-alt" onClick={async()=>{const result=await window.electronAPI.exportDiagnostics({title:t('diagnosticSave')});if(!result.success&&!result.canceled)setCheckingUpdateMsg(t('diagnosticSaveFailed'));}}>{t('diagnosticSave')}</button>}
 
               {/* What's New in Current Version */}
               <div className="bn-settings-card">
@@ -710,6 +651,13 @@ export const SettingsModal = ({
           )}
         </div>
 
+        <div className="bn-settings-community">
+          <button type="button" className="bn-github-circle" aria-label={t('communityDownloads')}
+            title={t('communityDownloads')} onClick={async()=>{setCommunityError(!await openCommunityLink(COMMUNITY_DOWNLOADS));}}><Github size={24}/></button>
+          <div><strong>{t('communityTitle')}</strong>{communityError&&<p role="alert">{t('externalOpenFailed')}</p>}<p>{t('communityReleases')}</p><p>{t('communityFeedback')}</p>
+            <div className="bn-community-actions">{[[COMMUNITY_DOWNLOADS,'communityDownloads'],[COMMUNITY_FEEDBACK,'communityIssues']].map(([url,key])=><button key={key} type="button" onClick={async()=>{setCommunityError(!await openCommunityLink(url));}}><span>{t(key)}</span><ExternalLink size={13}/></button>)}</div>
+          </div>
+        </div>
         {/* Footer */}
         <div className="bn-settings-footer">
           <button

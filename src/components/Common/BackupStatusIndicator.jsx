@@ -1,3 +1,4 @@
+import { languageLocale } from '../../services/languageCatalog.js';
 import React, { useSyncExternalStore } from 'react';
 import { ShieldCheck, LoaderCircle, AlertCircle, Clock3, HardDrive } from 'lucide-react';
 import { autoBackupService } from '../../services/autoBackupService';
@@ -27,7 +28,7 @@ export const formatBackupSize = bytes => bytes >= 1073741824 ? (bytes / 10737418
   : bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : (bytes / 1024).toFixed(1) + ' KB';
 export const BackupDestinationSummary = ({ role = 'local' }) => {
   const state = useBackupSnapshot(), { t, language } = useLanguage();
-  const locale = { en: 'en-US', th: 'th-TH', zh: 'zh-CN', ru: 'ru-RU' }[language] || 'en-US';
+  const locale = languageLocale(language);
   const targets = state.targets.filter(target => hasBackupRole(target, role));
   return <section className="bn-backup-destination-summary" aria-label={t(role === 'local' ? 'backupLocalTab' : 'driveDesktopPreparationTitle')}>
     {!targets.length && <p>{t(role === 'local' ? 'backupStateUnknown' : 'driveFolderNotSelected')}</p>}

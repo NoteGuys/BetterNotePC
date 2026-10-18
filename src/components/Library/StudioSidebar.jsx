@@ -35,7 +35,7 @@ export const StudioSidebar = ({
     },
     {
       id: 'guide',
-      label: ({ th: 'คู่มือการใช้งาน', en: 'User guide', zh: '使用指南', ru: 'Руководство' })[language] || 'User guide',
+      label: ({ th: 'คู่มือการใช้งาน', en: 'User guide', zh: '使用指南', ru: 'Руководство', ar: 'دليل الاستخدام', es: 'Guía de uso', de: 'Anleitung' })[language] || 'User guide',
       icon: BookOpen,
       iconColor: 'text-zinc-400'
     }

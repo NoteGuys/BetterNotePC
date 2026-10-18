@@ -1,8 +1,11 @@
 // Zero-Dependency Multilingual Localization (i18n) Engine for BetterNote Pro Studio
-// Default: English ('en'). Supported: English ('en'), Thai ('th'), Simplified Chinese ('zh'), Russian ('ru')
+// Supported language codes and presentation metadata are in languageCatalog.js.
 // Instant reactive updates across all components with zero lag
 
 import React from 'react';
+import { additionalTranslations } from './translations/newLanguages.js';
+import { languageUi } from './translations/languageUi.js';
+import { LANGUAGE_CODES, applyLanguageToDom } from './languageCatalog.js';
 
 const LANGUAGE_STORAGE_KEY = 'betternote_language';
 const LANGUAGE_EVENT_NAME = 'betternote_language_changed';
@@ -4107,16 +4110,22 @@ export const TRANSLATIONS = {
     "setLocalBackupFolderPrompt": "Укажите путь к локальной папке резервного копирования (например, H:\\My Drive\\BetterNote.AppPC или C:\\Users\\...):"
   }
 };
+for (const [code, entries] of Object.entries(additionalTranslations)) TRANSLATIONS[code] = { ...entries };
+for (const [code, entries] of Object.entries(languageUi)) Object.assign(TRANSLATIONS[code], entries);
+// These UI labels previously used inline fallbacks. Reuse the same glossary.
+for (const dict of Object.values(TRANSLATIONS)) {
+  for (const [key, source] of Object.entries({folderColorTab:'color',folderIconTab:'icon',renameAction:'rename',moveAction:'move',moveToTrashAction:'moveToTrash'})) dict[key] ??= dict[source];
+}
 let inMemoryLanguage = 'en';
 
 /**
- * Get current application language ('en' | 'th' | 'zh' | 'ru') - Defaults to 'en'
+ * Get the current supported language. Defaults to English.
  */
 export const getAppLanguage = () => {
   try {
     if (typeof localStorage !== 'undefined') {
       const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-      if (saved === 'en' || saved === 'th' || saved === 'zh' || saved === 'ru') return saved;
+      if (LANGUAGE_CODES.includes(saved)) return saved;
     }
   } catch (_) {}
   return inMemoryLanguage || 'en';
@@ -4126,7 +4135,7 @@ export const getAppLanguage = () => {
  * Change application language and dispatch reactive update event
  */
 export const setAppLanguage = (lang) => {
-  const valid = ['en', 'th', 'zh', 'ru'];
+  const valid = LANGUAGE_CODES;
   const normalized = valid.includes(lang) ? lang : 'en';
   inMemoryLanguage = normalized;
   try {
@@ -4141,7 +4150,7 @@ export const setAppLanguage = (lang) => {
     } catch (_) {}
 
     if (typeof document !== 'undefined' && document.documentElement) {
-      document.documentElement.setAttribute('lang', normalized);
+      applyLanguageToDom(normalized);
     }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(LANGUAGE_EVENT_NAME, { detail: normalized }));
@@ -4173,7 +4182,7 @@ export const t = (key, fallback = '', params = {}) => {
 
   if (params && typeof params === 'object') {
     Object.keys(params).forEach(p => {
-      text = text.replace(new RegExp(`\\{${p}\\}`, 'g'), params[p]);
+      text = text.replace(new RegExp(`\\{${p}\\}`, 'g'), () => String(params[p]));
     });
   }
   return text;

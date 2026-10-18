@@ -1,3 +1,4 @@
+import { languageLocale } from '../../services/languageCatalog.js';
 import React from 'react';
 import { FileText, BookOpen, FileCheck, ExternalLink, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../../services/i18n';
@@ -24,7 +25,7 @@ export const backupRowsFromSnapshot = state => state.targets.flatMap(target => {
 });
 export const BackupFilesTable = ({ rows, role = 'local', search = '', onReveal, onRetryPdf }) => {
   const state = useBackupSnapshot(), { t, language } = useLanguage();
-  const locale = { en: 'en-US', th: 'th-TH', zh: 'zh-CN', ru: 'ru-RU' }[language] || 'en-US';
+  const locale = languageLocale(language);
   const shown = rows.filter(row => (row.roles || state.targets.find(target => target.targetDir === row.targetDir)?.roles || ['local']).includes(role))
     .filter(row => ((row.notebookName || '') + ' ' + row.fileName).toLowerCase().includes(search.toLowerCase()));
   return <div className="bn-backup-hub-table-wrap">

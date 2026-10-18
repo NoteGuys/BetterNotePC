@@ -1,3 +1,4 @@
+import { localizeFigures } from './guideLocales.js';
 // Real screenshots captured in an isolated BetterNote profile. Coordinates are in image pixels.
 export const figures={
   "library": {
@@ -1315,3 +1316,4 @@ export const figures={
     }
   }
 };
+localizeFigures(figures);

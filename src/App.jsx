@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useSyncExternalStore, useRef } from 'react';
 import { flushSync } from 'react-dom';
+import { applyLanguageToDom } from './services/languageCatalog.js';
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
 import BackupStatusModal from './components/Library/BackupStatusModal';
@@ -118,7 +119,7 @@ export function App() {
 
   useEffect(() => {
     if (typeof document !== 'undefined' && document.documentElement) {
-      document.documentElement.setAttribute('lang', language);
+      applyLanguageToDom(language);
     }
   }, [language]);
 

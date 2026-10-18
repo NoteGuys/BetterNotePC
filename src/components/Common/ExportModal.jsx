@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, FileText, Image as ImageIcon, Database, Download, CheckCircle2, FileEdit, FileCheck } from 'lucide-react';
 import { exportNotebookToPdf, exportSinglePageToPdf, exportPageAsImage } from '../../utils/pdfExportEngine';
 import { saveFileToDisk } from '../../services/fileSystemService';
@@ -53,6 +53,13 @@ const exportMessage = (key, params = {}) => ({ key, params });
 export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadPage, loadPdfPage, loadBNote, currentPageIndex }) => {
   const { t } = useLanguage();
   const penTap = usePenButtonTap();
+  const closePenTap = usePenButtonTap();
+  // The close control owns its pen contact, including Windows' implicit capture
+  // on the SVG. Other export controls retain the existing modal-level handler.
+  const skipCloseButton = handler => event => {
+    if (!event.target.closest?.('[data-export-close]')) handler?.(event);
+  };
+  const backdropPress = useRef(false);
   const [isExporting, setIsExporting] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [doneMsg, setDoneMsg] = useState('');
@@ -168,15 +175,32 @@ export const ExportModal = ({ isOpen, onClose, notebook, pages, loadPages, loadP
   };
 
   return (
-    <div className="bn-modal-backdrop" onClick={onClose}>
-      <div {...penTap} className="bn-modal-content bn-modal-cloud bn-export-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="bn-modal-backdrop"
+      onPointerDownCapture={event => { backdropPress.current = event.target === event.currentTarget; }}
+      onClick={event => {
+        if (event.target === event.currentTarget && (event.detail === 0 || backdropPress.current)) onClose();
+        backdropPress.current = false;
+      }}>
+      <div {...penTap}
+        onPointerDownCapture={skipCloseButton(penTap.onPointerDownCapture)}
+        onPointerMoveCapture={skipCloseButton(penTap.onPointerMoveCapture)}
+        onPointerUpCapture={skipCloseButton(penTap.onPointerUpCapture)}
+        className="bn-modal-content bn-modal-cloud bn-export-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="bn-modal-header">
           <div>
             <h2 className="bn-modal-title">{t('exportDialogTitle')}</h2>
             <p className="bn-modal-subtitle">{t('notebook')}: {localizeNotebookCopyName(notebook.name, t('notebookCopySuffix'))}</p>
           </div>
-          <button className="bn-modal-close-btn" onClick={onClose} aria-label={t('close')}>
-            <X size={20} />
+          <button {...closePenTap} type="button" data-export-close
+            className="bn-modal-close-btn" onClick={onClose} aria-label={t('close')}
+            style={{ WebkitAppRegion: 'no-drag', touchAction: 'none' }}
+            onPointerDownCapture={event => {
+              if (event.pointerType === 'pen' && event.button === 0) {
+                try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* Synthetic or already cancelled contact. */ }
+              }
+              closePenTap.onPointerDownCapture(event);
+            }}>
+            <X size={20} style={{ pointerEvents: 'none' }} />
           </button>
         </div>
 

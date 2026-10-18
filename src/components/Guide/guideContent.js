@@ -1,4 +1,5 @@
 import packageInfo from '../../../package.json' with {type:'json'};
+import { localizeGuide } from './guideLocales.js';
 export const GUIDE_VERSION=packageInfo.build.buildVersion;
 export const categories=[
  ['start','เริ่มต้นใช้งาน','Getting started','สมุดแรกและพื้นที่ทำงาน','Your first notebook','BookOpen'],
@@ -76,8 +77,9 @@ export const guideText={
  en:{title:'User guide',subtitle:'Know your tools. Make them yours.',search:'Search a task: backup, shapes, PDF…',all:'All topics',browse:'What would you like to do?',intro:'From your first notebook to moving work between PC and Surface.',popular:'A good place to start',contents:'Contents',steps:'Step by step',note:'Good to know',related:'Keep reading',back:'Back to guide',previous:'Previous lesson',next:'Next lesson',enlarge:'Enlarge image',close:'Close image',empty:'No matching lessons',emptyHelp:'Try PDF, pen or Restore.',clear:'Clear search',screenshot:'Captured in BetterNote • English interface',language:'Guide language',lessons:'lessons',home:'Home',read:'Read lesson',offline:'Available offline',showContents:'Show contents',hideContents:'Hide contents',figure:'Controls used in this lesson'}
 };
 export const searchLessons=(query,category='all')=>{
- const terms=query.trim().normalize('NFKC').toLocaleLowerCase().split(/\s+/).filter(Boolean);
- return lessons.filter(item=>(category==='all'||item.category===category)&&terms.every(term=>[item.title.th,item.title.en,item.intro.th,...item.steps.th,...(item.steps.en||[]),item.note.th,categories.find(c=>c.id===item.category).th].join(' ').normalize('NFKC').toLocaleLowerCase().includes(term)));
+ const normalize=value=>value.normalize('NFKC').toLocaleLowerCase().replace(/[\u064b-\u065f\u0670\u0640]/g,'');
+ const terms=normalize(query.trim()).split(/\s+/).filter(Boolean);
+ return lessons.filter(item=>(category==='all'||item.category===category)&&terms.every(term=>normalize([...Object.values(item.title),...Object.values(item.intro),...Object.values(item.steps).flat(),...Object.values(item.note),...Object.values(categories.find(c=>c.id===item.category)).filter(v=>typeof v==='string')].join(' ')).includes(term)));
 };
 const english={
  'folder-style':['Recognize subjects by color and symbol.','Menu|Open the arrow beside a folder name.~Color|Use Color to choose its color.~Icon|Use Icon to choose a recognizable symbol.'],
@@ -137,3 +139,8 @@ const english={
  'backup-folder-error':['Check the location and access before retrying.','Windows|Use Open Local Folder or open the displayed path in File Explorer.~Drive|Connect external drives and run Drive for desktop.~Availability|Make online-only files available offline.~Retry|When files open, verify or back up once.~Destination|Choose a writable folder if needed and create a complete set before Restore.'],
 };
 for(const item of lessons){const [intro,steps,note='']=english[item.id];item.intro.en=intro;item.steps.en=steps.split('~');item.note.en=note;}
+localizeGuide(categories, lessons, guideText);
+Object.assign(guideText.th,{topics:'หมวด',featuredTitle:'เขียนต่ออีกเครื่องอย่างมั่นใจ',featuredDescription:'สำรองงาน เลือกเครื่องต้นทาง แล้วกู้คืนให้ถูกชุด',restoreImageAlt:'ตัวเลือกเครื่องต้นทางสำหรับกู้คืน'});
+Object.assign(guideText.en,{topics:'topics',featuredTitle:'Pick up on another device',featuredDescription:'Back up your work, choose the source and restore the right set.',restoreImageAlt:'Restore source picker'});
+lessons.find(l=>l.id==='appearance').steps.en[3]='Language|Select English, Thai, Chinese, Russian, Spanish, German or Arabic (Experimental).';
+lessons.find(l=>l.id==='appearance').steps.th[3]='ภาษา|เลือกอังกฤษ ไทย จีน รัสเซีย สเปน เยอรมัน หรืออาหรับ (รุ่นทดสอบ)';

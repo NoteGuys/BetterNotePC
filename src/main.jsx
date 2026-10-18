@@ -1,4 +1,6 @@
 import React from 'react';
+import { t } from './services/i18n.js';
+import './localization.css';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
@@ -22,7 +24,7 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
-            const isEn = typeof localStorage !== 'undefined' && localStorage.getItem('betternote_language') === 'en';
+
             return (
               <div style={{
                 minHeight: '100vh',
@@ -47,10 +49,10 @@ class ErrorBoundary extends React.Component {
                 }}>
                   <div style={{ fontSize: '40px', marginBottom: '16px' }}>⚠️</div>
                   <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>
-                    {isEn ? 'Screen Loading Error' : 'เกิดข้อผิดพลาดในการโหลดหน้าจอ'}
+                    {t('screenLoadingError')}
                   </h2>
                   <p style={{ fontSize: '13px', color: '#a1a1aa', marginBottom: '20px', lineHeight: 1.5 }}>
-                    {this.state.error?.message || (isEn ? 'An unexpected error occurred.' : 'ระบบตรวจพบข้อผิดพลาดที่ไม่คาดคิด')}
+                    {this.state.error?.message || t('unexpectedError')}
                   </p>
                   <button
                     onClick={() => {
@@ -68,7 +70,7 @@ class ErrorBoundary extends React.Component {
                       cursor: 'pointer'
                     }}
                   >
-                    {isEn ? 'Reload Screen' : 'รีเฟรชหน้าจอใหม่'}
+                    {t('reloadScreen')}
                   </button>
                 </div>
               </div>

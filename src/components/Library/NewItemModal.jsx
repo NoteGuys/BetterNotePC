@@ -174,7 +174,7 @@ export const NewItemModal = ({
                 <aside className="bn-create-notebook-settings">
                   <div className="bn-create-field">
                     <label htmlFor="bn-new-notebook-name">{t('notebookNameLabel', 'Notebook name')}</label>
-                    <input id="bn-new-notebook-name" type="text" className="bn-input" placeholder={t('notebookNamePlaceholder')}
+                    <input dir="auto" id="bn-new-notebook-name" type="text" className="bn-input" placeholder={t('notebookNamePlaceholder')}
                       value={notebookName} onChange={e => setNotebookName(e.target.value)} autoFocus />
                   </div>
                   <div className="bn-create-selected-paper">
@@ -252,7 +252,7 @@ export const NewItemModal = ({
                 <label style={{ fontSize: '12px', fontWeight: 600, color: '#e4e4e7', display: 'block', marginBottom: '6px' }}>
                   {t('folderNameLabel', 'ชื่อโฟลเดอร์')}
                 </label>
-                <input 
+                <input dir="auto"
                   type="text" 
                   className="bn-input" 
                   placeholder={t('folderNamePlaceholder', 'เช่น วิชาเรียนเทอม 1, โครงการวิจัย, บันทึกส่วนตัว')}

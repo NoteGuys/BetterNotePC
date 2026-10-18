@@ -54,7 +54,7 @@ export const RenameModal = ({ isOpen, initialName = '', title = null, onClose, o
             <label className="bn-rename-label">
               {t('newName', 'ชื่อใหม่')} <span className="bn-rename-required">*</span>
             </label>
-            <input
+            <input dir="auto"
               ref={inputRef}
               type="text"
               value={name}

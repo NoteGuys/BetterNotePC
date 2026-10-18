@@ -67,7 +67,7 @@ export const DocumentTabBar = ({
   };
 
   return (
-    <div className="bn-document-tab-bar" role="tablist">
+    <div className="bn-document-tab-bar" role="tablist" dir="ltr">
       <button
         type="button"
         className={'bn-tab-home-btn ' + (activeTabId === null ? 'bn-tab-home-btn-active' : '')}

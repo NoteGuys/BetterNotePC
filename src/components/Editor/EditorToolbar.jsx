@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
+import { ViewportPopover } from '../Common/ViewportPopover';
 import { 
   ArrowLeft, 
   Pen, 
@@ -122,15 +123,6 @@ export const EditorToolbar = ({
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(notebookTitle);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const moreRef = useRef(null);
-  useEffect(() => {
-    if (!showMoreMenu) return;
-    const outside = event => { if (!moreRef.current?.contains(event.target)) setShowMoreMenu(false); };
-    const escape = event => { if (event.key === 'Escape') { setShowMoreMenu(false); moreRef.current?.querySelector('button')?.focus(); } };
-    document.addEventListener('pointerdown', outside);
-    document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [showMoreMenu]);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showPenSettings, setShowPenSettings] = useState(false);
   const [showHighlighterSettings, setShowHighlighterSettings] = useState(false);
@@ -334,7 +326,7 @@ export const EditorToolbar = ({
 
             {/* Minimalist Studio Pen Settings Popover */}
             {showPenSettings && (
-              <div 
+              <ViewportPopover align="start" onDismiss={() => setShowPenSettings(false)}><div
                 className="bn-pen-settings-dropdown" 
                 onClick={(e) => e.stopPropagation()}
               >
@@ -343,7 +335,7 @@ export const EditorToolbar = ({
                     <SlidersHorizontal size={14} className="bn-pen-settings-icon" />
                     <span>{t('penSettings', 'ตั้งค่าหัวปากกา & แรงกด')}</span>
                   </div>
-                  <span className="bn-pen-settings-caption">Surface Inking</span>
+                  <span className="bn-pen-settings-caption">{t('surfaceInking')}</span>
                 </div>
 
                 {/* Nib Types Segmented Choice */}
@@ -448,7 +440,7 @@ export const EditorToolbar = ({
                     {t('done', 'เรียบร้อย')}
                   </button>
                 </div>
-              </div>
+              </div></ViewportPopover>
             )}
           </div>
 
@@ -470,7 +462,7 @@ export const EditorToolbar = ({
               <Highlighter size={17} />
             </button>
             {showHighlighterSettings && activeTool === 'highlighter' && (
-              <div className="bn-pen-settings-dropdown bn-highlighter-settings"
+              <ViewportPopover align="start" onDismiss={() => setShowHighlighterSettings(false)}><div className="bn-pen-settings-dropdown bn-highlighter-settings"
                 role="dialog" aria-label={t('highlighterSettings', 'ตั้งค่าหัวไฮไลต์')}
                 onClick={event => event.stopPropagation()}>
                 <div className="bn-pen-settings-header">
@@ -497,7 +489,7 @@ export const EditorToolbar = ({
                   <button className="bn-btn-primary bn-btn-sm bn-pen-settings-done"
                     onClick={() => setShowHighlighterSettings(false)}>{t('done', 'เรียบร้อย')}</button>
                 </div>
-              </div>
+              </div></ViewportPopover>
             )}
           </div>
 
@@ -520,7 +512,7 @@ export const EditorToolbar = ({
             </button>
 
             {showEraserMenu && (
-              <div 
+              <ViewportPopover align="start" onDismiss={() => setShowEraserMenu(false)}><div
                 className="bn-shape-dropdown" 
                 onClick={(e) => e.stopPropagation()}
               >
@@ -539,7 +531,7 @@ export const EditorToolbar = ({
                   <Eraser size={14} />
                   <span>{t('eraserStroke', 'ลบทั้งเส้น (Stroke Eraser)')}</span>
                 </button>
-              </div>
+              </div></ViewportPopover>
             )}
           </div>
 
@@ -568,7 +560,7 @@ export const EditorToolbar = ({
             </button>
 
             {showShapeMenu && (
-              <div 
+              <ViewportPopover align="start" onDismiss={() => setShowShapeMenu(false)}><div
                 className="bn-shape-dropdown" 
                 onClick={(e) => e.stopPropagation()}
               >
@@ -607,7 +599,7 @@ export const EditorToolbar = ({
                   <span className="font-bold text-xs">➔</span>
                   <span>{t('arrow', 'ลูกศร')}</span>
                 </button>
-              </div>
+              </div></ViewportPopover>
             )}
           </div>
 
@@ -737,7 +729,7 @@ export const EditorToolbar = ({
 
                 {/* Floating Continuous Width Slider Popover */}
                 {showWidthSlider && (
-                  <div 
+                  <ViewportPopover align="end" onDismiss={() => setShowWidthSlider(false)}><div
                     className="bn-width-slider-dropdown"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -815,7 +807,7 @@ export const EditorToolbar = ({
                         </button>
                       ))}
                     </div>
-                  </div>
+                  </div></ViewportPopover>
                 )}
               </div>
             );
@@ -909,13 +901,13 @@ export const EditorToolbar = ({
         </button>
 
         {/* Less frequent commands stay available without adding a second toolbar row. */}
-        <div className="bn-toolbar-more" ref={moreRef}>
+        <div className="bn-toolbar-more">
           <button className="bn-btn-icon" title={t('moreOptions')} aria-label={t('moreOptions')}
             aria-expanded={showMoreMenu} aria-haspopup="true"
             onClick={event => { event.stopPropagation(); const open = !showMoreMenu; closeAllPopovers(); setShowMoreMenu(open); }}>
             <MoreHorizontal size={20} />
           </button>
-          {showMoreMenu && <div className="bn-toolbar-more-panel" onClick={event => event.stopPropagation()}>
+          {showMoreMenu && <ViewportPopover align="end" onDismiss={() => setShowMoreMenu(false)}><div className="bn-toolbar-more-panel" onClick={event => event.stopPropagation()}>
             {[
               ['common', 'add-page', FilePlus, t('addPage'), onOpenAddPage],
               ['common', 'favorite', Star, isCurrentPageFavorite ? t('unstarPage') : t('starPage'), onToggleFavoriteCurrentPage],
@@ -945,7 +937,7 @@ export const EditorToolbar = ({
                 <Pen size={18} /><span>{t('renameNotebookPrompt')}</span>
               </button>}
             </div>
-          </div>}
+          </div></ViewportPopover>}
         </div>
 
         {/* Dedicated Export PDF Button with Quick Dropdown */}
@@ -964,8 +956,8 @@ export const EditorToolbar = ({
           </button>
 
           {showExportMenu && (
-            <div 
-              className="bn-shape-dropdown right-0 left-auto min-w-[210px]" 
+            <ViewportPopover align="end" onDismiss={() => setShowExportMenu(false)}><div
+              className="bn-shape-dropdown bn-export-menu"
               onClick={(e) => e.stopPropagation()}
             >
               <button 
@@ -988,7 +980,7 @@ export const EditorToolbar = ({
                 <Download size={14} className="text-blue-400" />
                 <span>{t('exportAllPages', 'ส่งออกทั้งเล่ม / ตัวเลือกอื่น...')}</span>
               </button>
-            </div>
+            </div></ViewportPopover>
           )}
         </div>
       </div>

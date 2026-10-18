@@ -1,4 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { languageLocale } from '../../services/languageCatalog.js';
+import React, { useState } from 'react';
+import { ViewportPopover } from '../Common/ViewportPopover';
+import { usePenButtonTap } from '../../utils/usePenButtonTap';
 import { 
   ChevronDown, 
   Star, 
@@ -33,20 +36,7 @@ export const FolderCard = ({
   const [showMenu, setShowMenu] = useState(false);
   const [activeTab, setActiveTab] = useState('color'); // 'color' or 'icon'
   const [isDragOver, setIsDragOver] = useState(false);
-  const menuRef = useRef(null);
-
-  // Close context menu on click outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setShowMenu(false);
-      }
-    };
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMenu]);
+  const penTap = usePenButtonTap();
 
   const currentColor = folder.color || '#ef4444';
   const currentIconId = folder.icon || 'apple';
@@ -61,6 +51,7 @@ export const FolderCard = ({
       return 'Jun 30, 2026 at 9:23 AM';
     }
     const date = new Date(timestamp);
+    if (['ar','es','de'].includes(language)) return date.toLocaleString(languageLocale(language), {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     if (language === 'zh') {
       return date.toLocaleString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
     }
@@ -141,7 +132,7 @@ export const FolderCard = ({
   };
 
   return (
-    <div 
+    <div {...penTap}
       className={`bn-gn-folder-card ${isDragOver ? 'bn-folder-drag-over' : ''} ${isSelected ? 'bn-card-is-selected' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -238,8 +229,7 @@ export const FolderCard = ({
 
       {/* Studio Folder Context Menu Popup (Screenshots 4 & 5) */}
       {showMenu && (
-        <div 
-          ref={menuRef}
+        <ViewportPopover align="center" onDismiss={() => setShowMenu(false)}><div
           className="bn-gn-context-menu"
           onClick={(e) => e.stopPropagation()}
         >
@@ -336,7 +326,7 @@ export const FolderCard = ({
               <span>{t('moveToTrashAction', 'ย้ายไปยังถังขยะ')}</span>
             </button>
           </div>
-        </div>
+        </div></ViewportPopover>
       )}
     </div>
   );

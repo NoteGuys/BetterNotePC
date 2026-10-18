@@ -1,0 +1,43 @@
+/* Language presentation only. Keep drawing coordinates and editor controls LTR. */
+.bn-settings-window.bn-modal-md { width: min(920px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+.bn-settings-window > .bn-settings-header, .bn-settings-window > .bn-settings-tabs-bar, .bn-settings-window > .bn-settings-footer { flex-shrink: 0; }
+.bn-settings-window > .bn-settings-body { flex: 1; min-height: 100px; max-height: none; overflow-y: auto; }
+.bn-settings-window .bn-settings-tabs-bar { flex-wrap: wrap; overflow: visible; }
+.bn-settings-window .bn-settings-tab-item { white-space: normal; text-align: start; }
+.bn-language-card { padding: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 7px; min-width: 0; text-align: start; font: inherit; color: inherit; }
+.bn-language-card-heading { display: flex; justify-content: space-between; align-items: start; gap: 10px; width: 100%; font-size: 13px; }
+.bn-language-card-heading small { color: #10b981; flex-shrink: 0; }
+.bn-language-card > span:last-child { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.bn-language-card:last-child { grid-column: 1 / -1; }
+.bn-language-card:focus-visible, .bn-github-circle:focus-visible, .bn-community-actions button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }
+.bn-settings-community { display: flex; align-items: flex-start; gap: 14px; padding: 16px 22px; border-top: 1px solid var(--border-subtle); flex-shrink: 0; }
+.bn-settings-community > div { min-width: 0; }
+.bn-settings-community strong { font-size: 13px; }
+.bn-settings-community p { font-size: 12px; line-height: 1.6; color: var(--text-secondary); margin-top: 4px; }
+.bn-github-circle { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; background: var(--bg-tertiary); border: 1px solid var(--border-medium); color: var(--text-primary); cursor: pointer; }
+.bn-community-actions { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 8px; }
+.bn-community-actions button { display: flex; gap: 6px; align-items: center; color: #60a5fa; background: none; border: 0; cursor: pointer; font: inherit; font-size: 12px; min-height: 28px; text-align: start; }
+html[dir="rtl"] { --font-sans: 'Segoe UI', Tahoma, Arial, sans-serif; }
+html[dir="rtl"] .bn-modal-card, html[dir="rtl"] .bn-studio-sidebar, html[dir="rtl"] .bn-studio-main { text-align: start; }
+html[dir="rtl"] .bn-editor-container, html[dir="rtl"] .bn-document-tab-bar { direction: ltr; }
+html[dir="rtl"] .bn-editor-container .bn-modal-card { direction: rtl; text-align: start; }
+html[dir="rtl"] .bn-editor-container button, html[dir="rtl"] .bn-whiteboard-controls { unicode-bidi: isolate; }
+html[dir="rtl"] .bn-editor-container .bn-whiteboard-controls { direction: rtl; }
+html[dir="rtl"] .bn-modal-card input:not([type="range"]):not([type="color"]),
+html[dir="rtl"] .bn-modal-card textarea { text-align: start; }
+html[dir="rtl"] .bn-settings-card ul { padding-left: 0 !important; padding-inline-start: 18px !important; }
+ .bn-guide[dir="rtl"] button { text-align: start; }
+.bn-guide[dir="rtl"] .bn-guide-note { border-left: 0; border-inline-start: 3px solid var(--g-accent); }
+.bn-guide[dir="rtl"] .bn-guide-search { margin-left: 0; margin-inline-start: auto; }
+.bn-guide[dir="rtl"] .bn-guide-toc { border-right: 0; border-inline-end: 1px solid var(--g-line); }
+ .bn-guide[dir="rtl"] svg.lucide-arrow-left,
+ .bn-guide[dir="rtl"] svg.lucide-arrow-right,
+ .bn-guide[dir="rtl"] svg.lucide-chevron-right { transform: scaleX(-1); }
+.bn-guide[dir="rtl"] .bn-guide-image, .bn-guide[dir="rtl"] .bn-guide-image svg { direction: ltr; }
+html[dir="rtl"] .bn-settings-card, html[dir="rtl"] .bn-settings-card-text { min-width: 0; }
+html[dir="rtl"] .bn-gn-book-name, html[dir="rtl"] .bn-gn-folder-name { unicode-bidi: plaintext; }
+html[dir="rtl"] .bn-backup-path-details code, html[dir="rtl"] .bn-backup-path,
+html[dir="rtl"] .bn-backup-hub-file-title small { direction: ltr; unicode-bidi: isolate; text-align: start; }
+@media (max-width:1100px) { .bn-guide[dir="rtl"] .bn-guide-toc { left: auto; right: 15px; } }
+@media (max-height:650px) { .bn-settings-window .bn-settings-community { flex-shrink: 1; max-height: 130px; overflow-y: auto; } }
+@media (max-width:540px) { .bn-settings-window .bn-settings-header { padding: 12px; } .bn-settings-window .bn-settings-body { padding: 12px; } .bn-settings-community { padding: 12px; } .bn-settings-window .bn-settings-tabs-bar { padding: 0 6px; } .bn-settings-tab-item { padding: 10px 8px; } }
