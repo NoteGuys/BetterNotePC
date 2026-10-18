@@ -1,4 +1,5 @@
-export const GUIDE_VERSION='1.3.0.0';
+import packageInfo from '../../../package.json' with {type:'json'};
+export const GUIDE_VERSION=packageInfo.build.buildVersion;
 export const categories=[
  ['start','เริ่มต้นใช้งาน','Getting started','สมุดแรกและพื้นที่ทำงาน','Your first notebook','BookOpen'],
  ['library','จัดสมุดให้เป็นระเบียบ','Organize your library','โฟลเดอร์ ค้นหา รายการโปรด ถังขยะ','Folders, search, favorites, trash','Folder'],

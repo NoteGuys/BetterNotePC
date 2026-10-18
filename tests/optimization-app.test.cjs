@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),{spawn}=require('node:child_process');
-test('Actual app startup, diagnostics export and normal close work in an isolated profile',{timeout:60000},async()=>{
+for (const mode of ['hidden', 'visible', 'minimized']) test('Actual app startup, diagnostics export and '+mode+' normal close work in an isolated profile',{timeout:60000},async()=>{
  const qa=process.env.BETTERNOTE_QA_TEMP;assert.ok(qa,'Isolated QA folder required');const root=await fs.mkdtemp(path.join(qa,'optimization-app-'));
- const run=(root,entry)=>{
+ const run=(root,entry,mode)=>{
   const {app,ipcMain,dialog,session}=require('electron'),fs=require('node:fs'),path=require('node:path');
   process.on('uncaughtException',error=>{fs.writeFileSync(path.join(root,'error.txt'),String(error.stack));app.exit(1);});
   for(const folder of ['profile','session','documents'])fs.mkdirSync(path.join(root,folder),{recursive:true});
@@ -10,19 +10,26 @@ test('Actual app startup, diagnostics export and normal close work in an isolate
   app.whenReady().then(()=>session.defaultSession.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(_details,reply)=>reply({cancel:true})));
   dialog.showSaveDialog=async()=>({canceled:false,filePath:path.join(root,'export.jsonl')});
   app.on('browser-window-created',(_event,window)=>{
-   window.show=()=>{};window.maximize=()=>{};
+   window.maximize=()=>{};
    window.webContents.once('did-finish-load',async()=>{
     try{
      const result=await window.webContents.executeJavaScript(`(async()=>{const info=await window.electronAPI.getAppInfo();await window.electronAPI.recordPerformance([{event:'performance',category:'ink',count:1,p95:2,filename:'QA-PRIVATE-NOTE'}]);const exported=await window.electronAPI.exportDiagnostics();return {info,exported};})()`);
-     setTimeout(()=>{
-      try{const log=fs.readFileSync(path.join(root,'profile','diagnostics','performance.jsonl'),'utf8'),report=fs.readFileSync(path.join(root,'export.jsonl'),'utf8');fs.writeFileSync(path.join(root,'result.json'),JSON.stringify({...result,log,report}));window.close();}catch(error){console.error(error.message);app.exit(1);}
+     setTimeout(async()=>{
+      try{
+       if(mode==='hidden')window.hide();
+       if(mode==='minimized')window.minimize();
+       if(mode!=='visible')await new Promise(resolve=>setTimeout(resolve,500));
+       const hidden=await window.webContents.executeJavaScript('document.hidden');
+       if(hidden!==(mode!=='visible')||mode==='minimized'&&!window.isMinimized())throw Error('Close mode was not exercised: '+mode);
+       const log=fs.readFileSync(path.join(root,'profile','diagnostics','performance.jsonl'),'utf8'),report=fs.readFileSync(path.join(root,'export.jsonl'),'utf8');fs.writeFileSync(path.join(root,'result.json'),JSON.stringify({...result,log,report,mode,hidden}));window.close();
+      }catch(error){console.error(error.message);app.exit(1);}
      },3000);
     }catch(error){console.error(error.message);app.exit(1);}
    });
   });
   setTimeout(()=>app.exit(2),45000).unref();require(entry);
  };
- const helper=path.join(root,'run.cjs');await fs.writeFile(helper,'('+run.toString()+')('+JSON.stringify(root)+','+JSON.stringify(path.resolve(__dirname,'../electron/main.cjs'))+');');
+ const helper=path.join(root,'run.cjs');await fs.writeFile(helper,'('+run.toString()+')('+JSON.stringify(root)+','+JSON.stringify(path.resolve(__dirname,'../electron/main.cjs'))+','+JSON.stringify(mode)+');');
  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
  // Require a normal exit after window.close; forced termination is failure cleanup only.
  // The parent owns and cleans up only the helper it just launched, including children.
@@ -49,5 +56,6 @@ test('Actual app startup, diagnostics export and normal close work in an isolate
   });
  }
  const result=JSON.parse(await fs.readFile(path.join(root,'result.json'),'utf8'));
+ assert.equal(result.mode,mode);assert.equal(result.hidden,mode!=='visible');
  assert.equal(result.exported.success,true);assert.ok(result.report.includes('startup'));assert.equal(result.log.includes('QA-PRIVATE-NOTE'),false);assert.equal(result.report.includes('QA-PRIVATE-NOTE'),false);
 });

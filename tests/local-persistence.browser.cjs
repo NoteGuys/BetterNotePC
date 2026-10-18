@@ -423,6 +423,49 @@ const entry = [
       assert.equal(await page.evaluate(async()=>(await qa.db.getPage('app-close-p0')).strokes.length),2);
       await page.evaluate(()=>qa.closeCancel());
     });
+    await check('Close commits a focused notebook title even when animation frames stop, and retains it after reload',async()=>{
+      await page.setViewportSize({width:1920,height:1000});
+      await fixture('app-close-blur',1);
+      await page.evaluate(()=>qa.mountApp());
+      await page.waitForFunction(()=>qa.library?.notebooks.some(nb=>nb.id==='app-close-blur')&&qa.closeRequest);
+      await page.evaluate(()=>qa.library.onOpenNotebook('app-close-blur'));
+      await page.waitForSelector('.bn-toolbar-title');
+      await page.locator('.bn-toolbar-title').click();
+      await page.locator('.bn-title-input').fill('Close keeps latest title ทดสอบ');
+      assert.equal(await page.locator('.bn-title-input').evaluate(e=>document.activeElement===e),true);
+      const reply=await page.evaluate(async()=>{
+        const request=window.requestAnimationFrame,cancel=window.cancelAnimationFrame;
+        window.requestAnimationFrame=()=>1;window.cancelAnimationFrame=()=>{};
+        let timer;
+        try{
+          await Promise.race([qa.closeRequest({requestId:'stopped-frames'}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Close waited for a stopped animation frame')),3000);})]);
+          return qa.replies.at(-1);
+        }finally{clearTimeout(timer);window.requestAnimationFrame=request;window.cancelAnimationFrame=cancel;}
+      });
+      assert.deepEqual(reply,{requestId:'stopped-frames',success:true});
+      assert.equal(await page.evaluate(async()=>(await qa.db.getNotebookById('app-close-blur')).name),'Close keeps latest title ทดสอบ');
+      await reload();
+      assert.equal(await page.evaluate(async()=>(await qa.db.getNotebookById('app-close-blur')).name),'Close keeps latest title ทดสอบ');
+      await page.setViewportSize({width:1360,height:1000});
+    });
+    await check('Close still waits for a pending page commit before acknowledging success',async()=>{
+      await fixture('app-close-pending',1);
+      await page.evaluate(()=>qa.mountApp());
+      await page.waitForFunction(()=>qa.closeRequest&&qa.library);
+      await page.evaluate(async()=>{
+        await qa.holdCommit();
+        const p=await qa.db.getPage('app-close-pending-p0');
+        qa.pendingSave=qa.local.pageSaveQueue.enqueue({...p,strokes:qa.ink(3)});
+        qa.pendingClose=qa.closeRequest({requestId:'pending-commit'});
+      });
+      await page.waitForFunction(()=>!!qa.releaseCommit);
+      await page.waitForTimeout(60);
+      assert.equal(await page.evaluate(()=>qa.replies.some(r=>r.requestId==='pending-commit')),false);
+      await page.evaluate(async()=>{qa.releaseCommit();qa.restoreCommit();await qa.pendingSave;await qa.pendingClose;});
+      assert.deepEqual(await page.evaluate(()=>qa.replies.at(-1)),{requestId:'pending-commit',success:true});
+      await reload();
+      assert.equal(await page.evaluate(async()=>(await qa.db.getPage('app-close-pending-p0')).strokes.length),3);
+    });
     await check('Concurrent notebook creation keeps the existing automatic unique-name behavior',async()=>{
       assert.deepEqual(await page.evaluate(async()=>{
         const saved=await Promise.all([0,1,2].map(i=>qa.db.saveNotebook({id:'names-'+i,name:'Phase one names'},{ensureUniqueName:true})));

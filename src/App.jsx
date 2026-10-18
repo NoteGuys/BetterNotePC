@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useSyncExternalStore, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { Navbar } from './components/Common/Navbar';
 import { DocumentTabBar } from './components/Common/DocumentTabBar';
 import BackupStatusModal from './components/Library/BackupStatusModal';
@@ -159,8 +160,10 @@ export function App() {
     const unsubscribe = api?.onCloseSaveRequest?.(async ({ requestId }) => {
       setIsClosingAfterSave(true);
       try {
-        document.activeElement?.blur();
-        await new Promise(resolve => requestAnimationFrame(resolve));
+        // Commit blur handlers before draining saves. Animation frames may stop
+        // entirely while the window is minimized or hidden.
+        flushSync(() => document.activeElement?.blur());
+        await new Promise(resolve => setTimeout(resolve, 0));
         await backupRecovery.waitForPending();
         await flushLocalSaves({ retry: true });
         api.completeCloseSaveRequest({ requestId, success: true });
