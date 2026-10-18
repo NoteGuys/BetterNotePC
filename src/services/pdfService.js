@@ -1,3 +1,4 @@
+import {runHeavyJob} from './foregroundJobs.js';
 import { localAssetUrl } from '../utils/localAssetUrl.js';
 import { pdfAssets } from '../utils/pdfAssetUrls.js';
 // PDF Service for BetterNote with High-DPI Rendering & Performance Optimization
@@ -148,20 +149,25 @@ const canvasDataUrl = (canvas, type, quality) => new Promise((resolve, reject) =
   }, type, quality);
 });
 
-export const importPdfAsNotebook = async (file, folderId = null, onProgress = null) => {
+const importPdfAsNotebookImpl = async (file, folderId = null, onProgress = null) => {
   const {default:RasterWorker}=await import('./pdfRaster.worker.js?worker&inline');
   try {
     return await new Promise((resolve,reject)=>{
-      const worker=new RasterWorker();let timer;
+      const worker=new RasterWorker();let timer,settled=false;
       const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>finish(Error('PDF import timeout')),120000);};
-      const finish=(error,result)=>{clearTimeout(timer);worker.terminate();error?reject(error):resolve(result);};
+      const finish=(error,result)=>{
+        if(settled)return;settled=true;clearTimeout(timer);
+        worker.onmessage=worker.onerror=worker.onmessageerror=null;worker.terminate();error?reject(error):resolve(result);
+      };
       worker.onmessage=({data})=>{
+        if(settled)return;
+        if(!data||typeof data!=='object'){finish(Error('PDF import unavailable'));return;}
         if(!data.progress && !data.error && !data.result)return;
-        if(data.progress){arm();onProgress?.(data.progress,data.total);return;}
+        if(data.progress){arm();try{onProgress?.(data.progress,data.total);}catch(error){finish(error);}return;}
         finish(data.error?Error(data.error):null,data.result);
       };
-      worker.onerror=e=>{e.preventDefault();finish(Error('PDF import unavailable'));};
-      arm();worker.postMessage({action:'import',file,folderId,assets:pdfAssets()});
+      worker.onerror=e=>{e?.preventDefault?.();finish(Error('PDF import unavailable'));};worker.onmessageerror=worker.onerror;
+      arm();try{worker.postMessage({action:'import',file,folderId,assets:pdfAssets()});}catch(_){finish(Error('PDF import unavailable'));}
     });
   } catch(error) {
     if(error.message!=='pdf-native-filter-required')throw error;
@@ -169,3 +175,5 @@ export const importPdfAsNotebook = async (file, folderId = null, onProgress = nu
     return importPdfLegacy(file,folderId,onProgress);
   }
 };
+
+export const importPdfAsNotebook=(...args)=>runHeavyJob(()=>importPdfAsNotebookImpl(...args));

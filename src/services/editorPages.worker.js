@@ -1,6 +1,6 @@
-import { openDB, getPage, savePage, getSetting, getBackupNotebookSnapshot } from './db.js';
+import { openDB, getPage, savePage, getSetting } from './db.js';
 import { pageSummary } from '../utils/pageWindow.js';
-import { decodeBnote } from '../../electron/bnoteFormat.js';
+import {prepareNotebookBlob} from './notebookBlob.js';
 import { readPagePreviews } from './pagePreviewStorage.js';
 self.onmessage = async ({ data }) => {
   try {
@@ -17,13 +17,9 @@ self.onmessage = async ({ data }) => {
       self.postMessage({ page: { ...page, ...(pdfOriginal ? { __pdfOriginalOmitted: true } : {}) } });
       return;
     }
-    if (data.action === 'bnote') {
-      const snapshot = await getBackupNotebookSnapshot(data.notebookId);
-      if (!snapshot) throw Error('Notebook unavailable');
-      const { pages, ...notebook } = snapshot;
-      const bytes = new TextEncoder().encode(JSON.stringify({format:'BetterNote_Document',version:1,exportedAt:new Date().toISOString(),notebook,pages})).buffer;
-      decodeBnote(new Uint8Array(bytes));
-      self.postMessage({ bytes }, [bytes]); return;
+    if(data.action==='bnote'){
+      const {blob}=await prepareNotebookBlob(data.notebookId,{portable:true});
+      self.postMessage({blob});return;
     }
     const db = await openDB();
     const pages = await new Promise((resolve, reject) => {
@@ -37,5 +33,8 @@ self.onmessage = async ({ data }) => {
     const previewEpoch = receipt?.operationId || '';
     const previews = await readPagePreviews(data.notebookId, pages, data.templateId, previewEpoch);
     self.postMessage({ pages, previews, previewEpoch });
-  } catch (error) { self.postMessage({ error: error.code || 'Page data unavailable' }); }
+  } catch(error){
+    const bnoteError=data.action==='bnote' && (error.message==='backup-too-large'?'bnote-too-large':error.code==='backup-incomplete'?'bnote-incomplete':error.code==='invalid-backup-data'?'bnote-invalid':null);
+    self.postMessage({error:bnoteError||error.code||'Page data unavailable'});
+  }
 };

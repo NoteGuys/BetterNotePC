@@ -52,6 +52,30 @@ if(!base||!path.isAbsolute(base))throw Error('An isolated QA directory is requir
   await page.goto(pathToFileURL(html).href);if(native)await page.evaluate(()=>Object.defineProperty(document,'hidden',{configurable:true,get:()=>false}));await page.evaluate(()=>{const Original=window.Worker;window.Worker=class extends Original{constructor(...args){super(...args);this.addEventListener('error',e=>console.log('QA_WORKER_ERROR',e.message));}};});page.on('console',m=>{if(m.text().startsWith('QA_WORKER_ERROR'))console.log(m.text());});await page.evaluate(font=>{window.__pdfThaiFont=font;},fs.readFileSync(process.env.BETTERNOTE_QA_THAI_FONT||'C:/Windows/Fonts/LeelawUI.ttf').toString('base64'));await page.addStyleTag({content:fs.readFileSync(path.join(root,'src/index.css'),'utf8')});await page.addScriptTag({content:compiled.outputFiles[0].text});const result=await page.evaluate(()=>qa.import());
   assert.equal(result.count,3);assert.equal(result.images,true);assert.equal(result.sources,1);assert.deepEqual(result.hash,result.originalHash);
   assert.equal(result.encodes,0);assert.deepEqual(result.progress,[[1,3],[2,3],[3,3]]);assert.ok(result.widths[0][1]>result.widths[0][0]);assert.ok(result.widths[1][0]>result.widths[1][1]);
+  const importFailure=await page.evaluate(async()=>{
+   const Original=window.Worker;let worker,terminated=0,rejected=false;
+   window.Worker=class{constructor(){worker=this;}postMessage(){throw Error('qa-send-failure');}terminate(){terminated++;}};
+   try{await qa.pdf.importPdfAsNotebook(new File(['qa'],'qa-failure.pdf',{type:'application/pdf'}));}catch(_){rejected=true;}finally{window.Worker=Original;}
+   return {rejected,terminated,handlersCleared:worker.onmessage==null&&worker.onerror==null};
+  });
+  assert.deepEqual(importFailure,{rejected:true,terminated:1,handlersCleared:true});
+  const rasterCancellation=await page.evaluate(async()=>{
+   const Original=window.Worker;let created=0,latePosts=0,cleanup=false;
+   window.Worker=class{
+    constructor(){this.number=++created;this.terminated=false;}
+    addEventListener(){}
+    set onmessage(handler){this.handler=handler;if(handler&&this.number===1)queueMicrotask(()=>{
+     window.dispatchEvent(new PointerEvent('pointerdown',{pointerId:998,pointerType:'pen',buttons:1}));
+     window.dispatchEvent(new PointerEvent('pointerup',{pointerId:998,pointerType:'pen',buttons:0}));
+    });}
+    get onmessage(){return this.handler;}
+    postMessage(){if(cleanup)throw Error('qa cleanup');if(this.terminated){latePosts++;throw Error('late post');}queueMicrotask(()=>this.handler?.({data:{result:{dataUrl:qa.snapshot.pages[0].pdfPageImage}}}));}
+    terminate(){this.terminated=true;}
+   };
+   try{const url=await qa.raster.loadPdfRaster({...qa.snapshot.pages[0],notebookId:'qa-worker-cancel'},{quality:'display'});return {created,latePosts,valid:typeof url==='string'};}
+   finally{cleanup=true;try{await qa.raster.loadPdfRaster({...qa.snapshot.pages[0],notebookId:'qa-worker-clear'});}catch(_){}window.Worker=Original;}
+  });
+  assert.equal(rasterCancellation.valid,true);assert.ok(rasterCancellation.created>=2);assert.equal(rasterCancellation.latePosts,0);
   const extra=await require('./pdf-raster.browser.cjs')({page})+await require('./pdf-export-flow.browser.cjs')({page})+await require('./pdf-export-error.browser.cjs')({page});
   const ownerWorker=await page.evaluate(async()=>{
    const id=qa.snapshot.pages[0].id,page=await qa.editorPages.loadPdfOwnerPage(qa.nb.id,id);
@@ -79,6 +103,6 @@ if(!base||!path.isAbsolute(base))throw Error('An isolated QA directory is requir
     return{size,source:!!(await qa.db.getPdfOriginalSource(qa.nb.id,p.pdfOriginalId))};
   });
   assert.equal(afterRecovery.source,true);assert.ok(Math.max(...afterRecovery.size)>960);assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({passed:13+extra,failed:0,originalBytesPreserved:true,asyncEncoding:true,portableRestore:true,fileOriginWorker:true,rendererErrors:errors,syntheticOnly:true,electron:native,dir}));
+  console.log(JSON.stringify({passed:15+extra,failed:0,originalBytesPreserved:true,asyncEncoding:true,portableRestore:true,fileOriginWorker:true,rendererErrors:errors,syntheticOnly:true,electron:native,dir}));
  }finally{if(application)await application.close();else await browser.close();}
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

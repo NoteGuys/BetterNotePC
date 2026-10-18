@@ -1,3 +1,4 @@
+import {runHeavyJob} from './foregroundJobs.js';
 import { t } from './i18n.js';
 import { createBackupRecovery } from './backupRecoveryCore.js';
 import { getBackupRecoveryReceipt } from './db.js';
@@ -52,7 +53,7 @@ const commitInWorker = async (input, publish, {signal,report} = {}) => {
   } finally { clearTimeout(timer);signal?.removeEventListener('abort',cancel);worker?.terminate(); }
 };
 export const backupRecovery = createBackupRecovery({
-  canRestore: () => !editorActive, pauseBackups: () => pauseBackups(), flushLocalSaves,
+  canRestore: () => !editorActive, pauseBackups: () => pauseBackups(), flushLocalSaves, runHeavyWork: runHeavyJob,
   onActive: () => setNotebookCoverLibraryVisible(false), restore: async (input, publish, control) => {
     if (!input.syncStream) return commitInWorker(input, publish, control);
     const aggregate = { notebooks: [], notebooksCount: 0, foldersCount:0, conflictsCount: 0, receivedCount: 0 };

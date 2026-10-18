@@ -9,8 +9,8 @@ const createImageReader=({makeWorker=data=>new Worker(path.join(__dirname,'image
   let worker;
   try{return await new Promise(resolve=>{
    let settled=false;const finish=result=>{if(settled)return;settled=true;clearTimeout(timer);resolve(result);};
-   const timer=setTimeout(()=>{finish({success:false,error:'image-read-timeout'});worker?.terminate();},timeout);
-   try{worker=makeWorker({file,mime});worker.once('message',finish);worker.once('error',()=>finish({success:false,error:'image-read-failed'}));worker.once('exit',()=>{busy=false;finish({success:false,error:'image-read-failed'});});}
+   let timer;const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>{finish({success:false,error:'image-read-timeout'});worker?.terminate();},timeout);};arm();
+   try{worker=makeWorker({file,mime});worker.on('message',result=>{if(settled)return;if(result?.progress===true)arm();else finish(result);});worker.once('error',()=>finish({success:false,error:'image-read-failed'}));worker.once('exit',()=>{busy=false;finish({success:false,error:'image-read-failed'});});}
    catch(_){busy=false;finish({success:false,error:'image-read-failed'});}
   });}finally{if(worker)await worker.terminate().catch(()=>{});else busy=false;}
  };

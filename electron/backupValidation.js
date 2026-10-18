@@ -1,18 +1,18 @@
 const fault = code => Object.assign(new Error(code), { code });
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 512;
-export function validateNotebook(value) {
-  if (!object(value) || !validId(value.id) || !Array.isArray(value.pages) || !value.pages.length ||
+export function createNotebookValidator(value, count) {
+  if (!object(value) || !validId(value.id) || !Number.isInteger(count) || count < 1 ||
       value.name !== undefined && typeof value.name !== 'string' ||
       value.updatedAt !== undefined && (!Number.isFinite(value.updatedAt) || value.updatedAt < 0) ||
       value.folderId != null && !validId(value.folderId) ||
-      value.pageCount !== undefined && value.pageCount !== value.pages.length) throw fault('invalid-backup-data');
-  const ids = new Set(), indexes = new Set();
-  const pages = value.pages.map((page, index) => {
+      value.pageCount !== undefined && value.pageCount !== count) throw fault('invalid-backup-data');
+  const ids = new Set(), indexes = new Set(), originals = new Map(), references = [];
+  return { page(page, index) {
     if (!object(page) || !validId(page.id) || ids.has(page.id) ||
         page.notebookId !== undefined && page.notebookId !== value.id) throw fault('invalid-backup-data');
     const pageIndex = page.pageIndex ?? index;
-    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= value.pages.length || indexes.has(pageIndex)) throw fault('invalid-backup-data');
+    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= count || indexes.has(pageIndex)) throw fault('invalid-backup-data');
     for (const key of ['strokes', 'textElements', 'imageElements', 'drawings', 'textBlocks', 'images']) {
       if (page[key] !== undefined && !Array.isArray(page[key])) throw fault('invalid-backup-data');
     }
@@ -31,16 +31,23 @@ export function validateNotebook(value) {
           key === 'imageElements' && element.src !== undefined && typeof element.src !== 'string') throw fault('invalid-backup-data');
     }
     ids.add(page.id); indexes.add(pageIndex);
-    return { ...page, notebookId: value.id, pageIndex };
-  }).sort((a, b) => a.pageIndex - b.pageIndex);
-  const originals=new Map(pages.filter(page=>page.pdfOriginal?.id).map(page=>[page.pdfOriginal.id,page.pdfOriginal]));
-  for(const page of pages)if(page.pdfLazyRaster!==undefined){
-    if(page.pdfLazyRaster!==1 || !validId(page.pdfOriginalId) || !Number.isInteger(page.pdfPageNumber) || page.pdfPageNumber<1 ||
-       !/^[a-f0-9]{64}$/i.test(page.pdfOriginalDigest||'') || !/^data:image\/jpeg;base64,/i.test(page.pdfPageImage||''))
-      throw fault('invalid-backup-data');
-    if(!/^data:application\/pdf(?:;[^,]*)?;base64,/i.test(originals.get(page.pdfOriginalId)?.dataUrl||''))
-      throw fault('backup-incomplete');
-  }
+    if(page.pdfOriginal?.id && (!originals.has(page.pdfOriginal.id)||originals.get(page.pdfOriginal.id).index<pageIndex))originals.set(page.pdfOriginal.id,{index:pageIndex,valid:/^data:application\/pdf(?:;[^,]*)?;base64,/i.test(page.pdfOriginal.dataUrl||'')});
+    if(page.pdfLazyRaster!==undefined){
+      if(page.pdfLazyRaster!==1 || !validId(page.pdfOriginalId) || !Number.isInteger(page.pdfPageNumber) || page.pdfPageNumber<1 ||
+         !/^[a-f0-9]{64}$/i.test(page.pdfOriginalDigest||'') || !/^data:image\/jpeg;base64,/i.test(page.pdfPageImage||''))throw fault('invalid-backup-data');
+      references.push(page.pdfOriginalId);
+    }
+    return {...page,notebookId:value.id,pageIndex};
+  }, finish(){
+    if(ids.size!==count)throw fault('invalid-backup-data');
+    for(const id of references)if(!originals.get(id)?.valid)throw fault('backup-incomplete');
+  }};
+}
+export function validateNotebook(value) {
+  if(!object(value)||!Array.isArray(value.pages))throw fault('invalid-backup-data');
+  const validator=createNotebookValidator(value,value.pages.length);
+  const pages=value.pages.map((page,index)=>validator.page(page,index)).sort((a,b)=>a.pageIndex-b.pageIndex);
+  validator.finish();
   return { ...value, pageCount: pages.length, pages };
 }
 export function validateLibrary(folders, notebooks) {

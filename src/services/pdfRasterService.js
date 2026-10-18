@@ -7,7 +7,7 @@ const jobs=new Map();
 const guard=createNotebookCoverInputGuard(typeof window==='undefined'?null:window);
 let worker,active,timer,idleTimer,generation=0;
 const keyOf=(page,quality='display')=>'pdf-raster:'+JSON.stringify([page.notebookId,page.pdfOriginalId,page.pdfOriginalDigest,page.pdfPageNumber,pagePreviewEpoch(page.notebookId),quality]);
-const close=()=>{worker?.terminate();worker=null;};
+const close=instance=>{if(instance&&worker!==instance)return;worker?.terminate();worker=null;};
 const idle=()=>guard.canRun()&&!globalThis.window?.__bn_pen_active&&!globalThis.window?.__bn_drag_active;
 export const nativePdfRaster=async (page,quality='export')=>{
   const source=await getPdfOriginalSource(page.notebookId,page.pdfOriginalId);
@@ -20,14 +20,24 @@ const request=async job=>{
   clearTimeout(idleTimer);
   if(!worker){const {default:RasterWorker}=await import('./pdfRaster.worker.js?worker&inline');worker=new RasterWorker();}
   if(!job.consumers.size)return null;
+  if(!idle())throw Error('PDF raster paused');
   const result=await new Promise((resolve,reject)=>{
-    const instance=worker;
-    const finish=(error,value)=>{clearTimeout(timeout);instance.onmessage=instance.onerror=null;job.cancel=null;error?reject(error):resolve(value);};
-    const timeout=setTimeout(()=>{close();finish(Error('PDF raster timeout'));},60000);
-    job.cancel=()=>{close();finish(Error('PDF raster paused'));};
-    instance.onerror=e=>{e.preventDefault();close();finish(Error('PDF raster unavailable'));};
-    instance.onmessage=({data})=>{if(data.error)finish(Error(data.error));else if(data.result)finish(null,data.result);};
-    (async()=>{try{const {pdfAssets}=await import('../utils/pdfAssetUrls.js');if(!job.consumers.size){job.cancel?.();return;}instance.postMessage({action:'raster',assets:pdfAssets(),page:job.page,quality:job.quality});}catch(_){close();finish(Error('PDF raster unavailable'));}})();
+    const instance=worker;let settled=false;
+    const finish=(error,value)=>{
+      if(settled)return;settled=true;clearTimeout(timeout);
+      instance.onmessage=instance.onerror=instance.onmessageerror=null;if(job.cancel===cancel)job.cancel=null;
+      error?reject(error):resolve(value);
+    };
+    const timeout=setTimeout(()=>{close(instance);finish(Error('PDF raster timeout'));},60000);
+    const cancel=()=>{if(settled)return;close(instance);finish(Error('PDF raster paused'));};job.cancel=cancel;
+    instance.onerror=e=>{if(settled)return;e?.preventDefault?.();close(instance);finish(Error('PDF raster unavailable'));};instance.onmessageerror=instance.onerror;
+    instance.onmessage=({data})=>{if(settled)return;if(data?.error)finish(Error(data.error));else if(data?.result)finish(null,data.result);};
+    (async()=>{try{
+      const {pdfAssets}=await import('../utils/pdfAssetUrls.js');
+      if(settled)return;
+      if(!job.consumers.size){cancel();return;}
+      instance.postMessage({action:'raster',assets:pdfAssets(),page:job.page,quality:job.quality});
+    }catch(_){if(!settled){close(instance);finish(Error('PDF raster unavailable'));}}})();
   });
   return result.dataUrl;
 };

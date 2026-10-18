@@ -30,26 +30,27 @@ export const createVerifiedBackupPdfRenderer = ({ maxCacheBytes = 12 * 1024 * 10
       const first = cache.keys().next().value; bytes -= cache.get(first).byteLength; cache.delete(first);
     }
   };
-  const render = async (notebook, check = () => {}, { force = false } = {}) => {
+  const render = async (notebook, check = () => {}, { force = false, loadPage = null } = {}) => {
     const pages = notebook.pages;
     if (!pages?.length) throw new Error('pdf-backup-empty');
     clearTimeout(cleanupTimer);
+    let session;
+    try {
     const keys = [];
     for(const page of pages)keys.push(contentKey?await contentKey(notebook,page):pageKey(notebook,page));
     const key = JSON.stringify(keys);
     persistentCache?.protect?.(keys);
     const first = dimensions(pages[0], notebook.templateId);
-    let session = !force && retained?.key === key ? retained : {
+    session = !force && retained?.key === key ? retained : {
       key, next: 0, bytes: 0,
       pdf: new jsPDF({ orientation: first.orientation, unit: 'pt', format: [first.pdfW, first.pdfH] })
     };
     retained = null;
-    try {
       let rendered=0,reused=0;
       for (let index = session.next; index < pages.length; index++) {
         await yieldForPage({ page: index + 1, totalPages: pages.length });
         check({ page: index + 1, totalPages: pages.length });
-        const page = pages[index], dim = dimensions(page, notebook.templateId);
+        const page = loadPage ? await loadPage(pages[index]) : pages[index], dim = dimensions(page, notebook.templateId);
         let image = !force && cache.get(keys[index]);
         if(!image&&!force&&persistentCache)image=await persistentCache.get(keys[index]).catch(()=>null);
         if (!image) {
@@ -74,7 +75,7 @@ export const createVerifiedBackupPdfRenderer = ({ maxCacheBytes = 12 * 1024 * 10
       return output(session.pdf);
     } catch (error) {
       // Keep one bounded PDF during a short writing pause, never the notebook/media objects.
-      if (error.message === 'pdf-backup-deferred' && session.bytes <= maxRetainedDocumentBytes) retained = session;
+      if (error.message === 'pdf-backup-deferred' && session && session.bytes <= maxRetainedDocumentBytes) retained = session;
       throw error;
     } finally { persistentCache?.protect?.([]);armCleanup(); }
   };

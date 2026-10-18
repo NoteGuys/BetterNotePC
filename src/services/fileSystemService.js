@@ -1,3 +1,4 @@
+import {runHeavyJob} from './foregroundJobs.js';
 // File System Service for Local Disk & Synced Cloud Drive (Google Drive/OneDrive folder)
 import {prepareFullBackupBlob} from './fullBackupService.js';
 import { restoreBackup } from './backupRecoveryService.js';
@@ -6,7 +7,7 @@ import { importPortableBnote, validateBnoteBlob, saveNativeBnote } from './bnote
 /**
  * Save data as a local file (using File System Access API or Blob download)
  */
-export const saveFileToDisk = async (blob, suggestedName, fileTypes = null) => {
+const saveFileToDiskImpl = async (blob, suggestedName, fileTypes = null) => {
   if (/\.bnote$/i.test(suggestedName)) {
     await validateBnoteBlob(blob);
     if (window.electronAPI?.isElectron) {
@@ -49,6 +50,10 @@ export const saveFileToDisk = async (blob, suggestedName, fileTypes = null) => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return true;
 };
+
+// Keep native readback validation in the same heavy-work lane as imports.
+export const saveFileToDisk=(blob,name,types)=>/\.bnote$/i.test(name)
+  ? runHeavyJob(()=>saveFileToDiskImpl(blob,name,types)) : saveFileToDiskImpl(blob,name,types);
 
 /**
  * Export full BetterNote database to a local backup file

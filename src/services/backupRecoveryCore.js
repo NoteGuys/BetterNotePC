@@ -1,6 +1,6 @@
 // Restore owns a short exclusive window. Background writers drain before source files are read.
 export const createBackupRecovery = ({ canRestore = () => true, pauseBackups, flushLocalSaves,
-  restore, afterCommit = async () => {}, onActive = () => {} }) => {
+  restore, afterCommit = async () => {}, onActive = () => {}, runHeavyWork = work => work() }) => {
   let running = null, abortController = null;
   let snapshot = Object.freeze({ active: false, phase: 'idle' });
   const listeners = new Set();
@@ -25,18 +25,21 @@ export const createBackupRecovery = ({ canRestore = () => true, pauseBackups, fl
       let committed = false, unconfirmed = false;
       try {
         await lease.wait();
-        checkCancelled();
-        try { await flushLocalSaves(); } catch (_) { throw fault('backup-recovery-unsaved'); }
-        if (!canRestore()) throw fault('backup-recovery-editor-open');
-        checkCancelled();
-        publish('checking');
-        const input = await load({ signal, report });
-        checkCancelled();
-        const result = await restore(input, publish, { signal, report });
-        committed = true;
-        publish('refreshing');
-        try { await afterCommit(result); } catch (_) { return { ...result, refreshFailed: true }; }
-        return result;
+        // Drain backup first; acquiring the lane earlier could wait on itself.
+        return await runHeavyWork(async()=>{
+          checkCancelled();
+          try { await flushLocalSaves(); } catch (_) { throw fault('backup-recovery-unsaved'); }
+          if (!canRestore()) throw fault('backup-recovery-editor-open');
+          checkCancelled();
+          publish('checking');
+          const input = await load({ signal, report });
+          checkCancelled();
+          const result = await restore(input, publish, { signal, report });
+          committed = true;
+          publish('refreshing');
+          try { await afterCommit(result); } catch (_) { return { ...result, refreshFailed: true }; }
+          return result;
+        });
       } catch (error) {
         unconfirmed = error.code === 'backup-recovery-unconfirmed';
         throw error;

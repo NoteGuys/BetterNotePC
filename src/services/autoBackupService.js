@@ -4,7 +4,7 @@ import { createBackupPreparationService } from './backupPreparationService.js';
 import { createBackupController } from './backupController.js';
 import { resolveBackupReadFolder, backupReadErrorKey } from './backupReadStatus.js';
 import { t } from './i18n';
-import {hasForegroundJobs} from './foregroundJobs.js';
+import {hasForegroundJobs,runBackgroundJob,runDataJob} from './foregroundJobs.js';
 import {canStartBackgroundPdf} from '../utils/backgroundPdfPolicy.js';
 import { restoreBackup, configureRecoveryBackups } from './backupRecoveryService.js';
 // Backup is outbound only. Import is performed exclusively by an explicit recovery action.
@@ -20,7 +20,7 @@ class AutoBackupService {
     this.devicePromise=null;
     this.preparation = createBackupPreparationService();
     this.controller = createBackupController({
-      getMetadata: () => this.preparation.getMetadata(), getNotebook: (id, options) => this.preparation.getNotebook(id, options),
+      getMetadata: () => this.preparation.getMetadata(), getNotebook: (id, options) => runDataJob(()=>this.preparation.getNotebook(id, options)),
       waitForLocalSaves: () => flushLocalSaves(), getLocalState: getLocalSaveSnapshot,
       native: command => typeof window !== 'undefined' && window.electronAPI?.saveBackup
         ? this.backupCommand(command) : Promise.resolve({ success: false, reason: 'unsupported-environment' }),
@@ -29,7 +29,7 @@ class AutoBackupService {
         driveBackupPath: (await getSetting('gdrive_backup_method')) === 'desktop'
           ? (await getSetting('gdrive_backup_path')) || null : null
       }),
-      makePdf: (note, check, options) => this.preparation.makePdf(note, check, options),
+      makePdf: (note, check, options) => runBackgroundJob(()=>this.preparation.makePdf(note, check, options)),
       canRenderPdf: (options={}) => canStartBackgroundPdf({paused:hasForegroundJobs(),automatic:options.automatic!==false,pointers:this.pointerIds.size,lastInput:this.lastInput,saved:getLocalSaveSnapshot().status==='saved',hidden:typeof document!=='undefined'&&document.hidden}),
       persist: data => saveSetting('backup_v2_checkpoint', data)
     });

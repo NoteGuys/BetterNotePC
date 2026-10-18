@@ -12,6 +12,7 @@ self.onmessage = async event => {
     return;
   }
   let {operationId, data, file, encoded, sync, copyLabel, requireCommit} = event.data;
+  delete event.data.data;delete event.data.file;delete event.data.encoded;
   try {
     if (file) {
       if (!Number.isFinite(file.size) || file.size <= 0 || file.size > 256 * 1048576) throw Object.assign(new Error(), { code: 'backup-too-large' });
@@ -22,7 +23,7 @@ self.onmessage = async event => {
       data = JSON.parse(new TextDecoder().decode(encoded));
     }
     self.postMessage({progress:{stage:'planning',notebooksDone:0,totalNotebooks:data?.notebooks?.length||0}});
-    const prepared = prepareBackup(data);data = null;encoded = null;
+    const prepared = prepareBackup(data);data = null;encoded = null;file = null;
     const localFolders = await getAllFolders({includeRetired:true});
     const checkpoint = await getSetting('backup_v2_checkpoint');
     const localTarget = checkpoint?.targets?.find(target => (target.roles || [target.kind]).includes('local') && !target.error && target.lastDataSuccess);

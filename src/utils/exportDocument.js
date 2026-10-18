@@ -32,10 +32,10 @@ const imageMarkup = async images => {
   return result.join('');
 };
 
-export const renderExportPageSvg = async (page, templateId = 'ruled') => {
+export const renderExportPageSvg = async (page, templateId = 'ruled', { explicitRoundCaps = true } = {}) => {
   if (document.fonts?.ready) await document.fonts.ready;
   const bounds = getBounds(page, templateId);
-  const paper = new SvgCanvas(), ink = new SvgCanvas();
+  const paper = new SvgCanvas(), ink = new SvgCanvas({ explicitRoundCaps });
   if (isWhiteboardPage(page, templateId)) {
     paper.fillStyle = '#ffffff'; paper.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
   } else if (!page.pdfPageImage) {
@@ -162,7 +162,8 @@ export const renderExportPageImage = async (page, templateId, dimensions, { form
   if (!['png', 'jpeg'].includes(format) || ![150, 300, 600].includes(Number(dpi))) {
     throw new Error('ตัวเลือกส่งออกภาพไม่ถูกต้อง');
   }
-  const { svg, bounds } = await renderExportPageSvg(page, templateId);
+  // Raster images already use Chromium's correct round caps; avoid redundant geometry.
+  const { svg, bounds } = await renderExportPageSvg(page, templateId, { explicitRoundCaps: false });
   const { pdfW } = dimensions(page, templateId);
   const requestedScale = pdfW / 72 * Number(dpi) / bounds.width;
   const scale = Math.min(requestedScale, MAX_IMAGE_EDGE / bounds.width, MAX_IMAGE_EDGE / bounds.height,

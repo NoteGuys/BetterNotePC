@@ -1,4 +1,4 @@
-import {runForegroundJob} from '../services/foregroundJobs.js';
+import {runHeavyJob} from '../services/foregroundJobs.js';
 import { pageForPdfExport } from '../services/pdfRasterService.js';
 // PDF Export Engine for BetterNote using jsPDF & Canvas
 import { jsPDF } from 'jspdf';
@@ -234,11 +234,11 @@ export const generateNotebookPdfBase64 = async (notebook, pages, onProgress = nu
 
 
 // Explicit image exports only; backup and preview renderers keep their original defaults.
-export const exportPageAsImage = async (page, templateId, options) =>
-  renderExportPageImage(await pageForPdfExport(page), templateId, getPagePdfDimensions, options);
+export const exportPageAsImage = (page, templateId, options) => runHeavyJob(async()=>
+  renderExportPageImage(await pageForPdfExport(page), templateId, getPagePdfDimensions, options));
 
-export const exportSinglePageToPdf=(...args)=>runForegroundJob(()=>exportSinglePageToPdfImpl(...args));
+export const exportSinglePageToPdf=(...args)=>runHeavyJob(()=>exportSinglePageToPdfImpl(...args));
 
-export const exportNotebookToPdf=(...args)=>runForegroundJob(()=>exportNotebookToPdfImpl(...args));
+export const exportNotebookToPdf=(...args)=>runHeavyJob(()=>exportNotebookToPdfImpl(...args));
 
-export const renderPageToCanvasDataUrl=(...args)=>runForegroundJob(()=>renderPageToCanvasDataUrlImpl(...args));
+export const renderPageToCanvasDataUrl=(...args)=>runHeavyJob(()=>renderPageToCanvasDataUrlImpl(...args));

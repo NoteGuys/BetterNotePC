@@ -1,3 +1,4 @@
+import {runHeavyJob} from './foregroundJobs.js';
 import { seedPagePreviews } from './pagePreviewState.js';
 
 // Read manifests/portable originals off-thread; never clone the original PDF into the editor.
@@ -27,6 +28,8 @@ export const loadPageManifest = async (notebookId, options = {}) => {
   return result.pages;
 };
 export const loadPdfOwnerPage = async (notebookId, pageId, options) => (await requestPageData({action:'page',notebookId,pageId}, options)).page;
-export const exportPortableNotebook = async notebookId => (await requestPageData({action:'bnote',notebookId})).bytes;
+export const exportPortableNotebookBlob=notebookId=>runHeavyJob(async()=>(await requestPageData({action:'bnote',notebookId})).blob);
+// Binary compatibility for integrations; the app saves the Blob in small chunks.
+export const exportPortableNotebook=async notebookId=>(await exportPortableNotebookBlob(notebookId)).arrayBuffer();
 
 export const savePdfOwnerPage = async page => (await requestPageData({action:'save-page',page})).page;

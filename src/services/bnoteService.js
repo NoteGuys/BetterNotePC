@@ -1,3 +1,4 @@
+import {runHeavyJob} from './foregroundJobs.js';
 export function processBnote(file,action='validate',targetFolderId=null){
  return import('./bnote.worker.js?worker&inline').then(({default:Worker})=>new Promise((resolve,reject)=>{
   const worker=new Worker();let settled=false;
@@ -9,7 +10,7 @@ export function processBnote(file,action='validate',targetFolderId=null){
  }));
 }
 export const validateBnoteBlob=blob=>processBnote(blob);
-export const importPortableBnote=async(file,targetFolderId)=> (await processBnote(file,'import',targetFolderId)).notebook;
+export const importPortableBnote=(file,targetFolderId)=>runHeavyJob(async()=> (await processBnote(file,'import',targetFolderId)).notebook);
 export async function saveNativeBnote(blob,name,api){
  const begin=await api.saveBnote({action:'begin',name,size:blob.size});
  if(begin?.cancelled)return false;

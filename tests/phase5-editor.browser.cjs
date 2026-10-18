@@ -126,7 +126,7 @@ module.exports=async({page,fixture,mount,flush,check,reload})=>{
  await check('Phase 5: full exports include unloaded pages and worker encoding keeps the portable format',async()=>{
   const nb=await page.evaluate(()=>qa.db.getNotebookById('phase5-large'));await mount(nb);await openSidebar();
   const result=await page.evaluate(async()=>{
-   const pages=await qa.export.loadPages(),bytes=await qa.export.loadBNote(),portable=JSON.parse(new TextDecoder().decode(bytes));
+   const pages=await qa.export.loadPages(),blob=await qa.export.loadBNote(),portable=JSON.parse(await blob.text());
    return {count:pages.length,points:pages.reduce((n,p)=>n+(p.strokes?.[0]?.points.length||0),0),markers:pages.some(p=>p.__unloaded),format:portable.format,portableCount:portable.pages.length};
   });
   assert.deepEqual(result,{count:180,points:288000,markers:false,format:'BetterNote_Document',portableCount:180});

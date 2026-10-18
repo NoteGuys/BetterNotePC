@@ -16,7 +16,7 @@ import {
   saveNotebook,
   duplicateNotebook 
 } from '../../services/db';
-import { loadPageManifest, loadPdfOwnerPage, exportPortableNotebook } from '../../services/editorPagesService.js';
+import { loadPageManifest, loadPdfOwnerPage, exportPortableNotebookBlob } from '../../services/editorPagesService.js';
 import { createPagePreviewSession } from '../../services/pagePreviewService.js';
 import { pageSummary, trimPageWindow, windowPageIds, editorPageView } from '../../utils/pageWindow.js';
 import { pageSaveQueue } from '../../services/localSaveService';
@@ -595,7 +595,7 @@ export const NoteEditor = ({
     return page;
   }, [notebook.id]);
 
-  const loadBNoteExport = useCallback(async () => { await pageSaveQueue.flush(notebook.id); return exportPortableNotebook(notebook.id); }, [notebook.id]);
+  const loadBNoteExport = useCallback(async () => { await pageSaveQueue.flush(notebook.id); return exportPortableNotebookBlob(notebook.id); }, [notebook.id]);
 
   const previewSessionRef = useRef(null);
   useEffect(() => {

@@ -8,11 +8,11 @@ test('Real Chromium ink pixels, snapshot export, metadata reads and capture fail
   "import {renderStroke} from './src/utils/inkingEngine.js';import {createInkPreview} from './src/utils/inkPreview.js';"+
   "import {openDB,getBackupNotebookDescription,getBackupNotebookSnapshot} from './src/services/db.js';"+
   "import {exportLibraryBlob} from './src/services/fullBackup.worker.js';import {prepareFullBackupBlob} from './src/services/fullBackupService.js';"+
-  "import {renderPageToCanvasDataUrl} from './src/utils/pdfExportEngine.js';window.qa={renderStroke,createInkPreview,openDB,getBackupNotebookDescription,getBackupNotebookSnapshot,exportLibraryBlob,prepareFullBackupBlob,renderPageToCanvasDataUrl};",
+  "import {prepareNotebookBlob} from './src/services/notebookBlob.js';import {decodeBnote} from './electron/bnoteFormat.js';import {renderPageToCanvasDataUrl,exportPageAsImage} from './src/utils/pdfExportEngine.js';import {runDataJob} from './src/services/foregroundJobs.js';window.qa={exportPageAsImage,runDataJob,prepareNotebookBlob,decodeBnote,renderStroke,createInkPreview,openDB,getBackupNotebookDescription,getBackupNotebookSnapshot,exportLibraryBlob,prepareFullBackupBlob,renderPageToCanvasDataUrl};",
   resolveDir:path.resolve(__dirname,'..')},bundle:true,format:'iife',write:false,logLevel:'silent',plugins:[{name:'offline-workers',setup:setupRecoveryWorker}]});
  await fs.writeFile(path.join(root,'fixture.js'),bundle.outputFiles[0].text);await fs.writeFile(path.join(root,'fixture.html'),'<script src="fixture.js"></script>');
  const runBrowser=async()=>{
-  const {renderStroke,createInkPreview,openDB,getBackupNotebookDescription,getBackupNotebookSnapshot,exportLibraryBlob,prepareFullBackupBlob,renderPageToCanvasDataUrl}=window.qa;
+  const {prepareNotebookBlob,decodeBnote,renderStroke,createInkPreview,openDB,getBackupNotebookDescription,getBackupNotebookSnapshot,exportLibraryBlob,prepareFullBackupBlob,renderPageToCanvasDataUrl}=window.qa;
   const canvas=(scale=1)=>{const c=document.createElement('canvas');c.width=512*scale;c.height=384*scale;c.getContext('2d').scale(scale,scale);return c;};
   const composited=(base,active)=>{const c=canvas(base.width/512),ctx=c.getContext('2d');ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#ffffff';ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(base,0,0);ctx.drawImage(active,0,0);return c;};
   const stroke=(count,nibType='fountain',isTapered=true,usePressure=true)=>({tool:'pen',color:'#124fa7',width:4,nibType,isTapered,usePressure,points:Array.from({length:count},(_,i)=>({x:220+Math.sin(i/37)*140,y:170+Math.cos(i/23)*110,pressure:.1+(i%17)/20}))});
@@ -49,9 +49,27 @@ test('Real Chromium ink pixels, snapshot export, metadata reads and capture fail
   for(const f of folders)tx.objectStore('folders').put(f);for(const n of notes)tx.objectStore('notebooks').put(n);for(const p of pages)tx.objectStore('pages').put(p);
   await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=reject;});
   const description=await getBackupNotebookDescription('n'),snapshot=await getBackupNotebookSnapshot('n');
+  const streamed=await prepareNotebookBlob('n'),streamedParsed=JSON.parse(await streamed.blob.text());
+  const portable=await prepareNotebookBlob('n',{portable:true}),portableParsed=decodeBnote(new Uint8Array(await portable.blob.arrayBuffer()));
+  let notebookLimitRejected=false;try{await prepareNotebookBlob('n',{maxBytes:100});}catch(_){notebookLimitRejected=true;}
+  const badTx=db.transaction('pages','readwrite');badTx.objectStore('pages').put({id:'t',notebookId:'trash',pageIndex:0,strokes:[{points:[{x:NaN,y:1}]}]});await new Promise((resolve,reject)=>{badTx.oncomplete=resolve;badTx.onabort=reject;});
+  let malformedRejected=false;try{await prepareNotebookBlob('trash',{portable:true});}catch(_){malformedRejected=true;}
+  const repair=db.transaction('pages','readwrite');repair.objectStore('pages').put(pages[2]);await new Promise((resolve,reject)=>{repair.oncomplete=resolve;repair.onabort=reject;});
+  const OriginalWorker=window.Worker;let exportWorker,exportTerminated=0,exportRejected=false;
+  window.Worker=class{constructor(){exportWorker=this;}addEventListener(){}postMessage(){throw Error('qa-post-failure');}terminate(){exportTerminated++;}};
+  try{await prepareFullBackupBlob();}catch(_){exportRejected=true;}finally{window.Worker=OriginalWorker;}
+  const fullBackupCleanup=exportRejected&&exportTerminated===1&&exportWorker.onmessage==null&&exportWorker.onerror==null;
   const parsed=JSON.parse(await(await exportLibraryBlob()).text()),workerParsed=JSON.parse(await(await prepareFullBackupBlob()).text());
   let limitRejected=false;try{await exportLibraryBlob(100);}catch(_){limitRejected=true;}
   let invalidCaptureRejected=false;try{await renderPageToCanvasDataUrl({pageWidth:1200,pageHeight:1600,strokes:[],imageElements:[{src:'data:image/png;base64,broken',x:0,y:0,width:10,height:10}]},'blank');}catch(_){invalidCaptureRejected=true;}
+  let release;const held=window.qa.runDataJob(()=>new Promise(resolve=>{release=resolve;}));await Promise.resolve();
+  const createElement=document.createElement;let imageCanvases=0;
+  document.createElement=function(tag,...args){if(tag==='canvas')imageCanvases++;return createElement.call(this,tag,...args);};
+  let imageResult,queuedImageWait;
+  try{
+   const image=window.qa.exportPageAsImage(pages[0],'blank',{dpi:150});
+   await new Promise(resolve=>setTimeout(resolve,15));queuedImageWait=imageCanvases===0;release();await held;imageResult=await image;
+  }finally{release();document.createElement=createElement;}
   const capture=await renderPageToCanvasDataUrl(pages[0],'blank');const capturedImage=new Image();capturedImage.src=capture;await capturedImage.decode();
   const savedRAF=window.requestAnimationFrame,savedCancel=window.cancelAnimationFrame;
   window.requestAnimationFrame=callback=>setTimeout(()=>callback(performance.now()),0);window.cancelAnimationFrame=clearTimeout;
@@ -65,7 +83,7 @@ test('Real Chromium ink pixels, snapshot export, metadata reads and capture fail
   const actualInk=node.querySelector('.bn-layer-static'),referenceInk=canvas(actualInk.width/512);for(const ink of window.inkPage.strokes)renderStroke(referenceInk.getContext('2d'),ink);
   const pixelsA=actualInk.getContext('2d').getImageData(0,0,actualInk.width,actualInk.height).data,pixelsB=referenceInk.getContext('2d').getImageData(0,0,referenceInk.width,referenceInk.height).data;
   pointerResult.finalPixelsExact=pixelsA.every((v,i)=>v===pixelsB[i]);board.unmount();pointerResult.released=node.querySelector('canvas')===null;node.remove();window.requestAnimationFrame=savedRAF;window.cancelAnimationFrame=savedCancel;
-  return {pointerResult,comparisons,visual,benchmark:{full:summarize(durations.full),incremental:summarize(durations.incremental)},description,snapshot,parsed,workerParsed,limitRejected,invalidCaptureRejected,captureDimensions:[capturedImage.width,capturedImage.height]};
+  return {fullBackupCleanup,queuedImageWait,imageSize:imageResult.blob.size,streamedParsed,portableParsed,notebookLimitRejected,malformedRejected,pointerResult,comparisons,visual,benchmark:{full:summarize(durations.full),incremental:summarize(durations.incremental)},description,snapshot,parsed,workerParsed,limitRejected,invalidCaptureRejected,captureDimensions:[capturedImage.width,capturedImage.height]};
  };
  const helper=path.join(root,'run.cjs'),output=path.join(root,'result.json');
  await fs.writeFile(helper,`const {app,BrowserWindow}=require('electron');const fs=require('node:fs');
@@ -77,6 +95,9 @@ app.whenReady().then(async()=>{const w=new BrowserWindow({show:false,webPreferen
  const result=JSON.parse(await fs.readFile(output,'utf8'));const maximum=Math.max(...result.comparisons.map(x=>x.max));
  assert.ok(result.comparisons.every(x=>x.large===0),'Ink pixel differences exceed 3/255: '+JSON.stringify(result.comparisons));
  assert.equal(result.pointerResult.strokes,2);assert.ok(result.pointerResult.counts.every(n=>n>=230));assert.equal(result.pointerResult.locked,false);assert.equal(result.pointerResult.finalPixelsExact,true);assert.equal(result.pointerResult.released,true);
+ assert.equal(result.fullBackupCleanup,true);
+ assert.equal(result.queuedImageWait,true);assert.ok(result.imageSize>0);
+ assert.deepEqual(result.streamedParsed,result.snapshot);assert.deepEqual(result.portableParsed.pages,result.snapshot.pages);assert.equal(result.notebookLimitRejected,true);assert.equal(result.malformedRejected,true);
  assert.equal(result.description.pages.length,2);assert.equal(result.description.pages[0].strokes,undefined);assert.equal(result.description.pages[0].imageElements,undefined);assert.equal(result.description.pages[1].pdfOriginal,undefined);
  assert.deepEqual(result.parsed.notebooks.find(n=>n.id==='n').pages,result.snapshot.pages);assert.deepEqual(result.parsed.folders.map(f=>f.id),['f','gone']);assert.equal(result.parsed.notebooks.length,2);
  assert.deepEqual(result.workerParsed.notebooks,result.parsed.notebooks);assert.equal(result.limitRejected,true);assert.equal(result.invalidCaptureRejected,true);assert.ok(result.captureDimensions[0]*result.captureDimensions[1]<=16000000);
